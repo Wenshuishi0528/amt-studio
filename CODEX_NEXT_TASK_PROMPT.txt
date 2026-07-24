@@ -1,0 +1,9 @@
+Read AGENTS.md and the current repository state. Open TASK_FILE below and work only on that task.
+
+TASK_FILE: tasks/REPLACE_WITH_TASK_FILENAME.md
+
+Before editing, verify the previous task's acceptance criteria and inspect its recorded evidence. Do not silently redo completed work. Do not implement later numbered tasks.
+
+Complete the task, run make check plus every task-specific command, preserve all raw outputs and run manifests, and update the task file with evidence. Stop when its acceptance criteria are met or a real blocker is demonstrated.
+
+Report files changed, exact commands, test results, artifacts produced, measured findings, limitations, and the exact next prompt.

@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.example/amt/run_manifest.schema.json",
+  "title": "AMT run manifest",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "run_id",
+    "project_id",
+    "worker",
+    "started_at",
+    "status",
+    "inputs",
+    "command"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "run_id": {
+      "type": "string"
+    },
+    "project_id": {
+      "type": "string"
+    },
+    "worker": {
+      "type": "string"
+    },
+    "model": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "started_at": {
+      "type": "string"
+    },
+    "ended_at": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "status": {
+      "enum": [
+        "created",
+        "running",
+        "succeeded",
+        "failed",
+        "interrupted"
+      ]
+    },
+    "command": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "inputs": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "outputs": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "environment": {
+      "type": "object"
+    },
+    "code": {
+      "type": "object"
+    },
+    "model_provenance": {
+      "type": "object"
+    },
+    "metrics": {
+      "type": "object"
+    },
+    "error": {
+      "type": [
+        "object",
+        "null"
+      ]
+    }
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,15 @@
+schema_version: 1
+asset_id: glass-kiss-reference-audio
+private: true
+filename: 姫乃樹リカ - 硝子のキッス.mp3
+sha256: 3464cdb850fdb1796c2cc48e0580640f04c39062eb236143e1ff0f2bdc0d1dbe
+metadata:
+  codec: mp3
+  sample_rate_hz: 44100
+  channels: 2
+  channel_layout: stereo
+  duration_sec: 265.639184
+  nominal_audio_bitrate_bps: 320000
+  file_size_bytes: 10737151
+intended_use: private academic research and personal evaluation
+audio_included_in_repository: false

@@ -1,0 +1,9 @@
+Read AGENTS.md, STATUS.md, docs/ARCHITECTURE.md, docs/EXPERIMENT_PROTOCOL.md, workers/muscriptor/README.md, and tasks/002_MUSCRIPTOR_BASELINE.md.
+
+First verify Task 001 is complete from recorded evidence. Work only on Task 002.
+
+Build an isolated, pinned MuScriptor worker on the Mac M4, then prepare the equivalent persistent Hyak environment and Slurm path. Do not install MuScriptor into the root environment. Preserve native JSONL and MIDI separately, identify and hash the downloaded weights, capture package/device/version diagnostics, and implement a tested native-to-canonical adapter without discarding instrument labels or source events.
+
+Run the required Mac configurations on the private reference project. Prepare and validate the Hyak job, but never run heavy computation on a login node. When the user has a successful Hyak result, compare runtime and event summaries without calling them accuracy metrics.
+
+Complete every acceptance criterion in Task 002, run make check, update STATUS.md and the task evidence, and stop. Report exact commands, model/package/weight identifiers, output locations and hashes, test results, observed limitations, and the next Task 003 prompt.

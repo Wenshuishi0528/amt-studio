@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.example/amt/note_event.schema.json",
+  "title": "AMT canonical note event",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "event_id",
+    "track_id",
+    "onset_sec",
+    "offset_sec",
+    "pitch_midi",
+    "source_run_id",
+    "source_model"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "event_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "track_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "instrument": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "onset_sec": {
+      "type": "number",
+      "minimum": 0
+    },
+    "offset_sec": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "pitch_midi": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 127
+    },
+    "quantized_pitch_midi": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 127
+    },
+    "velocity": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 127
+    },
+    "confidence": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "is_main_melody_candidate": {
+      "type": "boolean"
+    },
+    "source_run_id": {
+      "type": "string"
+    },
+    "source_model": {
+      "type": "string"
+    },
+    "source_event_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "extra": {
+      "type": "object"
+    }
+  },
+  "allOf": [
+    {
+      "description": "offset_sec must be greater than onset_sec; enforced by application validation"
+    }
+  ],
+  "additionalProperties": false
+}

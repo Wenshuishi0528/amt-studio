@@ -1,0 +1,75 @@
+schema_version: 1
+models:
+  muscriptor:
+    role: direct_multi_instrument_amt
+    status: candidate_verified_upstream_not_yet_verified_in_project
+    environment: workers/muscriptor
+    upstream: https://github.com/muscriptor/muscriptor
+    install_hint: uv add muscriptor
+    cli_hint: muscriptor transcribe AUDIO --model large --format jsonl -o EVENTS
+    license:
+      code: MIT according to upstream
+      weights: CC-BY-NC-4.0 according to upstream
+    pin:
+      package_version: null
+      git_commit: null
+      weight_id: null
+      weight_sha256: null
+
+  game:
+    role: singing_voice_amt
+    status: candidate_not_yet_verified_in_project
+    environment: workers/game
+    upstream: https://github.com/openvpi/GAME
+    cli_hint: python infer.py extract AUDIO -m MODEL --output-formats mid,txt,csv
+    license:
+      code: verify_at_pinned_commit
+      weights: verify_per_weight
+    pin:
+      git_commit: null
+      weight_id: null
+      weight_sha256: null
+
+  basic_pitch:
+    role: general_single_source_amt
+    status: candidate_not_yet_verified_in_project
+    environment: workers/basic_pitch
+    upstream: https://github.com/spotify/basic-pitch
+    install_hint: pip install basic-pitch
+    cli_hint: basic-pitch OUTPUT_DIR AUDIO --save-model-outputs --save-note-events
+    license:
+      code: Apache-2.0 according to upstream
+      weights: verify_bundled_model_terms_at_pinned_version
+    pin:
+      package_version: null
+      model_serialization: coreml
+      weight_sha256: null
+
+  separator:
+    role: source_separation
+    status: candidate_models_must_be_benchmarked
+    environment: workers/separator
+    upstream: https://github.com/nomadkaraoke/python-audio-separator
+    install_hint_mac: pip install "audio-separator[cpu]"
+    cli_hint: audio-separator AUDIO --model_filename MODEL
+    license:
+      wrapper_code: verify_at_pinned_version
+      model_weights: verify_each_model_separately
+    pin:
+      package_version: null
+      model_ids: []
+      model_sha256: {}
+
+  beat_this:
+    role: beat_downbeat
+    status: candidate_not_yet_verified_in_project
+    environment: workers/beat_this
+    upstream: https://github.com/CPJKU/beat_this
+    install_hint: pip install beat-this
+    cli_hint: beat_this AUDIO -o OUTPUT
+    license:
+      code_and_released_weights: verify_at_pinned_version
+    pin:
+      package_version: null
+      checkpoint: final0
+      weight_sha256: null

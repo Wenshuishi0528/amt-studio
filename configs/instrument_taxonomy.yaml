@@ -1,0 +1,22 @@
+schema_version: 1
+levels:
+  product_tracks:
+    - main_melody
+    - lead_vocals
+    - backing_vocals
+    - drums
+    - bass
+    - keys
+    - guitar
+    - strings
+    - synth
+    - winds
+    - brass
+    - percussion_other
+    - other
+
+mapping_notes:
+  - Keep original model instrument labels in provenance.
+  - Map to product tracks only in a separate normalization step.
+  - Never collapse lead vocals into main melody before melody selection.
+  - Drum sub-classes remain available even when exported as one drum MIDI track.

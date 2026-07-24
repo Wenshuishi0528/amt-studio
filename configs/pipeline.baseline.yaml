@@ -1,0 +1,52 @@
+schema_version: 1
+pipeline_id: baseline-v1
+objective: quality-first candidate generation without learned fusion
+
+input:
+  canonical_audio: audio/canonical/mix.flac
+
+workers:
+  direct_full_mix:
+    - worker: muscriptor
+      model: large
+      decoding:
+        mode: beam
+        beam_size: 4
+        prelude_forcing: true
+      outputs: [native_jsonl, midi]
+
+  source_separation:
+    - worker: separator
+      preset: vocal_quality_a
+    - worker: separator
+      preset: multistem_quality_a
+
+  vocals:
+    - worker: game
+      input_stem: vocals
+    - worker: basic_pitch
+      input_stem: vocals
+      save_raw_model_outputs: true
+      save_note_events: true
+    - worker: muscriptor
+      model: large
+      input_stem: vocals
+      instruments: [voice]
+
+  rhythm:
+    - worker: beat_this
+      outputs: [beats, downbeats]
+
+normalization:
+  timeline: original_mix_seconds
+  preserve_raw_outputs: true
+  preserve_pitch_bends: true
+
+fusion:
+  enabled: false
+  reason: enable only after fixed-reference baseline comparison
+
+exports:
+  performance_midi: true
+  score_midi: false
+  musicxml: false

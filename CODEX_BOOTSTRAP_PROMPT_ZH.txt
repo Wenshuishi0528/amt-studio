@@ -1,0 +1,24 @@
+请把当前文件夹作为仓库根目录打开。
+
+先按顺序阅读：
+1. AGENTS.md
+2. 00_START_HERE.md
+3. docs/PROJECT_SPEC.md
+4. docs/ARCHITECTURE.md
+5. docs/DECISIONS.md
+6. docs/QUALITY_GATES.md
+7. tasks/001_BOOTSTRAP_AND_INGEST.md
+
+这次只完成 Task 001。暂时不要安装或接入 MuScriptor、GAME、Basic Pitch、音源分离模型、节拍模型、SwiftUI，也不要写训练代码。
+
+检查当前 Mac 环境。根环境必须保持轻量，使用 uv 和 Python 3.12，不使用全局 pip。不要移动、上传、提交或查看无关私有文件。用户会把测试歌曲放到 data/private/inbox，这些内容必须持续被 Git 忽略。
+
+完成 Task 001 的全部验收条件。运行 make check。如果测试 MP3 已存在，就初始化私有歌曲项目。确认包含空格和日文字符的路径能正常工作。把实际运行的命令和证据写入任务文件。没有真正执行的内容不能声称成功。
+
+完成后停止，不要继续 Task 002。最后报告：
+- 修改了哪些文件；
+- 实际运行了哪些命令；
+- 测试和 doctor 结果；
+- 创建的私有项目路径；
+- 需要用户处理的真实阻塞；
+- 下一步 Task 002 的完整提示词。

@@ -1,0 +1,58 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+.venv-*/
+
+# macOS
+.DS_Store
+
+# Editors / Codex worktrees
+.vscode/
+.idea/
+.codex/
+
+# Private and large data
+/data/private/**
+!/data/private/README.md
+/projects/private/**
+!/projects/private/.gitkeep
+/weights/**
+!/weights/README.md
+/datasets/**
+!/datasets/README.md
+/model-cache/**
+/runs/**
+/exports/**
+
+# Third-party worker environments and checkouts
+/workers/**/.venv/
+/workers/**/vendor/
+/workers/**/checkouts/
+/workers/**/model-cache/
+/workers/**/outputs/
+
+# Secrets and local overrides
+.env
+.env.*
+!.env.example
+configs/local*.yaml
+*.pem
+*.key
+
+# Generated logs and scheduler output
+logs/
+slurm-*.out
+slurm-*.err
+*.log
+
+# Swift/Xcode generated
+DerivedData/
+.build/
+*.xcuserstate
+xcuserdata/

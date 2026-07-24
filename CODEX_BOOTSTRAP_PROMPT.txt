@@ -1,0 +1,24 @@
+Open this repository as the project root.
+
+First read, in order:
+1. AGENTS.md
+2. 00_START_HERE.md
+3. docs/PROJECT_SPEC.md
+4. docs/ARCHITECTURE.md
+5. docs/DECISIONS.md
+6. docs/QUALITY_GATES.md
+7. tasks/001_BOOTSTRAP_AND_INGEST.md
+
+Work only on Task 001. Do not install or integrate MuScriptor, GAME, Basic Pitch, source-separation models, beat tracking, SwiftUI, or training code yet.
+
+Inspect the current Mac environment. Keep the root Python environment dependency-light. Use uv and Python 3.12. Do not use global pip. Do not move, upload, commit, or inspect unrelated private files. The test song will be placed under data/private/inbox by the user and must remain ignored by Git.
+
+Complete every acceptance criterion in Task 001. Run make check. Initialize a private song project from the test MP3 if it is present. Confirm paths with spaces and Japanese characters work. Record exact commands and evidence in the task file. Do not claim success for anything you did not run.
+
+When done, stop. Report:
+- files changed;
+- commands run;
+- test/doctor results;
+- the created private project path;
+- any blocker that requires the user;
+- the exact next prompt for Task 002.
