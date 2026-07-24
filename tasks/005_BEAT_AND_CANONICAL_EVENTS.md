@@ -1,6 +1,6 @@
 # Task 005: Beat/downbeat map and canonical project model
 
-Status: blocked by Task 004
+Status: ready (Task 004 complete)
 
 ## Objective
 

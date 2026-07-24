@@ -49,6 +49,8 @@ Codex 应按 `tasks/` 中的编号逐个完成。每项任务都含验收条件�
 先阅读：
 
 - `AGENTS.md`
+- `HANDOFF.md`
+- `CHANGELOG.md`
 - `docs/PROJECT_SPEC.md`
 - `docs/ARCHITECTURE.md`
 - `docs/DECISIONS.md`
