@@ -17,6 +17,9 @@
     "schema_version": {
       "const": 1
     },
+    "contract_version": {
+      "const": "amt-worker-result/v1"
+    },
     "run_id": {
       "type": "string"
     },

@@ -121,14 +121,25 @@ models:
 
   beat_this:
     role: beat_downbeat
-    status: candidate_not_yet_verified_in_project
+    status: verified_hyak_full_song_task005
     environment: workers/beat_this
     upstream: https://github.com/CPJKU/beat_this
-    install_hint: pip install beat-this
-    cli_hint: beat_this AUDIO -o OUTPUT
+    install_hint: uv sync --project workers/beat_this --locked
+    cli_hint: beat_this AUDIO --model CHECKPOINT -o OUTPUT --activations --no-dbn
     license:
-      code_and_released_weights: verify_at_pinned_version
+      code_and_released_weights: MIT
+      training_data_note: some upstream training files have copyright or limited Creative Commons terms; downstream training requires a separate rights review
     pin:
-      package_version: null
+      package_version: 1.1.0
+      upstream_git_commit: ad7974846029835307ba19a3d5cefbf40b243041
+      pypi_wheel_sha256: 3f2b2d1e027c6dac380bf80c71555e3c28a4036a7f1af20129a945915a72a645
       checkpoint: final0
-      weight_sha256: null
+      weight_sha256: 8c328b45f59d8dd3dff219253ff6a8d6482be57d0133a29140e2febbf8eb8331
+      weight_size_bytes: 81058141
+      soundfile: 0.13.1
+      torch_distribution: 2.8.0+cu129
+      torchaudio_distribution: 2.8.0+cu129
+      cuda_runtime: "12.9"
+      postprocessor: minimal
+      frame_rate_hz: 50
+      preserve_activations: true

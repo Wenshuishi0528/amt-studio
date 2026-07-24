@@ -1,6 +1,6 @@
 # Task 006: Human reference set and evaluation harness
 
-Status: blocked by Task 005
+Status: ready
 
 ## Objective
 

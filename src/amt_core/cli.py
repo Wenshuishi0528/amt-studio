@@ -5,8 +5,12 @@ import json
 import sys
 from pathlib import Path
 
+from .bundle import BundleBuildError, build_canonical_bundle, parse_candidate
+from .canonical import CanonicalValidationError
+from .contracts import ContractValidationError
 from .doctor import checks_as_dict, required_checks_pass, run_doctor
 from .events import EventValidationError, read_jsonl
+from .midi import MidiExportError
 from .project import ProjectError, initialize_project, load_project
 from .workers import muscriptor_baseline_command
 
@@ -40,6 +44,21 @@ def build_parser() -> argparse.ArgumentParser:
     command.add_argument("worker", choices=["muscriptor"])
     command.add_argument("project", type=Path)
     command.add_argument("--model", default="large")
+
+    canonical = subparsers.add_parser(
+        "build-canonical",
+        help="Build a Task005 canonical bundle from immutable worker results",
+    )
+    canonical.add_argument("project", type=Path)
+    canonical.add_argument("--beat-run", type=Path, required=True)
+    canonical.add_argument(
+        "--candidate",
+        action="append",
+        required=True,
+        metavar="LABEL=RUN_DIR",
+    )
+    canonical.add_argument("--output", type=Path, required=True)
+    canonical.add_argument("--score-subdivision", type=int, default=4)
 
     return parser
 
@@ -78,11 +97,42 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.command == "worker-command":
             worker = muscriptor_baseline_command(args.project, model=args.model)
-            print(json.dumps({"name": worker.name, "argv": worker.argv, "notes": worker.notes}, ensure_ascii=False, indent=2))
+            print(
+                json.dumps(
+                    {"name": worker.name, "argv": worker.argv, "notes": worker.notes},
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+            return 0
+
+        if args.command == "build-canonical":
+            candidates: dict[str, Path] = {}
+            for value in args.candidate:
+                label, run_dir = parse_candidate(value)
+                if label in candidates:
+                    raise BundleBuildError(f"duplicate candidate label: {label}")
+                candidates[label] = run_dir
+            manifest = build_canonical_bundle(
+                args.project,
+                args.beat_run,
+                candidates,
+                args.output,
+                score_subdivision=args.score_subdivision,
+            )
+            print(json.dumps(manifest, ensure_ascii=False, indent=2))
             return 0
 
         raise AssertionError(f"Unhandled command: {args.command}")
-    except (ProjectError, EventValidationError, RuntimeError) as exc:
+    except (
+        BundleBuildError,
+        CanonicalValidationError,
+        ContractValidationError,
+        EventValidationError,
+        MidiExportError,
+        ProjectError,
+        RuntimeError,
+    ) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 

@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.example/amt/canonical_project.schema.json",
+  "title": "AMT canonical project v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "artifact_type",
+    "project_id",
+    "timeline_basis",
+    "canonical_audio",
+    "worker_results",
+    "tracks",
+    "rhythm",
+    "exports",
+    "claims"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "artifact_type": {
+      "const": "amt-canonical-project"
+    },
+    "project_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "timeline_basis": {
+      "const": "original_canonical_mix_seconds"
+    },
+    "canonical_audio": {
+      "type": "object"
+    },
+    "worker_results": {
+      "type": "array",
+      "minItems": 2
+    },
+    "tracks": {
+      "type": "array",
+      "minItems": 1
+    },
+    "rhythm": {
+      "type": "object"
+    },
+    "exports": {
+      "type": "object"
+    },
+    "claims": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": false
+}

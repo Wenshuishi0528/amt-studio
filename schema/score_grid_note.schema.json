@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.example/amt/score_grid_note.schema.json",
+  "title": "AMT score-grid experiment note v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "score_note_id",
+    "source_event_id",
+    "track_id",
+    "pitch_midi",
+    "onset_beats",
+    "duration_beats",
+    "performance_onset_sec",
+    "performance_offset_sec",
+    "grid_subdivision",
+    "derivation"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "score_note_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_event_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "track_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "pitch_midi": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 127
+    },
+    "onset_beats": {
+      "type": "number"
+    },
+    "duration_beats": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "performance_onset_sec": {
+      "type": "number",
+      "minimum": 0
+    },
+    "performance_offset_sec": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "grid_subdivision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "derivation": {
+      "const": "nearest_beat_subdivision_v1"
+    }
+  },
+  "additionalProperties": false
+}

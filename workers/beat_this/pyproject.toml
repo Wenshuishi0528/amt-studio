@@ -1,0 +1,26 @@
+[project]
+name = "amt-beat-this-worker"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "beat-this==1.1.0",
+    "numpy==1.26.4",
+    "soundfile==0.13.1",
+    "torch==2.8.0",
+    "torchaudio==2.8.0",
+]
+
+[tool.uv]
+package = false
+environments = [
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu129"
+url = "https://download.pytorch.org/whl/cu129"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu129" }
+torchaudio = { index = "pytorch-cu129" }

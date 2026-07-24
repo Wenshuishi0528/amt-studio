@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.example/amt/rhythm_map.schema.json",
+  "title": "AMT canonical rhythm map v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "timeline_basis",
+    "source_run_id",
+    "source_model",
+    "canonical_audio_sha256",
+    "events",
+    "tempo_map",
+    "meter_map",
+    "uncertainty"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "timeline_basis": {
+      "const": "original_canonical_mix_seconds"
+    },
+    "source_run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_model": {
+      "type": "string",
+      "minLength": 1
+    },
+    "canonical_audio_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "events": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "event_id",
+          "time_sec",
+          "beat_number",
+          "is_downbeat",
+          "confidence",
+          "source_frame_index"
+        ]
+      }
+    },
+    "tempo_map": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "time_sec",
+          "bpm",
+          "confidence",
+          "uncertainty_bpm",
+          "source_event_ids",
+          "method"
+        ]
+      }
+    },
+    "meter_map": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "time_sec",
+          "numerator",
+          "denominator",
+          "confidence",
+          "source_event_ids",
+          "status"
+        ]
+      }
+    },
+    "uncertainty": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": false
+}

@@ -64,7 +64,7 @@ amt-studio/
 
 ## Current status
 
-Tasks 001–004 are complete and Task 005 is ready to begin. See `STATUS.md` for
+Tasks 001–005 are complete and Task 006 is ready to begin. See `STATUS.md` for
 verified evidence, `HANDOFF.md` for the current Mac/Hyak operating state and
 next-task entry point, and `CHANGELOG.md` for task-level history. No
 transcription-accuracy claim is made before human reference annotations exist.

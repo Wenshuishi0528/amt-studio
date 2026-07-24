@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "package": {
+    "name": "beat-this",
+    "version": "1.1.0",
+    "repository": "https://github.com/CPJKU/beat_this.git",
+    "upstream_git_commit": "ad7974846029835307ba19a3d5cefbf40b243041",
+    "pypi_wheel_filename": "beat_this-1.1.0-py3-none-any.whl",
+    "pypi_wheel_sha256": "3f2b2d1e027c6dac380bf80c71555e3c28a4036a7f1af20129a945915a72a645",
+    "pypi_wheel_size_bytes": 40060,
+    "license": "MIT"
+  },
+  "runtime": {
+    "python": "3.12",
+    "torch": "2.8.0",
+    "torch_distribution": "2.8.0+cu129",
+    "torchaudio": "2.8.0",
+    "torchaudio_distribution": "2.8.0+cu129",
+    "cuda_runtime": "12.9",
+    "numpy": "1.26.4",
+    "soundfile": "0.13.1",
+    "torch_wheel_index": "https://download.pytorch.org/whl/cu129"
+  },
+  "model": {
+    "name": "final0",
+    "filename": "final0.ckpt",
+    "url": "https://cloud.cp.jku.at/public.php/dav/files/7ik4RrBKTS273gp/final0.ckpt",
+    "sha256": "8c328b45f59d8dd3dff219253ff6a8d6482be57d0133a29140e2febbf8eb8331",
+    "size_bytes": 81058141,
+    "license": "MIT",
+    "training_rights_note": "Published weights are MIT. Some training files have copyright or limited Creative Commons terms; downstream use requires an independent rights assessment."
+  },
+  "decoding": {
+    "dbn": false,
+    "float16": false,
+    "gpu_index": 0,
+    "activations": true,
+    "postprocessor": "minimal",
+    "frame_rate_hz": 50
+  }
+}

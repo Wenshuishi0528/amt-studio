@@ -8,6 +8,11 @@ REMOTE_ROOT="${HYAK_PERSIST_ROOT:-/gscratch/stf/$USER/amt-studio}"
 rsync -azP --delete \
   --exclude '.git/' \
   --exclude '.venv/' \
+  --exclude '.pytest_cache/' \
+  --exclude '.ruff_cache/' \
+  --exclude '.uv-cache/' \
+  --exclude '__pycache__/' \
+  --exclude '*.pyc' \
   --exclude 'data/private/' \
   --exclude 'projects/private/' \
   --exclude 'weights/' \

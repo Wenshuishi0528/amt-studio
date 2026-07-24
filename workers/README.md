@@ -12,4 +12,7 @@ workers/<name>/
 └── .venv/                 ignored
 ```
 
-The adapter contract will be finalized in Task 002 and Task 005. Until then, preserve each model's native outputs and record exact commands.
+Task 005 finalized `amt-worker-request/v1` and `amt-worker-result/v1`. New
+workers use those versioned contracts; immutable earlier runs are loaded through
+the same common interface. Every worker still preserves native outputs and
+records exact commands, pins, source hashes, and result hashes.

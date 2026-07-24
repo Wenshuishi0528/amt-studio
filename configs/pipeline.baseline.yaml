@@ -38,6 +38,10 @@ workers:
 
   rhythm:
     - worker: beat_this
+      model: final0
+      postprocessor: minimal
+      frame_rate_hz: 50
+      save_raw_activations: true
       outputs: [beats, downbeats]
 
 normalization:
@@ -52,4 +56,5 @@ fusion:
 exports:
   performance_midi: true
   score_midi: false
+  score_grid_experiment: true
   musicxml: false

@@ -230,6 +230,48 @@ def _bind_muscriptor_requests(
 
 
 class RunManifestVerifierTests(unittest.TestCase):
+    def test_beat_this_pins_bind_configuration_package_and_checkpoint(self) -> None:
+        pins_path = REPO_ROOT / "workers" / "beat_this" / "pins.json"
+        pins = json.loads(pins_path.read_text(encoding="utf-8"))
+        manifest = {
+            "model": pins["model"]["name"],
+            "configuration": {
+                "checkpoint": pins["model"]["name"],
+                "dbn": pins["decoding"]["dbn"],
+                "float16": pins["decoding"]["float16"],
+                "gpu_index": pins["decoding"]["gpu_index"],
+                "activations": pins["decoding"]["activations"],
+                "postprocessor": pins["decoding"]["postprocessor"],
+                "frame_rate_hz": pins["decoding"]["frame_rate_hz"],
+            },
+            "model_provenance": {
+                "package": pins["package"],
+                "checkpoint": {
+                    **pins["model"],
+                    "path": "/private/persistent/final0.ckpt",
+                },
+            },
+        }
+        verify_run_manifest._verify_expected_pins(
+            manifest,
+            expected_worker="beat_this",
+            expected_preset=None,
+            pins_path=pins_path,
+        )
+
+        tampered = copy.deepcopy(manifest)
+        tampered["model_provenance"]["checkpoint"]["sha256"] = "0" * 64
+        with self.assertRaisesRegex(
+            verify_run_manifest.ManifestValidationError,
+            "checkpoint field",
+        ):
+            verify_run_manifest._verify_expected_pins(
+                tampered,
+                expected_worker="beat_this",
+                expected_preset=None,
+                pins_path=pins_path,
+            )
+
     def test_accepts_succeeded_matching_run_and_cli(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             run_dir, _ = _write_run(Path(temporary))
@@ -300,6 +342,27 @@ class RunManifestVerifierTests(unittest.TestCase):
                 expected_fields=expected_fields,
             )
             self.assertTrue(summary["request_bound"])
+            self.assertTrue(summary["input_path_strict"])
+
+            relocated = project / "relocated" / "mix.flac"
+            relocated.parent.mkdir()
+            relocated.write_bytes(canonical.read_bytes())
+            with self.assertRaisesRegex(
+                verify_run_manifest.ManifestValidationError,
+                "input path",
+            ):
+                verify_run_manifest.validate_run_manifest(
+                    direct_run,
+                    expected_worker="muscriptor",
+                    expected_input=relocated,
+                )
+            relocated_summary = verify_run_manifest.validate_run_manifest(
+                direct_run,
+                expected_worker="muscriptor",
+                expected_input=relocated,
+                allow_relocated_input=True,
+            )
+            self.assertFalse(relocated_summary["input_path_strict"])
 
             original_audio = canonical.read_bytes()
             canonical.write_bytes(b"changed request audio")

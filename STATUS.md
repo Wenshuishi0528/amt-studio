@@ -1,8 +1,8 @@
 # Project status
 
 Current gate: Gate 1 passed under the user-directed Hyak compute boundary
-Current task: `tasks/004_VOCAL_MELODY_BASELINE.md` complete
-Next task: `tasks/005_BEAT_AND_CANONICAL_EVENTS.md`
+Current task: `tasks/005_BEAT_AND_CANONICAL_EVENTS.md` complete
+Next task: `tasks/006_REFERENCE_ANNOTATION_AND_EVAL.md`
 Current branch: `main`
 
 Verified on the user's Mac:
@@ -91,13 +91,44 @@ Verified for Task 004:
 - focused `/review` found no remaining P0–P2 issue;
 - `make check` passes with 90 unit tests.
 
+Verified for Task 005:
+
+- Mac remained limited to code, orchestration, validation, statistics, and
+  export; Beat This setup and full-song inference ran in Hyak Slurm A40
+  allocations;
+- Beat This `1.1.0`, its upstream commit and PyPI wheel, the official `final0`
+  checkpoint, SoundFile, Torch/Torchaudio, CUDA runtime, decoding settings, and
+  all source files are pinned or hashed;
+- setup job `37621094` and final full-song job `37621507` completed
+  successfully; the initial missing-FLAC-dependency failure remains preserved
+  as an immutable failed run;
+- final run `beat-this-task005-final0-d332b542-attempt-4` records 567 beats,
+  143 downbeats, 13,281 frames of raw 50 Hz beat/downbeat logits, exact input
+  lineage, environment diagnostics, commands, timings, and output hashes;
+- `amt-worker-request/v1` and `amt-worker-result/v1` now provide a shared
+  validation interface for isolated workers, including legacy Task 002–004
+  results;
+- canonical note, track, tempo, meter, rhythm, and provenance models are
+  implemented without rewriting previous raw results;
+- the real private canonical bundle retains GAME, Basic Pitch, stem-MuScriptor,
+  and direct-MuScriptor as four separate candidate tracks;
+- performance MIDI contains 2,223 original-timeline notes and the separate
+  score-grid experiment contains 2,223 derived records;
+- Mido `1.3.3` independently round-tripped all four MIDI tracks with maximum
+  onset/offset error below 0.236 ms;
+- tempo/meter inference and missing calibrated per-event confidence are
+  explicitly represented as uncertainty, not accuracy;
+- focused review found no remaining P0–P2 issue;
+- `make check` passes with 110 unit tests.
+
 Not yet verified:
 
 - any note, instrument, melody, or score accuracy against human reference;
+- beat/downbeat accuracy against human reference;
 - GAME or Basic Pitch repeatability across independent inference runs;
-- Beat This, candidate fusion, training, or SwiftUI.
+- candidate fusion, formal score quantization/MusicXML, training, or SwiftUI.
 
-Task 004 is complete. Task 005 may consume the four canonical candidate sets
-only through its own explicit export; the Task 004 listening MIDI is not a
-Task 005 quantized score. Gate 2 remains unpassed until human reference
-annotations and held-out melody metrics exist.
+Task 005 is complete. Its performance MIDI retains four unranked candidate
+tracks; its score-grid JSONL is explicitly experimental and is not a formal
+score. Gate 2 remains unpassed until Task 006 freezes human references and
+computes held-out metrics.

@@ -127,7 +127,12 @@ def _verify_output(
     return relative_path, actual_size
 
 
-def _verify_expected_input(manifest: dict[str, Any], expected_input: Path) -> None:
+def _verify_expected_input(
+    manifest: dict[str, Any],
+    expected_input: Path,
+    *,
+    allow_relocated: bool = False,
+) -> None:
     try:
         resolved_input = expected_input.expanduser().resolve(strict=True)
     except (FileNotFoundError, OSError) as exc:
@@ -145,7 +150,7 @@ def _verify_expected_input(manifest: dict[str, Any], expected_input: Path) -> No
     record = inputs[0]
     if not isinstance(record, dict):
         raise ManifestValidationError("manifest input record must be a JSON object")
-    if record.get("path") != str(resolved_input):
+    if not allow_relocated and record.get("path") != str(resolved_input):
         raise ManifestValidationError(
             f"manifest input path does not match the current request: "
             f"{record.get('path')!r} != {str(resolved_input)!r}"
@@ -155,6 +160,12 @@ def _verify_expected_input(manifest: dict[str, Any], expected_input: Path) -> No
         raise ManifestValidationError(
             "manifest input SHA-256 does not match the current request: "
             f"{record.get('sha256')!r} != {actual_hash!r}"
+        )
+    recorded_size = record.get("size_bytes")
+    if recorded_size is not None and recorded_size != resolved_input.stat().st_size:
+        raise ManifestValidationError(
+            "manifest input size does not match the current request: "
+            f"{recorded_size!r} != {resolved_input.stat().st_size!r}"
         )
 
 
@@ -306,6 +317,39 @@ def _verify_expected_pins(
             )
         return
 
+    if expected_worker == "beat_this":
+        package = pins.get("package")
+        model = pins.get("model")
+        decoding = pins.get("decoding")
+        provenance = manifest.get("model_provenance")
+        if not all(isinstance(value, dict) for value in (package, model, decoding, provenance)):
+            raise ManifestValidationError("Beat This pins or provenance are malformed")
+        if manifest.get("model") != model.get("name"):
+            raise ManifestValidationError("Beat This model does not match the current pins")
+        if manifest.get("configuration") != {
+            "checkpoint": model.get("name"),
+            "dbn": decoding.get("dbn"),
+            "float16": decoding.get("float16"),
+            "gpu_index": decoding.get("gpu_index"),
+            "activations": decoding.get("activations"),
+            "postprocessor": decoding.get("postprocessor"),
+            "frame_rate_hz": decoding.get("frame_rate_hz"),
+        }:
+            raise ManifestValidationError("Beat This configuration does not match the current pins")
+        if provenance.get("package") != package:
+            raise ManifestValidationError(
+                "Beat This package provenance does not match the current pins"
+            )
+        checkpoint = provenance.get("checkpoint")
+        if not isinstance(checkpoint, dict):
+            raise ManifestValidationError("Beat This checkpoint provenance is malformed")
+        for field, expected_value in model.items():
+            if checkpoint.get(field) != expected_value:
+                raise ManifestValidationError(
+                    f"Beat This checkpoint field {field!r} does not match the current pins"
+                )
+        return
+
     raise ManifestValidationError(
         f"request-bound pins validation is unsupported for worker {expected_worker!r}"
     )
@@ -362,6 +406,7 @@ def validate_run_manifest(
     repo_root: Path | None = None,
     expected_sources: tuple[Path, ...] = (),
     expected_fields: tuple[tuple[str, Any], ...] = (),
+    allow_relocated_input: bool = False,
 ) -> dict[str, Any]:
     """Validate a succeeded run and return a small integrity summary."""
 
@@ -371,6 +416,8 @@ def validate_run_manifest(
         raise ManifestValidationError("separator validation requires an expected preset")
     if expected_sources and repo_root is None:
         raise ManifestValidationError("request-bound source validation requires a repository root")
+    if allow_relocated_input and expected_input is None:
+        raise ManifestValidationError("relocated input validation requires an expected input")
 
     expanded_run_dir = run_dir.expanduser()
     if not expanded_run_dir.is_dir() or expanded_run_dir.is_symlink():
@@ -400,7 +447,11 @@ def validate_run_manifest(
         )
 
     if expected_input is not None:
-        _verify_expected_input(manifest, expected_input)
+        _verify_expected_input(
+            manifest,
+            expected_input,
+            allow_relocated=allow_relocated_input,
+        )
     if expected_pins is not None:
         _verify_expected_pins(
             manifest,
@@ -463,6 +514,7 @@ def validate_run_manifest(
                 bool(expected_fields),
             )
         ),
+        "input_path_strict": expected_input is not None and not allow_relocated_input,
     }
 
 
@@ -488,6 +540,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--input",
         type=Path,
         help="Bind reuse to the current single input path and SHA-256.",
+    )
+    parser.add_argument(
+        "--allow-relocated-input",
+        action="store_true",
+        help=(
+            "Allow --input to have a different absolute path while still requiring "
+            "its exact recorded SHA-256 and size; intended for cross-machine verification."
+        ),
     )
     parser.add_argument(
         "--pins",
@@ -543,6 +603,7 @@ def main(argv: list[str] | None = None) -> int:
             repo_root=args.repo_root,
             expected_sources=tuple(args.source),
             expected_fields=tuple(args.expect_field),
+            allow_relocated_input=args.allow_relocated_input,
         )
     except ManifestValidationError as exc:
         print(f"invalid run: {exc}", file=sys.stderr)

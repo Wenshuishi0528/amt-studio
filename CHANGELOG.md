@@ -14,8 +14,40 @@ Git history.
 
 ### Next
 
-- Task 005: beat/downbeat mapping, canonical project models, and performance
-  versus score export boundaries.
+- Task 006: freeze human-reference excerpts and implement the evaluation
+  harness before fusion or tuning.
+
+## Task 005 — Beat map and canonical events — 2026-07-24
+
+Commit: this task's final commit (`feat: complete beat and canonical events task 005`)
+
+### Added
+
+- Added the isolated, hash-pinned Beat This `1.1.0` worker, official `final0`
+  checkpoint, Hyak setup job, and full-song Slurm baseline.
+- Added versioned `amt-worker-request/v1` and `amt-worker-result/v1` contracts
+  plus a common loader for current and immutable legacy worker results.
+- Added canonical track, provenance, rhythm, tempo, meter, and experimental
+  score-grid models and schemas.
+- Added a format-1 performance MIDI exporter with original-second timing,
+  variable tempo/meter events, separate candidate tracks, and atomic output.
+- Added a canonical bundle builder that hashes every input result and refuses
+  cross-project, cross-song, duplicate, tampered, or existing output paths.
+- Added explicit cross-machine input relocation verification while retaining
+  strict path matching by default.
+
+### Verified
+
+- Hyak A40 setup job `37621094` and final baseline job `37621507` completed.
+- The final run preserved 567 beats, 143 downbeats, and 13,281 frames of raw
+  beat/downbeat logits.
+- The real canonical bundle retains four unranked candidate tracks and exports
+  2,223 performance notes plus 2,223 separate experimental score-grid records.
+- Mido `1.3.3` independently parsed and round-tripped all notes with maximum
+  onset/offset error below 0.236 ms.
+- `make check` passed with 110 tests.
+- No beat, note, melody, score, fusion, or ranking accuracy claim was made
+  without human references.
 
 ## Task 004 — Lead-vocal melody baselines — 2026-07-24
 

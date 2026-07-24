@@ -4,10 +4,11 @@
 
 ## 一句话状态
 
-Task 001–004 已完成，Gate 1 已通过；Task 005 现在可以开始。Gate 2
-尚未通过，因为还没有人工参考音符和盲测旋律指标。
+Task 001–005 已完成，Gate 1 已通过；Task 006 现在可以开始。Gate 2
+尚未通过，因为还没有冻结的人工参考音符和盲测指标。
 
-Task 004 的基线提交是 `b706d84`。当前开发分支是 `main`。
+Task 005 是当前最终任务提交（用 `git log -1 --oneline` 查看）。当前开发分支是
+`main`。
 
 ## 项目目标与硬边界
 
@@ -79,6 +80,24 @@ Duo 必须由项目所有者在手机上确认。密码、token 和 Duo 信息�
 
 结构统计和试听包没有进行融合、歌曲特调、质量排序或准确率宣称。
 
+### Task 005：节拍图与 canonical events
+
+- Beat This `1.1.0` 和官方 `final0` checkpoint 已固定版本与哈希。
+- setup job `37621094` 与最终 baseline job `37621507` 都在 Hyak A40
+  计算节点完成；Mac 没有运行模型。
+- 最终 run 是
+  `beat-this-task005-final0-d332b542-attempt-4`，包含 567 个 beat、
+  143 个 downbeat 和 13,281 帧双通道原始 logits。
+- `amt-worker-request/v1` / `amt-worker-result/v1` 已成为统一 worker
+  合约；旧任务的不可变结果也通过同一读取接口。
+- canonical bundle 保留四条独立候选轨，没有融合或排序。
+- performance MIDI 保留原秒时间；score-grid JSONL 是单独的实验表示，
+  不是正式乐谱。
+- Mido `1.3.3` 已独立回读 2,223 个音符，最大 onset/offset 误差小于
+  0.236 ms。
+- Beat This 没有提供校准后的逐事件置信度，因此事件 confidence 保持
+  `null`，tempo/meter 也明确标记为派生或推断结果。
+
 ## Task 004 试听包
 
 试听目录：
@@ -110,18 +129,23 @@ projects/private/glass-kiss/audio/canonical/mix.flac
 projects/private/glass-kiss/runs/
 projects/private/glass-kiss/reports/melody-task004-candidates-d332b542.json
 projects/private/glass-kiss/reviews/melody-task004-d332b542/
+projects/private/glass-kiss/runs/beat-this-task005-final0-d332b542-attempt-4/
+projects/private/glass-kiss/exports/canonical-task005-d332b542/
+projects/private/glass-kiss/logs/task005/
 ```
 
-Task004 的公开证据在：
+Task005 的公开证据在：
 
 ```text
-tasks/004_VOCAL_MELODY_BASELINE.md
+tasks/005_BEAT_AND_CANONICAL_EVENTS.md
 STATUS.md
+CHANGELOG.md
 configs/model_registry.yaml
 docs/MODEL_EVALUATION_MATRIX.md
+docs/adr/0004-versioned-worker-and-canonical-project-contract.md
 ```
 
-## 如何开始 Task 005
+## 如何开始 Task 006
 
 先阅读：
 
@@ -132,21 +156,20 @@ docs/PROJECT_SPEC.md
 docs/ARCHITECTURE.md
 docs/DECISIONS.md
 tasks/005_BEAT_AND_CANONICAL_EVENTS.md
+tasks/006_REFERENCE_ANNOTATION_AND_EVAL.md
 ```
 
-Task 005 的边界：
+Task 006 的边界：
 
-- 把 Beat This 放在独立 worker 环境中；
-- 用 Slurm compute job 运行节拍/下拍模型；
-- 保存原始 beat/downbeat 时间戳和不确定性；
-- 统一 worker request/result manifest；
-- 实现 canonical note、tempo、meter、track 和 provenance 模型；
-- performance MIDI 必须保持原时间线；
-- score-grid 实验必须作为独立派生表示；
-- 至少用一个独立 MIDI parser 做 round-trip 测试；
-- 不改变 Task 002–004 的任何原始模型输出。
+- 先固定并哈希 benchmark 片段，再查看或调参；
+- 优先标注人工确认的主旋律 note reference；
+- 单独记录歧义、标注者置信度、octave error 和修正成本；
+- 每个 metric 写清 onset/offset/pitch tolerance；
+- blind-test 不能用于调参；
+- beat/downbeat、四条旋律候选和 score-grid 都只能依据参考标注评估；
+- Gate 2 通过前不能进入 Task 007 融合。
 
-开始实现时把 `tasks/005_BEAT_AND_CANONICAL_EVENTS.md` 的状态改为
+开始实现时把 `tasks/006_REFERENCE_ANNOTATION_AND_EVAL.md` 的状态改为
 `in progress`。Task 完成前运行：
 
 ```bash
@@ -155,16 +178,21 @@ git diff --check
 git status --short
 ```
 
-更新 `STATUS.md`、Task005 Evidence 和本 `CHANGELOG.md`，执行一次聚焦代码
-审查，并为 Task005 创建一个独立 Git commit。
+更新 `STATUS.md`、Task006 Evidence 和本 `CHANGELOG.md`，执行一次聚焦代码
+审查，并为 Task006 创建一个独立 Git commit。
 
 ## 当前限制
 
 - 没有人工参考音符，因此没有 note/melody precision、recall 或 F1。
+- 没有人工 beat/downbeat 参考，因此当前 567/143 只是模型输出数量，不是
+  节拍准确率。
 - GAME 与 Basic Pitch 尚未单独测量独立运行重复性。
-- Beat This 尚未在本项目验证。
-- 尚未实现 candidate fusion、正式 score quantization、训练或 SwiftUI 应用。
-- Task004 的试听 MIDI 只是审听材料，不是 Task005 的正式 score export。
+- Beat This 的 minimal post-processor 可产生不规则局部 beat/downbeat
+  间隔；已保留原始 logits 和不确定性，尚未以参考标注评估。
+- 尚未实现 candidate fusion、正式 score quantization/MusicXML、训练或
+  SwiftUI 应用。
+- Task004 的试听 MIDI 只是审听材料；Task005 的 `performance.mid` 是四条
+  未排序候选轨，`score-grid-experiment.jsonl` 也不是正式乐谱。
 
 ## 快速健康检查
 
