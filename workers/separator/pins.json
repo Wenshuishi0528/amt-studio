@@ -1,0 +1,145 @@
+{
+  "schema_version": 1,
+  "package": {
+    "name": "audio-separator",
+    "version": "0.44.5",
+    "pypi_wheel_sha256": "9db7d8ded987a74aec9d96be949b49c9068def69823abb59cabb6e6f88679ae7",
+    "pypi_sdist_sha256": "58866bc61d0c692fff8a52cda67c284f7847a844048987135677a007bf0ae794",
+    "upstream_git_commit": "4fe3540c249ff130bd5395c0e9377b3d16970c1a"
+  },
+  "model_registry": {
+    "repository": "TRvlvr/application_data",
+    "revision": "3826b05b570dbd4fbedbc807758803b35348ba1b",
+    "path": "download_checks.json",
+    "sha256": "d3622e1fa19c161d3cf704927711b453d593a3f1eb0f2e0838c3136907935151",
+    "url": "https://raw.githubusercontent.com/TRvlvr/application_data/3826b05b570dbd4fbedbc807758803b35348ba1b/filelists/download_checks.json"
+  },
+  "runtime": {
+    "python": "3.12",
+    "torch": "2.7.1",
+    "numpy": "2.2.6",
+    "numba": "0.61.2",
+    "onnxruntime": "1.27.0",
+    "onnxruntime_provider": "CPUExecutionProvider",
+    "ffmpeg": "8.1",
+    "ffmpeg_module": "weirdlab/ffmpeg/8.1",
+    "platform": "linux-x86_64-torch-cuda"
+  },
+  "presets": {
+    "vocal_quality_a": {
+      "model_filename": "model_bs_roformer_ep_317_sdr_12.9755.ckpt",
+      "friendly_name": "BS-Roformer-Viperx-1297",
+      "architecture": "MDXC",
+      "expected_stems": [
+        "vocals",
+        "instrumental"
+      ],
+      "custom_output_names": {
+        "Vocals": "vocals",
+        "Instrumental": "instrumental"
+      },
+      "parameters": {
+        "normalization": 1.0,
+        "amplification": 0.0,
+        "sample_rate": 44100,
+        "autocast": false,
+        "chunk_duration_sec": null,
+        "mdxc_overlap": 8,
+        "mdxc_batch_size": 1
+      },
+      "expected_files": [
+        {
+          "path": "download_checks.json",
+          "sha256": "d3622e1fa19c161d3cf704927711b453d593a3f1eb0f2e0838c3136907935151",
+          "size_bytes": 28267,
+          "source": "https://raw.githubusercontent.com/TRvlvr/application_data/3826b05b570dbd4fbedbc807758803b35348ba1b/filelists/download_checks.json"
+        },
+      {
+        "path": "model_bs_roformer_ep_317_sdr_12.9755.ckpt",
+        "sha256": "5b84f37e8d444c8cb30c79d77f613a41c05868ff9c9ac6c7049c00aefae115aa",
+          "size_bytes": 639331213,
+          "source": "https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/model_bs_roformer_ep_317_sdr_12.9755.ckpt"
+        },
+        {
+          "path": "model_bs_roformer_ep_317_sdr_12.9755.yaml",
+          "sha256": "2bfdd16c656bd9519aba757cc4f8834b7ede675eb1e00ec4772d74ae1c41af7f",
+          "size_bytes": 2273,
+          "source": "https://github.com/nomadkaraoke/python-audio-separator/releases/download/model-configs/model_bs_roformer_ep_317_sdr_12.9755.yaml"
+        }
+      ],
+      "license": {
+        "wrapper": "MIT",
+        "weights": "Public UVR model; project README requests MIT credit. Separate training-data and commercial-use rights are not independently verified."
+      }
+    },
+    "multistem_quality_a": {
+      "model_filename": "htdemucs_ft.yaml",
+      "friendly_name": "Demucs v4 htdemucs_ft",
+      "architecture": "Demucs",
+      "expected_stems": [
+        "vocals",
+        "drums",
+        "bass",
+        "other"
+      ],
+      "custom_output_names": {
+        "Vocals": "vocals",
+        "Drums": "drums",
+        "Bass": "bass",
+        "Other": "other"
+      },
+      "parameters": {
+        "normalization": 1.0,
+        "amplification": 0.0,
+        "sample_rate": 44100,
+        "autocast": false,
+        "chunk_duration_sec": null,
+        "demucs_shifts": 0,
+        "demucs_overlap": 0.25
+      },
+      "expected_files": [
+        {
+          "path": "download_checks.json",
+          "sha256": "d3622e1fa19c161d3cf704927711b453d593a3f1eb0f2e0838c3136907935151",
+          "size_bytes": 28267,
+          "source": "https://raw.githubusercontent.com/TRvlvr/application_data/3826b05b570dbd4fbedbc807758803b35348ba1b/filelists/download_checks.json"
+        },
+      {
+        "path": "f7e0c4bc-ba3fe64a.th",
+        "sha256": "ba3fe64ae8ef66ac9a4857222ce48efbdc5eb3ad375cb79dd13debee5aaa4066",
+          "size_bytes": 84141271,
+          "source": "https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/f7e0c4bc-ba3fe64a.th"
+        },
+      {
+        "path": "d12395a8-e57c48e6.th",
+        "sha256": "e57c48e6b0e38af4f7118d7bd08c49f0a0c0edf7d09143bdd902ea0d237303e6",
+          "size_bytes": 84141271,
+          "source": "https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/d12395a8-e57c48e6.th"
+        },
+      {
+        "path": "92cfc3b6-ef3bcb9c.th",
+        "sha256": "ef3bcb9c8b40d14ae5d51b6db2587339cc12c6b77c0be151ce6d69002e087bf2",
+          "size_bytes": 84141271,
+          "source": "https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/92cfc3b6-ef3bcb9c.th"
+        },
+      {
+        "path": "04573f0d-f3cf25b2.th",
+        "sha256": "f3cf25b222c4eed7cd49dd8b2c9597d50c18bd154090f7b919cfa5f93cf22c49",
+          "size_bytes": 84141271,
+          "source": "https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/04573f0d-f3cf25b2.th"
+        },
+        {
+          "path": "htdemucs_ft.yaml",
+          "sha256": "69470b8c1bbd674437b51bc9fb491327a10ab0396b702c93389b9cf750016346",
+          "size_bytes": 149,
+          "source": "https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/htdemucs_ft.yaml"
+        }
+      ],
+      "license": {
+        "wrapper": "MIT",
+        "demucs_code": "MIT at facebookresearch/demucs v4.0.1",
+        "weights": "No separate authoritative pretrained-weight license was verified; keep this private research fallback out of commercial distribution pending review."
+      }
+    }
+  }
+}

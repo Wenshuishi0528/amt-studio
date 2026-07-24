@@ -1,8 +1,8 @@
 # Project status
 
 Current gate: Gate 1 passed under the user-directed Hyak compute boundary
-Current task: `tasks/002_MUSCRIPTOR_BASELINE.md` complete
-Next task: `tasks/003_SOURCE_SEPARATION.md`
+Current task: `tasks/003_SOURCE_SEPARATION.md` complete
+Next task: `tasks/004_VOCAL_MELODY_BASELINE.md`
 Current branch: `main`
 
 Verified on the user's Mac:
@@ -39,9 +39,36 @@ Verified for Task 002:
 - all private inputs, weights, outputs, and renders remain ignored by Git;
 - `make check` passes with 9 unit tests.
 
+Verified for Task 003:
+
+- Mac remains limited to orchestration, artifact validation, short-clip
+  rendering, and listening; all separator and downstream MuScriptor inference
+  ran in Hyak Slurm A40 allocations;
+- `audio-separator==0.44.5`, its upstream commit, the two candidate model
+  bundles, and the complete model-file set are hash-pinned;
+- independent A40 jobs `37610839` and `37610998` produced exact decoded-PCM
+  repeatability for both candidates on the fixed 20-second excerpt;
+- final full-song separator job `37611557` completed successfully with
+  request-bound manifests, zero decoded-frame timeline drift, and no material
+  clipping;
+- final downstream MuScriptor job `37611749` completed the same beam-4,
+  voice-only configuration on the mix and both vocal stems, preserving verified
+  lineage and a descriptive comparison report;
+- idempotency job `37612144` verified and reused all three final MuScriptor
+  runs and the complete comparison report without rerunning inference;
+- the final three-passage listening package is bound to the final separator
+  manifests; the project owner preferred A on all three passages, described A
+  vocals as clear, and reported obvious accompaniment leakage and echo in B;
+- `vocal_quality_a` (BS-Roformer) is the selected default;
+- `multistem_quality_a` (Demucs) is the fallback and remains available when
+  separate drums, bass, and residual stems are required;
+- `make check` passes with 45 unit tests.
+
 Not yet verified:
 
 - any note, instrument, melody, or score accuracy against human reference;
-- source-separation, GAME, Basic Pitch, Beat This, fusion, training, or SwiftUI.
+- GAME, Basic Pitch, Beat This, fusion, training, or SwiftUI.
 
-Task 003 may begin after review of the Task 002 commit.
+Task 003 is complete. Task 004 may use the selected BS-Roformer vocal stem
+while retaining Demucs as the multistem fallback. No transcription-accuracy
+claim is made before human reference annotations exist.

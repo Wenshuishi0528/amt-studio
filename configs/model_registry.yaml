@@ -53,18 +53,45 @@ models:
 
   separator:
     role: source_separation
-    status: candidate_models_must_be_benchmarked
+    status: verified_hyak_benchmark_user_selected
     environment: workers/separator
     upstream: https://github.com/nomadkaraoke/python-audio-separator
-    install_hint_mac: pip install "audio-separator[cpu]"
+    install_hint_hyak: uv sync --project workers/separator --locked
     cli_hint: audio-separator AUDIO --model_filename MODEL
+    selection:
+      status: confirmed_by_project_owner
+      default_preset: vocal_quality_a
+      fallback_preset: multistem_quality_a
+      basis:
+        - candidate A was preferred on all three reviewed passages
+        - candidate A vocals were reported as clear
+        - candidate B had obvious accompaniment leakage and audible echo
+        - candidate B remains useful when separate drums, bass, and residual stems are required
+      limitation: one-song listening preference is not transcription accuracy evidence
+    runtime:
+      torch: 2.7.1
+      ffmpeg_module: weirdlab/ffmpeg/8.1
+      inference: hyak_slurm_cuda_only
+      mac_role: orchestration_validation_and_listening_review
     license:
-      wrapper_code: verify_at_pinned_version
-      model_weights: verify_each_model_separately
+      wrapper_code: MIT at pinned upstream commit
+      model_weights: private_research_only_pending_independent_rights_review
     pin:
-      package_version: null
-      model_ids: []
-      model_sha256: {}
+      package_version: 0.44.5
+      upstream_git_commit: 4fe3540c249ff130bd5395c0e9377b3d16970c1a
+      pypi_wheel_sha256: 9db7d8ded987a74aec9d96be949b49c9068def69823abb59cabb6e6f88679ae7
+      model_ids:
+        - model_bs_roformer_ep_317_sdr_12.9755.ckpt
+        - htdemucs_ft.yaml
+      model_sha256:
+        download_checks.json: d3622e1fa19c161d3cf704927711b453d593a3f1eb0f2e0838c3136907935151
+        model_bs_roformer_ep_317_sdr_12.9755.ckpt: 5b84f37e8d444c8cb30c79d77f613a41c05868ff9c9ac6c7049c00aefae115aa
+        model_bs_roformer_ep_317_sdr_12.9755.yaml: 2bfdd16c656bd9519aba757cc4f8834b7ede675eb1e00ec4772d74ae1c41af7f
+        f7e0c4bc-ba3fe64a.th: ba3fe64ae8ef66ac9a4857222ce48efbdc5eb3ad375cb79dd13debee5aaa4066
+        d12395a8-e57c48e6.th: e57c48e6b0e38af4f7118d7bd08c49f0a0c0edf7d09143bdd902ea0d237303e6
+        92cfc3b6-ef3bcb9c.th: ef3bcb9c8b40d14ae5d51b6db2587339cc12c6b77c0be151ce6d69002e087bf2
+        04573f0d-f3cf25b2.th: f3cf25b222c4eed7cd49dd8b2c9597d50c18bd154090f7b919cfa5f93cf22c49
+        htdemucs_ft.yaml: 69470b8c1bbd674437b51bc9fb491327a10ab0396b702c93389b9cf750016346
 
   beat_this:
     role: beat_downbeat

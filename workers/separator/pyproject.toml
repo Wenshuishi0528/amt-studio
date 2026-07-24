@@ -1,0 +1,21 @@
+[project]
+name = "amt-separator-worker"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    # The two Task003 candidates use PyTorch CUDA. Keep the wrapper's
+    # unconditional ONNX import on the CPU runtime to avoid an unrelated
+    # ONNX/CUDA-major ABI requirement.
+    "audio-separator[cpu]==0.44.5",
+    # Constrain resampy/librosa's otherwise overly broad numba floor to a
+    # Python 3.12-compatible binary pair.
+    "numba==0.61.2",
+    "numpy==2.2.6",
+    "torch==2.7.1",
+]
+
+[tool.uv]
+package = false
+environments = [
+    "sys_platform == 'linux' and platform_machine == 'x86_64'",
+]

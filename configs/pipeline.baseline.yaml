@@ -18,8 +18,11 @@ workers:
   source_separation:
     - worker: separator
       preset: vocal_quality_a
+      selection: default
     - worker: separator
       preset: multistem_quality_a
+      selection: fallback
+      use_when: [drums_stem_required, bass_stem_required, residual_stem_required]
 
   vocals:
     - worker: game
