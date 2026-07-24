@@ -2,19 +2,25 @@ schema_version: 1
 models:
   muscriptor:
     role: direct_multi_instrument_amt
-    status: candidate_verified_upstream_not_yet_verified_in_project
+    status: verified_hyak_full_mix_baseline
     environment: workers/muscriptor
     upstream: https://github.com/muscriptor/muscriptor
-    install_hint: uv add muscriptor
+    install_hint: uv sync --project workers/muscriptor --locked
     cli_hint: muscriptor transcribe AUDIO --model large --format jsonl -o EVENTS
+    runtime:
+      torch: 2.2.2
+      inference: hyak_slurm_cuda_only
+      mac_role: orchestration_validation_and_result_rendering
     license:
-      code: MIT according to upstream
-      weights: CC-BY-NC-4.0 according to upstream
+      code: MIT at pinned upstream tag
+      weights: CC-BY-NC-4.0 plus gated repository-specific conditions
     pin:
-      package_version: null
-      git_commit: null
-      weight_id: null
-      weight_sha256: null
+      package_version: 0.2.2
+      git_commit: 3feb2497bcd5316f9a9934b93d9f5dd3ff15e85a
+      pypi_wheel_sha256: 911f41057b8f9608839cc0b6c49f08df075ae7bc29df97428eb4febe0272fa94
+      weight_id: MuScriptor/muscriptor-large
+      weight_revision: 8809fdfbed2affa7ade94a7059e746e3880720e7
+      weight_sha256: ac4eb6ea87dfc26b6ca6b954c6b967ab87ad4c7d08e078b25214f13ed051f397
 
   game:
     role: singing_voice_amt

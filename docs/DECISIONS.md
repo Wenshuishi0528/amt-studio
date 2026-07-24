@@ -41,3 +41,11 @@ Corrections are stored as auditable operations and can form an opt-in training/e
 ## D-010: “90%” requires metric and coverage
 
 Any 90% claim must name target repertoire, instrument, tolerance, precision/recall definition, and coverage. High precision obtained by omitting most notes is not success.
+
+## D-011: Current research model compute runs on Hyak
+
+For the current research phase, the Mac is the front end and lightweight
+project machine; model inference, separation, sweeps, and training run through
+Slurm on Hyak. This temporary boundary is detailed in
+`docs/adr/0003-hyak-research-compute-boundary.md` and does not change D-007's
+long-term product goal.

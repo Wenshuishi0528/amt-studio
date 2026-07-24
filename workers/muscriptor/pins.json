@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "package": {
+    "name": "muscriptor",
+    "version": "0.2.2",
+    "pypi_wheel_sha256": "911f41057b8f9608839cc0b6c49f08df075ae7bc29df97428eb4febe0272fa94",
+    "upstream_git_commit": "3feb2497bcd5316f9a9934b93d9f5dd3ff15e85a"
+  },
+  "runtime": {
+    "torch_version": "2.2.2"
+  },
+  "model": {
+    "name": "large",
+    "repository": "MuScriptor/muscriptor-large",
+    "revision": "8809fdfbed2affa7ade94a7059e746e3880720e7",
+    "weight_filename": "model.safetensors",
+    "config_filename": "config.json",
+    "license": "CC-BY-NC-4.0 with repository-specific conditions"
+  }
+}

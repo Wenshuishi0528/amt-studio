@@ -16,7 +16,9 @@ Pass when:
 
 Pass when:
 
-- MuScriptor or another direct full-mix model runs on Mac and Hyak;
+- MuScriptor or another direct full-mix model runs on the user-designated
+  compute target (Hyak for the current project), with Mac orchestration and
+  result inspection validated separately;
 - raw output, normalized events, MIDI, logs, model version, weights hash, command, device, runtime, and code commit are captured;
 - repeated runs with deterministic settings are compared;
 - errors are visible rather than hidden by postprocessing.

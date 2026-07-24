@@ -1,9 +1,9 @@
 # Project status
 
-Current gate: Gate 0 passed on the user's Apple Silicon Mac
-Current task: `tasks/001_BOOTSTRAP_AND_INGEST.md` complete
-Next task: `tasks/002_MUSCRIPTOR_BASELINE.md` (not started)
-Current branch recommendation: `main`; create the initial commit after user review
+Current gate: Gate 1 passed under the user-directed Hyak compute boundary
+Current task: `tasks/002_MUSCRIPTOR_BASELINE.md` complete
+Next task: `tasks/003_SOURCE_SEPARATION.md`
+Current branch: `main`
 
 Verified on the user's Mac:
 
@@ -20,11 +20,28 @@ Verified on the user's Mac:
 - private audio and private project artifacts are ignored by Git;
 - `make check` passes.
 
+Verified for Task 002:
+
+- Mac is limited to orchestration, validation, and result rendering; all
+  MuScriptor large inference ran in Hyak Slurm GPU allocations;
+- the isolated worker is locked to MuScriptor `0.2.2`, Torch `2.2.2`, and the
+  exact large-model revision and weight/config SHA-256 values;
+- two fixed-excerpt A100 runs produced byte-identical native JSONL and MIDI;
+- a beam-4 A40 probe completed successfully;
+- full-song A100 job `37604080` completed successfully in `00:24:40`;
+- full run `muscriptor-large-beam4-hyak-37604080` preserved native JSONL,
+  native MIDI, normalized events, logs, commands, environment, timings, code
+  hashes, model hashes, and output hashes;
+- 7,667 normalized events validate; observed instruments, pitches, and timing
+  are documented without an accuracy claim;
+- a full stereo auralization was rendered and structurally inspected on the
+  Mac without model inference;
+- all private inputs, weights, outputs, and renders remain ignored by Git;
+- `make check` passes with 9 unit tests.
+
 Not yet verified:
 
-- MuScriptor installation or inference;
-- Hyak sync or Slurm jobs;
-- any transcription accuracy;
+- any note, instrument, melody, or score accuracy against human reference;
 - source-separation, GAME, Basic Pitch, Beat This, fusion, training, or SwiftUI.
 
-Codex should update this file only after the active task's acceptance criteria are met.
+Task 003 may begin after review of the Task 002 commit.
