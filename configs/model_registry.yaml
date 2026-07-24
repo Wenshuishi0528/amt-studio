@@ -24,32 +24,58 @@ models:
 
   game:
     role: singing_voice_amt
-    status: candidate_not_yet_verified_in_project
+    status: verified_hyak_selected_stem_baseline
     environment: workers/game
     upstream: https://github.com/openvpi/GAME
+    install_hint: uv sync --project workers/game --locked
     cli_hint: python infer.py extract AUDIO -m MODEL --output-formats mid,txt,csv
+    runtime:
+      python: "3.12"
+      torch: 2.8.0+cu129
+      cuda: "12.9"
+      lightning: 2.6.1
+      inference: hyak_slurm_cuda_only
+      mac_role: orchestration_validation_statistics_and_result_rendering
     license:
-      code: verify_at_pinned_commit
-      weights: verify_per_weight
+      code: MIT at pinned upstream commit
+      weights: CC-BY-NC-SA-4.0 private non-commercial research only
     pin:
-      git_commit: null
-      weight_id: null
-      weight_sha256: null
+      package_version: v1.0.3
+      git_commit: 475a8ee781fe8cca980b3b12fbe6c80c768a813a
+      weight_id: GAME-1.0-medium
+      weight_release: v1.0.0
+      archive_sha256: 8c5b3e531e2905b935e664e2f533921cd637243770fab5282413bdb5051ca60c
+      archive_size_bytes: 184550485
+      weight_sha256: e9904159fb0646e1a352b9d2bc74615547cfa3e32d45c7464d440ac142846d93
+      weight_size_bytes: 199764599
+      config_sha256: c4cca41410bfce49859db5544e1a0820749f9795d4e3f97e5283917ceeeea813
+      language_map_sha256: cf7ca24d93682464c5d57d1cd7d238d29d565f7e5774575dbcdff7034852ca37
 
   basic_pitch:
     role: general_single_source_amt
-    status: candidate_not_yet_verified_in_project
+    status: verified_hyak_selected_stem_baseline
     environment: workers/basic_pitch
     upstream: https://github.com/spotify/basic-pitch
-    install_hint: pip install basic-pitch
+    install_hint: uv sync --project workers/basic_pitch --locked
     cli_hint: basic-pitch OUTPUT_DIR AUDIO --save-model-outputs --save-note-events
+    runtime:
+      python: "3.10"
+      serialization: onnx
+      onnxruntime: 1.23.2
+      provider: CPUExecutionProvider
+      inference: hyak_slurm_cpu_only
+      mac_role: orchestration_validation_statistics_and_result_rendering
     license:
-      code: Apache-2.0 according to upstream
-      weights: verify_bundled_model_terms_at_pinned_version
+      code_and_package: Apache-2.0
+      bundled_model: distributed_in_package_no_separate_authoritative_weight_rights_statement_verified
     pin:
-      package_version: null
-      model_serialization: coreml
-      weight_sha256: null
+      package_version: 0.4.0
+      upstream_git_commit: 9991303bba609a3b93089d13ec80d1d495083596
+      pypi_wheel_sha256: 738adb503aae7fdfc7d1e1511aa0ce35052315f260a19531ef4c356708425db0
+      model_name: basic-pitch-icassp-2022-onnx
+      model_serialization: onnx
+      weight_sha256: 2c3c1d144bfa61ad236e92e169c13535c880469a12a047d4e73451f2c059a0ec
+      weight_size_bytes: 230444
 
   separator:
     role: source_separation

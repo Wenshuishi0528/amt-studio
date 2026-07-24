@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "package": {
+    "name": "basic-pitch",
+    "version": "0.4.0",
+    "extras": [
+      "onnx"
+    ],
+    "pypi_wheel_filename": "basic_pitch-0.4.0-py2.py3-none-any.whl",
+    "pypi_wheel_sha256": "738adb503aae7fdfc7d1e1511aa0ce35052315f260a19531ef4c356708425db0",
+    "upstream_repository": "spotify/basic-pitch",
+    "upstream_git_commit": "9991303bba609a3b93089d13ec80d1d495083596"
+  },
+  "runtime": {
+    "python": "3.10",
+    "serialization": "onnx",
+    "numpy": "1.26.4",
+    "onnxruntime": "1.23.2",
+    "onnxruntime_provider": "CPUExecutionProvider",
+    "setuptools": "80.9.0",
+    "platform": "linux-x86_64-cpu"
+  },
+  "model": {
+    "name": "basic-pitch-icassp-2022-onnx",
+    "bundled_filename": "nmp.onnx",
+    "sha256": "2c3c1d144bfa61ad236e92e169c13535c880469a12a047d4e73451f2c059a0ec",
+    "size_bytes": 230444
+  },
+  "decoding": {
+    "onset_threshold": 0.5,
+    "frame_threshold": 0.3,
+    "minimum_note_length_ms": 127.7,
+    "minimum_frequency_hz": null,
+    "maximum_frequency_hz": null,
+    "multiple_pitch_bends": false,
+    "melodia_trick": true,
+    "midi_tempo_bpm": 120.0
+  },
+  "license": {
+    "code_and_package": "Apache-2.0",
+    "bundled_model": "Distributed inside the Apache-2.0 package; no separate authoritative standalone-weight or training-data rights statement was verified for this task."
+  }
+}

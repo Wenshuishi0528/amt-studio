@@ -1,8 +1,8 @@
 # Project status
 
 Current gate: Gate 1 passed under the user-directed Hyak compute boundary
-Current task: `tasks/003_SOURCE_SEPARATION.md` complete
-Next task: `tasks/004_VOCAL_MELODY_BASELINE.md`
+Current task: `tasks/004_VOCAL_MELODY_BASELINE.md` complete
+Next task: `tasks/005_BEAT_AND_CANONICAL_EVENTS.md`
 Current branch: `main`
 
 Verified on the user's Mac:
@@ -64,11 +64,40 @@ Verified for Task 003:
   separate drums, bass, and residual stems are required;
 - `make check` passes with 45 unit tests.
 
+Verified for Task 004:
+
+- Mac remained limited to orchestration, validation, statistics, and review-pack
+  rendering; all GAME and Basic Pitch model inference ran in Hyak Slurm
+  allocations;
+- isolated lockfiles and exact package, source, model, and license pins were
+  recorded for GAME v1.0.3 plus its official medium model and Basic Pitch
+  0.4.0 plus its bundled ONNX model;
+- GAME setup job `37614010`, GAME A100 baseline job `37614448`, Basic Pitch
+  setup job `37613596`, and Basic Pitch CPU baseline job `37614317` completed
+  successfully;
+- native GAME CSV/TXT/MIDI and Basic Pitch CSV/MIDI/NPZ outputs were preserved;
+  both native MIDI note-on counts exactly match their decoded event counts;
+- four lineage-verified vocal candidates now share the same project identity
+  and canonical mix: GAME on the selected A stem, Basic Pitch on that stem,
+  MuScriptor voice on that stem, and MuScriptor voice directly on the mix;
+- the comparison covers event count, short-note fragmentation, pitch range,
+  phrase gaps, polyphonic active time, and octave behavior without ranking
+  candidates or making an accuracy claim;
+- three passages selected before melody output inspection (`4–16 s`,
+  `132–144 s`, and `180–192 s`) have synchronized mix and four-candidate piano
+  renders, with exact 12-second PCM windows and hashed manifests;
+- the review pack is explicitly marked `awaiting_human_review`,
+  `accuracy_claimed=false`, and `task005_export=false`;
+- focused `/review` found no remaining P0–P2 issue;
+- `make check` passes with 90 unit tests.
+
 Not yet verified:
 
 - any note, instrument, melody, or score accuracy against human reference;
-- GAME, Basic Pitch, Beat This, fusion, training, or SwiftUI.
+- GAME or Basic Pitch repeatability across independent inference runs;
+- Beat This, candidate fusion, training, or SwiftUI.
 
-Task 003 is complete. Task 004 may use the selected BS-Roformer vocal stem
-while retaining Demucs as the multistem fallback. No transcription-accuracy
-claim is made before human reference annotations exist.
+Task 004 is complete. Task 005 may consume the four canonical candidate sets
+only through its own explicit export; the Task 004 listening MIDI is not a
+Task 005 quantized score. Gate 2 remains unpassed until human reference
+annotations and held-out melody metrics exist.
