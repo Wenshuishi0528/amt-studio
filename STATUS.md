@@ -262,6 +262,14 @@ The owner's first listening pass estimated this score-guided version at roughly
 80% correct and reported obvious wrong notes. That percentage is subjective,
 not a metric; the 22-note version is now explicitly `needs_revision` and is not
 accepted or sealed as the final reference.
+The follow-up staff-position audit found a concrete transcription error rather
+than a score-source mismatch: six notes in system 2 measures 3–4 had been read
+one diatonic step too high. A non-overwriting `blind-04-v2` now changes
+`D-C-C-Bb / Eb-C-Eb-D` to the score's
+`D-Bb-Bb-Bb / D-Bb-D-C`. Existing Hyak-generated vocal pYIN frame medians
+independently support all eight corrected interval pitches. The v2 MIDI and
+three review WAVs pass hash, duration, channel, sample-rate, and 22-note
+validation, but remain `awaiting_owner_review` and unsealed.
 
 The MedleyDB predominant-melody benchmark froze six windows and four candidate
 routes before inference. A40 job `37690768` completed and sealed candidate-set

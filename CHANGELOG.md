@@ -62,6 +62,10 @@ Commit: this task's final commit (`feat: complete reference evaluation task 006`
   original printed page 3, retaining source hashes, exact 22-note
   transcription, Beat This alignment, the unchanged old seed, and three
   acoustic-piano review renders without redistributing the score.
+- Added non-overwriting `blind-04-v2` evidence after tracing the owner's
+  obvious-wrong-note report to six V1 staff-position errors; V2 records the
+  corrected score pitches, existing Hyak vocal-F0 support, MIDI, and three
+  regenerated review WAVs.
 
 ### Verified
 
@@ -79,6 +83,10 @@ Commit: this task's final commit (`feat: complete reference evaluation task 006`
 - The `blind-04` score crop was visually verified against original printed
   page 3, systems 2–3; its 22 notes are monotonic within `180.78–190.00 s`,
   and all three WAV reviews are non-silent PCM stereo at 44.1 kHz.
+- V2 corrects the two affected measures to
+  `D-Bb-Bb-Bb / D-Bb-D-C`; the eight existing vocal pYIN interval medians
+  support those score pitches, and all V2 artifact hashes and MIDI/WAV
+  structure validate.
 - Focused `/review` ran and all nine final P1/P2 findings received regression
   fixes.
 - `make check` passed with 155 tests.

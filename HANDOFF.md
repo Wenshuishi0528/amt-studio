@@ -302,6 +302,13 @@ projects/private/<blind-song-c-project>/
 该版主观估计为约 80% 正确，并指出仍有明显错音；该数值不是实测准确率，当前
 22-note 版本已标记为 `needs_revision`，不能作为最终 reference。
 
+随后复核确认根因是 V1 人工读谱位置错误，而不是 PDF 页码或乐谱来源错误：第 2
+行后两个小节有 6 个音被看高了一个谱级。V2 不覆盖 V1，把错误的
+`D-C-C-B♭ / E♭-C-E♭-D` 修为谱面的
+`D-B♭-B♭-B♭ / D-B♭-D-C`。已有 Hyak 人声 pYIN 帧在八个对应区间的中位
+MIDI 音高也独立支持 V2。V2 的 22 个音、MIDI 和三种试听均已通过结构与哈希
+验证，位于同级 `blind-04-v2/`，但状态仍是 `awaiting_owner_review`，未签封。
+
 ## Task 006 正式评测
 
 MedleyDB predominant-melody 帧级 benchmark：
