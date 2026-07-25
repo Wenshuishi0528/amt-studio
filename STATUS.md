@@ -258,6 +258,10 @@ renders are stored under
 `projects/private/<blind-song-c-project>/annotations/reference-task006-blind-v1/score-guided/blind-04-v1/`.
 This is Codex transcription from an owner-supplied score, not an owner-operated
 timed correction session, so it remains unsealed and does not close Gate 2.
+The owner's first listening pass estimated this score-guided version at roughly
+80% correct and reported obvious wrong notes. That percentage is subjective,
+not a metric; the 22-note version is now explicitly `needs_revision` and is not
+accepted or sealed as the final reference.
 
 The MedleyDB predominant-melody benchmark froze six windows and four candidate
 routes before inference. A40 job `37690768` completed and sealed candidate-set

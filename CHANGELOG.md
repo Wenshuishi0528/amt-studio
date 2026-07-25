@@ -95,6 +95,9 @@ Commit: this task's final commit (`feat: complete reference evaluation task 006`
 - The private `blind-04` score-guided transcription was performed by Codex,
   not by the owner in a timed editor session; it remains provisional and cannot
   be used to claim that Gate 2 correction-time evidence is complete.
+- The owner estimated the first score-guided audition at roughly 80% correct
+  and heard obvious wrong notes; the value is subjective, and the artifact is
+  explicitly marked `needs_revision` rather than accepted or sealed.
 
 ## Task 005 — Beat map and canonical events — 2026-07-24
 

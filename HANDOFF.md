@@ -298,7 +298,9 @@ projects/private/<blind-song-c-project>/
 目录中包含逐音 JSONL、逐小节转录、来源哈希、乐谱裁图、MIDI、纯钢琴、
 原曲叠加钢琴和先原曲后钢琴试听。该 PDF/截图为用户私下提供，来源版权状态未
 独立核实，因此不得提交或分发。此次是 Codex 代录，没有测量项目所有者的人工
-修正用时，也没有签封为正式 reference；Gate 2 状态不变。
+修正用时，也没有签封为正式 reference；Gate 2 状态不变。所有者首次试听后把
+该版主观估计为约 80% 正确，并指出仍有明显错音；该数值不是实测准确率，当前
+22-note 版本已标记为 `needs_revision`，不能作为最终 reference。
 
 ## Task 006 正式评测
 
