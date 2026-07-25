@@ -19,12 +19,26 @@ from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from amt_core.benchmark import canonical_json_sha256
 from amt_core.events import EventValidationError, NoteEvent, read_jsonl
 from amt_core.utils import atomic_write_json
 
 EVENTS_RELATIVE_PATH = "normalized/events.jsonl"
 RUN_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,198}\Z", re.ASCII)
 SHA256_PATTERN = re.compile(r"[0-9a-fA-F]{64}\Z")
+SOUNDFONT_PROGRAM_ZERO_PATTERN = re.compile(
+    r"^\s*000-000\s+(.+?)\s*$",
+    re.MULTILINE,
+)
+GENERALUSER_GS_2_0_3_SHA256 = (
+    "9575028c7a1f589f5770fccc8cff2734566af40cd26ed836944e9a5152688cfe"
+)
+APPROVED_ACOUSTIC_PROGRAM_ZERO_NAMES = frozenset(
+    {
+        "acoustic grand piano",
+        "grand piano",
+    }
+)
 
 MIDI_FORMAT = 0
 MIDI_TICKS_PER_BEAT = 480
@@ -632,6 +646,338 @@ def _load_candidate(label: str, run_path: Path) -> dict[str, Any]:
     }
 
 
+def _task006_seed_review_inputs(pack_dir: Path) -> dict[str, Any]:
+    if pack_dir.is_symlink() or not pack_dir.is_dir():
+        raise MelodyReviewError(
+            f"Task 006 benchmark pack is missing or unsafe: {pack_dir}"
+        )
+    pack_dir = pack_dir.resolve(strict=True)
+    if pack_dir.parent.name != "annotations":
+        raise MelodyReviewError(
+            "Task 006 benchmark pack must be stored under one project annotations/ directory"
+        )
+    project_dir = pack_dir.parent.parent
+
+    binding_paths = {
+        "benchmark_manifest": _resolve_owned_path(
+            pack_dir,
+            Path("benchmark_manifest.json"),
+            label="Task 006 benchmark manifest",
+            expect_file=True,
+        ),
+        "reference_seed_policy": _resolve_owned_path(
+            pack_dir,
+            Path("reference_seed_policy.json"),
+            label="Task 006 reference seed policy",
+            expect_file=True,
+        ),
+        "candidate_set_seal": _resolve_owned_path(
+            pack_dir,
+            Path("candidate_set_seal.json"),
+            label="Task 006 candidate set seal",
+            expect_file=True,
+        ),
+    }
+    binding_snapshots = {
+        key: _snapshot_file(path, label=key.replace("_", " "))
+        for key, path in binding_paths.items()
+    }
+
+    benchmark = _load_json_object(
+        binding_paths["benchmark_manifest"],
+        label="Task 006 benchmark manifest",
+    )
+    freeze_payload = benchmark.get("freeze_payload")
+    if (
+        benchmark.get("schema") != "amt-benchmark-pack/v1"
+        or not isinstance(freeze_payload, dict)
+        or canonical_json_sha256(freeze_payload)
+        != benchmark.get("benchmark_freeze_sha256")
+    ):
+        raise MelodyReviewError("Task 006 benchmark freeze manifest is invalid or modified")
+    benchmark_freeze_sha256 = benchmark["benchmark_freeze_sha256"]
+    if (
+        not isinstance(benchmark_freeze_sha256, str)
+        or SHA256_PATTERN.fullmatch(benchmark_freeze_sha256) is None
+        or freeze_payload.get("split") != "blind_test"
+    ):
+        raise MelodyReviewError("Task 006 seed review requires a valid blind-test freeze")
+
+    project_manifest_path = _resolve_owned_path(
+        project_dir,
+        Path("manifest.json"),
+        label="Task 006 project manifest",
+        expect_file=True,
+    )
+    project_manifest = _load_json_object(
+        project_manifest_path,
+        label="Task 006 project manifest",
+    )
+    project_id = project_manifest.get("project_id")
+    if (
+        project_manifest.get("schema_version") != 1
+        or not isinstance(project_id, str)
+        or project_id != project_dir.name
+        or freeze_payload.get("project_id") != project_id
+    ):
+        raise MelodyReviewError(
+            "Task 006 benchmark and project identity do not match"
+        )
+    canonical_record = project_manifest.get("canonical_audio")
+    if not isinstance(canonical_record, dict):
+        raise MelodyReviewError("Task 006 project has no canonical audio record")
+    canonical_relative = _safe_manifest_relative_path(
+        canonical_record.get("path"),
+        label="Task 006 canonical_audio.path",
+    )
+    mix_path = _resolve_owned_path(
+        project_dir,
+        canonical_relative,
+        label="Task 006 canonical mix",
+        expect_file=True,
+    )
+    mix_snapshot = _snapshot_file(mix_path, label="Task 006 canonical mix")
+    if (
+        canonical_record.get("sha256") != mix_snapshot["sha256"]
+        or freeze_payload.get("canonical_audio_sha256") != mix_snapshot["sha256"]
+    ):
+        raise MelodyReviewError(
+            "Task 006 benchmark canonical audio SHA-256 does not match the project"
+        )
+
+    excerpts = freeze_payload.get("excerpts")
+    if not isinstance(excerpts, list) or len(excerpts) != 6:
+        raise MelodyReviewError(
+            "Task 006 single-seed review requires exactly six frozen evaluation windows"
+        )
+    passages: dict[str, tuple[float, float]] = {}
+    frozen_windows: list[dict[str, Any]] = []
+    for excerpt in excerpts:
+        if not isinstance(excerpt, dict):
+            raise MelodyReviewError("Task 006 frozen evaluation window is invalid")
+        excerpt_id = excerpt.get("excerpt_id")
+        start_sec = excerpt.get("evaluation_start_sec")
+        end_sec = excerpt.get("evaluation_end_sec")
+        duration_sec = excerpt.get("duration_sec")
+        if (
+            not isinstance(excerpt_id, str)
+            or isinstance(start_sec, bool)
+            or not isinstance(start_sec, (int, float))
+            or isinstance(end_sec, bool)
+            or not isinstance(end_sec, (int, float))
+            or isinstance(duration_sec, bool)
+            or not isinstance(duration_sec, (int, float))
+        ):
+            raise MelodyReviewError("Task 006 frozen evaluation window fields are invalid")
+        _validate_filename_component(
+            excerpt_id,
+            kind="Task 006 excerpt ID",
+            reserved=set(),
+        )
+        start = float(start_sec)
+        end = float(end_sec)
+        duration = float(duration_sec)
+        _validate_passage_window(excerpt_id, start, duration)
+        if not math.isfinite(end) or abs(end - (start + duration)) > 1e-9:
+            raise MelodyReviewError(
+                f"Task 006 frozen evaluation window duration is inconsistent: {excerpt_id}"
+            )
+        if excerpt_id in passages:
+            raise MelodyReviewError(
+                f"Task 006 frozen evaluation window ID is duplicated: {excerpt_id}"
+            )
+        passages[excerpt_id] = (start, duration)
+        frozen_windows.append(
+            {
+                "excerpt_id": excerpt_id,
+                "evaluation_start_sec": start,
+                "evaluation_end_sec": end,
+                "duration_sec": duration,
+            }
+        )
+
+    policy = _load_json_object(
+        binding_paths["reference_seed_policy"],
+        label="Task 006 reference seed policy",
+    )
+    seed_label = policy.get("seed_candidate_label")
+    seed_run_id = policy.get("seed_candidate_run_id")
+    primary_policy = policy.get("primary_evaluation_policy")
+    if (
+        policy.get("schema") != "amt-reference-seed-policy/v1"
+        or policy.get("benchmark_freeze_sha256") != benchmark_freeze_sha256
+        or policy.get("status") != "frozen_before_candidate_output_inspection"
+        or policy.get("seed_method") != "candidate_corrected"
+        or not isinstance(seed_label, str)
+        or not isinstance(seed_run_id, str)
+        or not isinstance(primary_policy, dict)
+        or primary_policy.get("exclude_seed_candidate_from_primary_metrics")
+        is not True
+    ):
+        raise MelodyReviewError(
+            "Task 006 reference seed policy is invalid or does not permanently "
+            "exclude the seed from primary metrics"
+        )
+    _validate_filename_component(
+        seed_label,
+        kind="Task 006 seed label",
+        reserved={"mix", "seed"},
+    )
+    if RUN_ID_PATTERN.fullmatch(seed_run_id) is None or ".." in seed_run_id:
+        raise MelodyReviewError("Task 006 seed run is unsafe")
+    eligible_candidates = primary_policy.get("eligible_candidates")
+    if (
+        not isinstance(eligible_candidates, list)
+        or not all(isinstance(label, str) and label for label in eligible_candidates)
+        or len(set(eligible_candidates)) != len(eligible_candidates)
+        or seed_label in eligible_candidates
+    ):
+        raise MelodyReviewError(
+            "Task 006 seed must be absent from the primary-metrics eligible candidates"
+        )
+
+    seal = _load_json_object(
+        binding_paths["candidate_set_seal"],
+        label="Task 006 candidate set seal",
+    )
+    candidate_payload = seal.get("freeze_payload")
+    confirmation = (
+        candidate_payload.get("confirmation")
+        if isinstance(candidate_payload, dict)
+        else None
+    )
+    claims = seal.get("claims")
+    if (
+        seal.get("schema") != "amt-evaluation-candidate-set-seal/v1"
+        or not isinstance(candidate_payload, dict)
+        or canonical_json_sha256(candidate_payload)
+        != seal.get("candidate_set_sha256")
+        or candidate_payload.get("schema") != "amt-evaluation-candidate-set/v1"
+        or candidate_payload.get("benchmark_freeze_sha256")
+        != benchmark_freeze_sha256
+        or candidate_payload.get("split") != "blind_test"
+        or not isinstance(confirmation, dict)
+        or confirmation.get("candidate_output_quality_uninspected_before_freeze")
+        is not True
+        or confirmation.get("candidate_selection_or_tuning_after_freeze_prohibited")
+        is not True
+        or not isinstance(claims, dict)
+        or claims.get("blind_result_eligible") is not True
+    ):
+        raise MelodyReviewError("Task 006 candidate set seal is invalid or modified")
+    candidate_set_sha256 = seal.get("candidate_set_sha256")
+    if (
+        not isinstance(candidate_set_sha256, str)
+        or SHA256_PATTERN.fullmatch(candidate_set_sha256) is None
+    ):
+        raise MelodyReviewError("Task 006 candidate set SHA-256 is invalid")
+
+    candidate_records = candidate_payload.get("candidates")
+    if not isinstance(candidate_records, list) or not candidate_records:
+        raise MelodyReviewError("Task 006 sealed candidate set is empty")
+    labels: set[str] = set()
+    run_ids: set[str] = set()
+    sealed_seed: dict[str, Any] | None = None
+    for record in candidate_records:
+        if not isinstance(record, dict):
+            raise MelodyReviewError("Task 006 sealed candidate record is invalid")
+        label = record.get("label")
+        run_id = record.get("run_id")
+        worker = record.get("worker")
+        events_sha256 = record.get("events_sha256")
+        manifest_sha256 = record.get("run_manifest_sha256")
+        if (
+            not isinstance(label, str)
+            or not label
+            or label in labels
+            or not isinstance(run_id, str)
+            or RUN_ID_PATTERN.fullmatch(run_id) is None
+            or ".." in run_id
+            or run_id in run_ids
+            or not isinstance(worker, str)
+            or not worker
+            or not isinstance(events_sha256, str)
+            or SHA256_PATTERN.fullmatch(events_sha256) is None
+            or not isinstance(manifest_sha256, str)
+            or SHA256_PATTERN.fullmatch(manifest_sha256) is None
+        ):
+            raise MelodyReviewError("Task 006 sealed candidate identity or hash is invalid")
+        labels.add(label)
+        run_ids.add(run_id)
+        if label == seed_label:
+            sealed_seed = record
+    if sealed_seed is None:
+        raise MelodyReviewError("Task 006 seed label is not in the sealed candidate set")
+    if set(eligible_candidates) != labels - {seed_label}:
+        raise MelodyReviewError(
+            "Task 006 primary-metrics eligible candidates must exactly match "
+            "the sealed candidate set without its annotation seed"
+        )
+    if sealed_seed["run_id"] != seed_run_id:
+        raise MelodyReviewError(
+            "Task 006 seed run does not match the sealed candidate record"
+        )
+    if sealed_seed["worker"] != "game":
+        raise MelodyReviewError("Task 006 single seed is not the sealed GAME worker")
+
+    seed_run_dir = _resolve_owned_path(
+        project_dir,
+        Path("runs", seed_run_id),
+        label="Task 006 GAME seed run",
+        expect_file=False,
+    )
+    loaded_seed = _load_candidate("Task 006 GAME seed", seed_run_dir)
+    if loaded_seed["worker"] != "game":
+        raise MelodyReviewError("Task 006 GAME seed worker does not match its run manifest")
+    if (
+        loaded_seed["canonical_events"]["sha256"].lower()
+        != sealed_seed["events_sha256"].lower()
+    ):
+        raise MelodyReviewError(
+            "Task 006 GAME seed events SHA-256 does not match the sealed candidate"
+        )
+    if loaded_seed["manifest"]["sha256"].lower() != sealed_seed[
+        "run_manifest_sha256"
+    ].lower():
+        raise MelodyReviewError(
+            "Task 006 GAME seed manifest SHA-256 does not match the sealed candidate"
+        )
+
+    return {
+        "mix": mix_path,
+        "seed_run_dir": seed_run_dir,
+        "passages": passages,
+        "context": {
+            "bindings": {
+                **binding_snapshots,
+                "benchmark_freeze_sha256": benchmark_freeze_sha256,
+                "candidate_set_sha256": candidate_set_sha256,
+            },
+            "frozen_evaluation_windows": frozen_windows,
+            "seed_candidate": {
+                "review_label": "seed",
+                "sealed_candidate_label": seed_label,
+                "run_id": seed_run_id,
+                "worker": "game",
+                "events_sha256": loaded_seed["canonical_events"]["sha256"],
+                "run_manifest_sha256": loaded_seed["manifest"]["sha256"],
+                "eligible_for_primary_metrics": False,
+                "exclusion_policy": (
+                    "permanently_excluded_as_candidate_corrected_annotation_seed"
+                ),
+            },
+            "_source_snapshots": [
+                *binding_snapshots.values(),
+                _snapshot_file(
+                    project_manifest_path,
+                    label="Task 006 project manifest",
+                ),
+                mix_snapshot,
+            ],
+        },
+    }
+
+
 def _encode_variable_length(value: int) -> bytes:
     if not 0 <= value <= 0x0FFFFFFF:
         raise MelodyReviewError(f"MIDI delta time is outside the standard VLQ range: {value}")
@@ -754,8 +1100,14 @@ def _run_command(
     command_index: int,
     tool: str,
     purpose: str,
+    stdin_payload: bytes | None = None,
 ) -> tuple[dict[str, Any], subprocess.CompletedProcess[bytes]]:
-    result = subprocess.run(argv, check=False, capture_output=True)
+    result = subprocess.run(
+        argv,
+        check=False,
+        capture_output=True,
+        input=stdin_payload,
+    )
     log_stem = f"command-{command_index:03d}-{tool}"
     stdout_path = stage / "logs" / f"{log_stem}.stdout.log"
     stderr_path = stage / "logs" / f"{log_stem}.stderr.log"
@@ -770,12 +1122,47 @@ def _run_command(
         "stdout_log": stdout_path.relative_to(stage).as_posix(),
         "stderr_log": stderr_path.relative_to(stage).as_posix(),
     }
+    if stdin_payload is not None:
+        record["stdin_sha256"] = hashlib.sha256(stdin_payload).hexdigest()
     if result.returncode != 0:
         detail = result.stderr.decode("utf-8", errors="replace").strip()
         raise MelodyReviewError(
             f"{tool} failed for {purpose} with exit code {result.returncode}: {detail}"
         )
     return record, result
+
+
+def _verify_acoustic_piano_program_zero(
+    output: bytes,
+    *,
+    soundfont_sha256: str,
+    approved_soundfont_sha256: str,
+) -> dict[str, Any]:
+    if soundfont_sha256 != approved_soundfont_sha256:
+        raise MelodyReviewError(
+            "SoundFont SHA-256 is not the explicitly approved acoustic-piano asset"
+        )
+    text = output.decode("utf-8", errors="replace")
+    matches = SOUNDFONT_PROGRAM_ZERO_PATTERN.findall(text)
+    if len(matches) != 1:
+        raise MelodyReviewError(
+            "SoundFont probe must report exactly one bank 000 program 000 preset"
+    )
+    preset_name = matches[0].strip()
+    normalized = preset_name.casefold()
+    if normalized not in APPROVED_ACOUSTIC_PROGRAM_ZERO_NAMES:
+        raise MelodyReviewError(
+            "SoundFont bank 000 program 000 is not an acoustic piano: "
+            f"{preset_name!r}"
+        )
+    return {
+        "bank": 0,
+        "program": MIDI_PROGRAM,
+        "reported_preset": preset_name,
+        "acoustic_piano_verified": True,
+        "verification_basis": "approved_soundfont_sha256_and_exact_program_name",
+        "approved_soundfont_sha256": approved_soundfont_sha256,
+    }
 
 
 def _require_generated_file(path: Path, *, label: str) -> None:
@@ -869,11 +1256,17 @@ def create_review(
     output: Path,
     fluidsynth: str | Path = "fluidsynth",
     ffmpeg: str | Path = "ffmpeg",
+    approved_soundfont_sha256: str = GENERALUSER_GS_2_0_3_SHA256,
+    _task006_seed_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Create an immutable synchronized review package in a new directory."""
 
-    if len(candidates) < 3:
+    if _task006_seed_context is None and len(candidates) < 3:
         raise MelodyReviewError("At least three independent candidate runs are required")
+    if _task006_seed_context is not None and set(candidates) != {"seed"}:
+        raise MelodyReviewError(
+            "Task 006 candidate-corrected review requires exactly one fixed seed"
+        )
     if len(passages) < 3:
         raise MelodyReviewError("At least three review passages are required")
     _validate_unique_components(
@@ -949,6 +1342,30 @@ def create_review(
             tool_records[tool]["version_text"] = version_payload.decode(
                 "utf-8", errors="replace"
             ).strip()[:2000]
+
+        soundfont_probe_command, soundfont_probe = _run_command(
+            [
+                tool_records["fluidsynth"]["path"],
+                "-q",
+                "-n",
+                "-a",
+                "file",
+                "-o",
+                f"audio.file.name={os.devnull}",
+                soundfont_record["path"],
+            ],
+            stage=stage,
+            command_index=len(commands) + 1,
+            tool="fluidsynth",
+            purpose="verify_soundfont_bank_000_program_000",
+            stdin_payload=b"inst 1\nquit\n",
+        )
+        commands.append(soundfont_probe_command)
+        soundfont_record["program_zero"] = _verify_acoustic_piano_program_zero(
+            soundfont_probe.stdout + soundfont_probe.stderr,
+            soundfont_sha256=soundfont_record["sha256"],
+            approved_soundfont_sha256=approved_soundfont_sha256,
+        )
 
         preview_end_sec = max(start + duration for start, duration in passages.values())
         candidate_manifest_records: dict[str, Any] = {}
@@ -1064,20 +1481,52 @@ def create_review(
             for rendered in passage["outputs"].values():
                 rendered["artifact"] = artifact_index[rendered.pop("path")]
 
+        if _task006_seed_context is None:
+            artifact_type = "task004_synchronized_piano_review"
+            task = "004"
+            scope = {
+                "purpose": "Task 004 baseline listening review only",
+                "is_task005_export": False,
+                "canonical_events_are_source_of_truth": True,
+            }
+            limitations = [
+                "This package is an audition aid, not a Task 005 MIDI export.",
+                "No note, melody, or model accuracy is claimed without Task 006 references.",
+                "Human listening review is pending.",
+            ]
+        else:
+            artifact_type = "task006_candidate_corrected_single_seed_review"
+            task = "006"
+            scope = {
+                "purpose": (
+                    "Task 006 single predeclared seed listening review for "
+                    "candidate-corrected human annotation"
+                ),
+                "is_task005_export": False,
+                "canonical_events_are_source_of_truth": True,
+                "reference_creation_method": "candidate_corrected",
+                "single_predeclared_seed": True,
+                "seed_candidate_eligible_for_primary_metrics": False,
+            }
+            limitations = [
+                "This package is a listening aid, not a sealed human reference.",
+                "The predeclared GAME annotation seed is permanently excluded "
+                "from primary metrics.",
+                "No note, melody, or model accuracy is claimed before human "
+                "correction and sealing.",
+                "Human listening review is pending.",
+            ]
+
         review_manifest = {
             "schema_version": 1,
             "generated_at": datetime.now(UTC).isoformat(),
             "status": "awaiting_human_review",
-            "artifact_type": "task004_synchronized_piano_review",
-            "task": "004",
+            "artifact_type": artifact_type,
+            "task": task,
             "task005_export": False,
             "accuracy_claimed": False,
             "human_review_pending": True,
-            "scope": {
-                "purpose": "Task 004 baseline listening review only",
-                "is_task005_export": False,
-                "canonical_events_are_source_of_truth": True,
-            },
+            "scope": scope,
             "timeline_binding": {
                 "project_id": shared_project["project_id"],
                 "project_dir": shared_project["project_dir"],
@@ -1111,12 +1560,18 @@ def create_review(
                 "all_generated_files_hashed_except_manifest_itself": True,
                 "review_manifest_self_hashed": False,
             },
-            "limitations": [
-                "This package is an audition aid, not a Task 005 MIDI export.",
-                "No note, melody, or model accuracy is claimed without Task 006 references.",
-                "Human listening review is pending.",
-            ],
+            "limitations": limitations,
         }
+        if _task006_seed_context is not None:
+            review_manifest["task006_seed_review"] = {
+                "reference_creation_method": "candidate_corrected",
+                "single_predeclared_seed": True,
+                "bindings": _task006_seed_context["bindings"],
+                "frozen_evaluation_windows": _task006_seed_context[
+                    "frozen_evaluation_windows"
+                ],
+                "seed_candidate": _task006_seed_context["seed_candidate"],
+            }
 
         source_snapshots = [mix_record, soundfont_record, *tool_records.values()]
         for candidate in loaded_candidates.values():
@@ -1127,6 +1582,8 @@ def create_review(
                     *candidate["_source_snapshots"],
                 )
             )
+        if _task006_seed_context is not None:
+            source_snapshots.extend(_task006_seed_context["_source_snapshots"])
         for index, record in enumerate(source_snapshots, start=1):
             _verify_snapshot(record, label=f"Source artifact {index}")
 
@@ -1140,6 +1597,31 @@ def create_review(
     except BaseException:
         _cleanup_staging(stage)
         raise
+
+
+def create_task006_seed_review(
+    *,
+    pack_dir: Path,
+    soundfont: Path,
+    output: Path,
+    fluidsynth: str | Path = "fluidsynth",
+    ffmpeg: str | Path = "ffmpeg",
+    approved_soundfont_sha256: str = GENERALUSER_GS_2_0_3_SHA256,
+) -> dict[str, Any]:
+    """Render the one predeclared GAME seed over six frozen blind windows."""
+
+    inputs = _task006_seed_review_inputs(pack_dir)
+    return create_review(
+        mix=inputs["mix"],
+        candidates={"seed": inputs["seed_run_dir"]},
+        passages=inputs["passages"],
+        soundfont=soundfont,
+        output=output,
+        fluidsynth=fluidsynth,
+        ffmpeg=ffmpeg,
+        approved_soundfont_sha256=approved_soundfont_sha256,
+        _task006_seed_context=inputs["context"],
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:

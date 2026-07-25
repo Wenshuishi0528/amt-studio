@@ -10,6 +10,7 @@ from pathlib import Path
 
 from scripts import create_melody_review
 
+from amt_core.benchmark import canonical_json_sha256
 from amt_core.events import NoteEvent, write_jsonl
 
 
@@ -122,6 +123,7 @@ def _write_candidate(
     input_audio: Path | None = None,
     input_lineage: dict[str, object] | None = None,
     legacy_manifest: bool = False,
+    worker: str = "fixture-worker",
 ) -> Path:
     canonical_mix = project_dir / "audio" / "canonical" / "mix.flac"
     input_audio = input_audio or canonical_mix
@@ -145,7 +147,7 @@ def _write_candidate(
         "schema_version": 1,
         "run_id": run_id,
         "status": "succeeded",
-        "worker": "fixture-worker",
+        "worker": worker,
         "model": "fixture-model",
         "inputs": [
             {
@@ -176,6 +178,7 @@ def _write_fake_tool(
     *,
     fail_render: bool = False,
     truncate_excerpt: bool = False,
+    soundfont_program_zero: str = "Grand Piano",
 ) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     failure_code = "raise SystemExit(9)" if fail_render else ""
@@ -188,6 +191,10 @@ import wave
 args = sys.argv[1:]
 if "--version" in args or "-version" in args:
     print("fixture tool 1.0")
+    raise SystemExit(0)
+if "-a" in args and "file" in args:
+    sys.stdin.read()
+    print("000-000 " + {soundfont_program_zero!r})
     raise SystemExit(0)
 if {fail_render!r}:
     {failure_code or "pass"}
@@ -224,6 +231,7 @@ def _fixture_inputs(root: Path) -> dict[str, object]:
             run_id="game-run",
             input_audio=stem,
             input_lineage=stem_lineage,
+            worker="game",
         ),
         "basic": _write_candidate(
             project_dir,
@@ -274,7 +282,111 @@ def _fixture_inputs(root: Path) -> dict[str, object]:
         "passages": passages,
         "fluidsynth": fluidsynth,
         "ffmpeg": ffmpeg,
+        "approved_soundfont_sha256": create_melody_review.sha256_file(soundfont),
     }
+
+
+def _write_task006_seed_metadata(
+    inputs: dict[str, object],
+) -> tuple[Path, Path, Path, Path]:
+    project_dir = Path(inputs["project_dir"])
+    candidate_run = Path(inputs["candidates"]["game"])
+    pack = project_dir / "annotations" / "reference-task006-blind-v1"
+    pack.mkdir(parents=True)
+
+    excerpts = [
+        {
+            "excerpt_id": f"blind-{index:02d}",
+            "evaluation_start_sec": float(index - 1),
+            "evaluation_end_sec": float(index),
+            "duration_sec": 1.0,
+        }
+        for index in range(1, 7)
+    ]
+    freeze_payload = {
+        "schema": "amt-benchmark-manifest/v1",
+        "project_id": project_dir.name,
+        "split": "blind_test",
+        "canonical_audio_sha256": create_melody_review.sha256_file(inputs["mix"]),
+        "excerpts": excerpts,
+    }
+    benchmark = {
+        "schema": "amt-benchmark-pack/v1",
+        "benchmark_freeze_sha256": canonical_json_sha256(freeze_payload),
+        "freeze_payload": freeze_payload,
+    }
+    benchmark_path = pack / "benchmark_manifest.json"
+    benchmark_path.write_text(
+        json.dumps(benchmark, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    policy = {
+        "schema": "amt-reference-seed-policy/v1",
+        "benchmark_freeze_sha256": benchmark["benchmark_freeze_sha256"],
+        "status": "frozen_before_candidate_output_inspection",
+        "seed_method": "candidate_corrected",
+        "seed_candidate_label": "game-vocal-a",
+        "seed_candidate_run_id": candidate_run.name,
+        "primary_evaluation_policy": {
+            "exclude_seed_candidate_from_primary_metrics": True,
+            "eligible_candidates": ["basic-pitch-vocal-a"],
+        },
+    }
+    policy_path = pack / "reference_seed_policy.json"
+    policy_path.write_text(
+        json.dumps(policy, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    events_path = candidate_run / create_melody_review.EVENTS_RELATIVE_PATH
+    run_manifest_path = candidate_run / "run_manifest.json"
+    candidate_payload = {
+        "schema": "amt-evaluation-candidate-set/v1",
+        "benchmark_freeze_sha256": benchmark["benchmark_freeze_sha256"],
+        "split": "blind_test",
+        "candidates": [
+            {
+                "label": "game-vocal-a",
+                "run_id": candidate_run.name,
+                "worker": "game",
+                "events_path": str(events_path),
+                "events_sha256": create_melody_review.sha256_file(events_path),
+                "run_manifest_path": str(run_manifest_path),
+                "run_manifest_sha256": create_melody_review.sha256_file(
+                    run_manifest_path
+                ),
+            },
+            {
+                "label": "basic-pitch-vocal-a",
+                "run_id": "sealed-unavailable-for-listening",
+                "worker": "basic-pitch",
+                "events_path": "/sealed/basic/events.jsonl",
+                "events_sha256": "1" * 64,
+                "run_manifest_path": "/sealed/basic/run_manifest.json",
+                "run_manifest_sha256": "2" * 64,
+            },
+        ],
+        "confirmation": {
+            "candidate_output_quality_uninspected_before_freeze": True,
+            "candidate_selection_or_tuning_after_freeze_prohibited": True,
+        },
+    }
+    candidate_seal = {
+        "schema": "amt-evaluation-candidate-set-seal/v1",
+        "freeze_payload": candidate_payload,
+        "candidate_set_sha256": canonical_json_sha256(candidate_payload),
+        "claims": {
+            "blind_result_eligible": True,
+            "quality_inspection_recorded_by_this_tool": False,
+        },
+    }
+    candidate_seal_path = pack / "candidate_set_seal.json"
+    candidate_seal_path.write_text(
+        json.dumps(candidate_seal, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    return pack, benchmark_path, policy_path, candidate_seal_path
 
 
 def _read_variable_length(payload: bytes, offset: int) -> tuple[int, int]:
@@ -356,6 +468,7 @@ class MelodyReviewTests(unittest.TestCase):
                 output=output,
                 fluidsynth=inputs["fluidsynth"],
                 ffmpeg=inputs["ffmpeg"],
+                approved_soundfont_sha256=inputs["approved_soundfont_sha256"],
             )
 
             self.assertEqual(result["status"], "awaiting_human_review")
@@ -371,6 +484,21 @@ class MelodyReviewTests(unittest.TestCase):
             self.assertEqual(Path(inputs["soundfont"]).read_bytes(), original_soundfont)
 
             persisted = json.loads((output / "review_manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(
+                persisted["soundfont"]["program_zero"],
+                {
+                    "bank": 0,
+                    "program": 0,
+                    "reported_preset": "Grand Piano",
+                    "acoustic_piano_verified": True,
+                    "verification_basis": (
+                        "approved_soundfont_sha256_and_exact_program_name"
+                    ),
+                    "approved_soundfont_sha256": inputs[
+                        "approved_soundfont_sha256"
+                    ],
+                },
+            )
             self.assertEqual(set(persisted["candidates"]), {"game", "basic", "muscriptor"})
             for candidate in persisted["candidates"].values():
                 self.assertTrue(candidate["canonical_events"]["run_id_verified"])
@@ -419,6 +547,205 @@ class MelodyReviewTests(unittest.TestCase):
                     record["sha256"],
                     create_melody_review.sha256_file(artifact),
                 )
+
+    def test_rejects_soundfont_without_acoustic_piano_program_zero(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            inputs = _fixture_inputs(root)
+            invalid_fluidsynth = _write_fake_tool(
+                root / "工具 空格" / "invalid-preset fluidsynth",
+                soundfont_program_zero="FM Bells 1",
+            )
+            output = root / "invalid-soundfont-review"
+
+            with self.assertRaisesRegex(
+                create_melody_review.MelodyReviewError,
+                "program 000 is not an acoustic piano",
+            ):
+                create_melody_review.create_review(
+                    mix=inputs["mix"],
+                    candidates=inputs["candidates"],
+                    passages=inputs["passages"],
+                    soundfont=inputs["soundfont"],
+                    output=output,
+                    fluidsynth=invalid_fluidsynth,
+                    ffmpeg=inputs["ffmpeg"],
+                    approved_soundfont_sha256=inputs["approved_soundfont_sha256"],
+                )
+
+            self.assertFalse(os.path.lexists(output))
+            self.assertFalse(list(output.parent.glob(f".{output.name}.tmp-*")))
+            for preset_name in ("FM Piano", "Rhodes Piano", "Electric Grand Piano"):
+                with self.subTest(preset_name=preset_name), self.assertRaisesRegex(
+                    create_melody_review.MelodyReviewError,
+                    "not an acoustic piano",
+                ):
+                    create_melody_review._verify_acoustic_piano_program_zero(
+                        f"000-000 {preset_name}\n".encode(),
+                        soundfont_sha256=inputs["approved_soundfont_sha256"],
+                        approved_soundfont_sha256=inputs[
+                            "approved_soundfont_sha256"
+                        ],
+                    )
+            with self.assertRaisesRegex(
+                create_melody_review.MelodyReviewError,
+                "not the explicitly approved",
+            ):
+                create_melody_review._verify_acoustic_piano_program_zero(
+                    b"000-000 Grand Piano\n",
+                    soundfont_sha256="0" * 64,
+                    approved_soundfont_sha256=inputs[
+                        "approved_soundfont_sha256"
+                    ],
+                )
+
+    def test_task006_seed_review_uses_frozen_windows_and_binds_sealed_game(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "Task 006 日本語"
+            inputs = _fixture_inputs(root)
+            pack, benchmark_path, policy_path, candidate_seal_path = (
+                _write_task006_seed_metadata(inputs)
+            )
+            output = root / "single seed review"
+
+            result = create_melody_review.create_task006_seed_review(
+                pack_dir=pack,
+                soundfont=inputs["soundfont"],
+                output=output,
+                fluidsynth=inputs["fluidsynth"],
+                ffmpeg=inputs["ffmpeg"],
+                approved_soundfont_sha256=inputs["approved_soundfont_sha256"],
+            )
+
+            self.assertEqual(result["task"], "006")
+            self.assertEqual(
+                result["artifact_type"],
+                "task006_candidate_corrected_single_seed_review",
+            )
+            self.assertFalse(result["task005_export"])
+            self.assertFalse(result["accuracy_claimed"])
+            self.assertEqual(set(result["candidates"]), {"seed"})
+            self.assertEqual(
+                [
+                    (
+                        passage["passage_id"],
+                        passage["start_sec"],
+                        passage["duration_sec"],
+                    )
+                    for passage in result["passages"]
+                ],
+                [
+                    (f"blind-{index:02d}", float(index - 1), 1.0)
+                    for index in range(1, 7)
+                ],
+            )
+            for passage in result["passages"]:
+                self.assertEqual(set(passage["outputs"]), {"mix", "seed"})
+
+            task006 = result["task006_seed_review"]
+            self.assertEqual(task006["reference_creation_method"], "candidate_corrected")
+            self.assertTrue(task006["single_predeclared_seed"])
+            self.assertEqual(
+                task006["seed_candidate"],
+                {
+                    "review_label": "seed",
+                    "sealed_candidate_label": "game-vocal-a",
+                    "run_id": "game-run",
+                    "worker": "game",
+                    "events_sha256": create_melody_review.sha256_file(
+                        Path(inputs["candidates"]["game"])
+                        / create_melody_review.EVENTS_RELATIVE_PATH
+                    ),
+                    "run_manifest_sha256": create_melody_review.sha256_file(
+                        Path(inputs["candidates"]["game"]) / "run_manifest.json"
+                    ),
+                    "eligible_for_primary_metrics": False,
+                    "exclusion_policy": (
+                        "permanently_excluded_as_candidate_corrected_annotation_seed"
+                    ),
+                },
+            )
+            self.assertEqual(
+                task006["bindings"]["benchmark_freeze_sha256"],
+                json.loads(benchmark_path.read_text(encoding="utf-8"))[
+                    "benchmark_freeze_sha256"
+                ],
+            )
+            self.assertEqual(
+                task006["bindings"]["candidate_set_sha256"],
+                json.loads(candidate_seal_path.read_text(encoding="utf-8"))[
+                    "candidate_set_sha256"
+                ],
+            )
+            for key, path in (
+                ("benchmark_manifest", benchmark_path),
+                ("reference_seed_policy", policy_path),
+                ("candidate_set_seal", candidate_seal_path),
+            ):
+                self.assertEqual(
+                    task006["bindings"][key],
+                    {
+                        "path": str(path.resolve()),
+                        "sha256": create_melody_review.sha256_file(path),
+                        "size_bytes": path.stat().st_size,
+                    },
+                )
+
+    def test_task006_seed_review_rejects_unsealed_or_changed_seed_identity(self) -> None:
+        mutators = {
+            "seed label": lambda policy, seal: policy.update(
+                {"seed_candidate_label": "not-in-seal"}
+            ),
+            "seed run": lambda policy, seal: policy.update(
+                {"seed_candidate_run_id": "other-run"}
+            ),
+            "eligible candidates": lambda policy, seal: policy[
+                "primary_evaluation_policy"
+            ].update({"eligible_candidates": ["unsealed-candidate"]}),
+            "GAME worker": lambda policy, seal: seal["freeze_payload"]["candidates"][
+                0
+            ].update({"worker": "basic-pitch"}),
+            "events SHA-256": lambda policy, seal: seal["freeze_payload"]["candidates"][
+                0
+            ].update({"events_sha256": "0" * 64}),
+            "manifest SHA-256": lambda policy, seal: seal["freeze_payload"][
+                "candidates"
+            ][0].update({"run_manifest_sha256": "0" * 64}),
+        }
+        for expected_error, mutate in mutators.items():
+            with (
+                self.subTest(expected_error=expected_error),
+                tempfile.TemporaryDirectory() as temporary,
+            ):
+                root = Path(temporary)
+                inputs = _fixture_inputs(root)
+                pack, _benchmark_path, policy_path, candidate_seal_path = (
+                    _write_task006_seed_metadata(inputs)
+                )
+                policy = json.loads(policy_path.read_text(encoding="utf-8"))
+                seal = json.loads(candidate_seal_path.read_text(encoding="utf-8"))
+                mutate(policy, seal)
+                seal["candidate_set_sha256"] = canonical_json_sha256(
+                    seal["freeze_payload"]
+                )
+                policy_path.write_text(json.dumps(policy), encoding="utf-8")
+                candidate_seal_path.write_text(json.dumps(seal), encoding="utf-8")
+
+                with self.assertRaisesRegex(
+                    create_melody_review.MelodyReviewError,
+                    expected_error,
+                ):
+                    create_melody_review.create_task006_seed_review(
+                        pack_dir=pack,
+                        soundfont=inputs["soundfont"],
+                        output=root / "must-not-exist",
+                        fluidsynth=inputs["fluidsynth"],
+                        ffmpeg=inputs["ffmpeg"],
+                        approved_soundfont_sha256=inputs[
+                            "approved_soundfont_sha256"
+                        ],
+                    )
+                self.assertFalse((root / "must-not-exist").exists())
 
     def test_rejects_tampering_run_id_source_run_id_and_non_succeeded_status(self) -> None:
         mutators = {
@@ -508,6 +835,7 @@ class MelodyReviewTests(unittest.TestCase):
                     output=output,
                     fluidsynth=inputs["fluidsynth"],
                     ffmpeg=inputs["ffmpeg"],
+                    approved_soundfont_sha256=inputs["approved_soundfont_sha256"],
                 )
             self.assertFalse(os.path.lexists(output))
 
@@ -533,6 +861,7 @@ class MelodyReviewTests(unittest.TestCase):
                     output=output,
                     fluidsynth=inputs["fluidsynth"],
                     ffmpeg=inputs["ffmpeg"],
+                    approved_soundfont_sha256=inputs["approved_soundfont_sha256"],
                 )
             self.assertFalse(os.path.lexists(output))
 
@@ -651,6 +980,7 @@ class MelodyReviewTests(unittest.TestCase):
                     output=output,
                     fluidsynth=inputs["fluidsynth"],
                     ffmpeg=inputs["ffmpeg"],
+                    approved_soundfont_sha256=inputs["approved_soundfont_sha256"],
                 )
             self.assertFalse(output.exists())
 
@@ -666,6 +996,7 @@ class MelodyReviewTests(unittest.TestCase):
                     output=output,
                     fluidsynth=inputs["fluidsynth"],
                     ffmpeg=inputs["ffmpeg"],
+                    approved_soundfont_sha256=inputs["approved_soundfont_sha256"],
                 )
             self.assertFalse(output.exists())
 
@@ -689,6 +1020,7 @@ class MelodyReviewTests(unittest.TestCase):
                     output=existing,
                     fluidsynth=inputs["fluidsynth"],
                     ffmpeg=inputs["ffmpeg"],
+                    approved_soundfont_sha256=inputs["approved_soundfont_sha256"],
                 )
             self.assertEqual(marker.read_text(encoding="utf-8"), "keep")
 
@@ -708,6 +1040,7 @@ class MelodyReviewTests(unittest.TestCase):
                     output=symlink_output,
                     fluidsynth=inputs["fluidsynth"],
                     ffmpeg=inputs["ffmpeg"],
+                    approved_soundfont_sha256=inputs["approved_soundfont_sha256"],
                 )
             self.assertEqual(list(target.iterdir()), [])
 
@@ -733,6 +1066,7 @@ class MelodyReviewTests(unittest.TestCase):
                     output=output,
                     fluidsynth=inputs["fluidsynth"],
                     ffmpeg=failing_ffmpeg,
+                    approved_soundfont_sha256=inputs["approved_soundfont_sha256"],
                 )
 
             self.assertFalse(os.path.lexists(output))
@@ -760,6 +1094,7 @@ class MelodyReviewTests(unittest.TestCase):
                     output=output,
                     fluidsynth=inputs["fluidsynth"],
                     ffmpeg=truncating_ffmpeg,
+                    approved_soundfont_sha256=inputs["approved_soundfont_sha256"],
                 )
 
             self.assertFalse(os.path.lexists(output))

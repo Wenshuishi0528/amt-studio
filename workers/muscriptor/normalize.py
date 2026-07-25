@@ -37,10 +37,12 @@ def normalize_native_events(
     *,
     run_id: str,
     source_model: str,
+    rejected_path: Path | None = None,
 ) -> dict[str, Any]:
     starts: dict[int, tuple[dict[str, Any], int]] = {}
     ended: set[int] = set()
     canonical: list[NoteEvent] = []
+    rejected: list[dict[str, Any]] = []
 
     with native_path.open("r", encoding="utf-8") as handle:
         for line_number, line in enumerate(handle, start=1):
@@ -105,6 +107,33 @@ def normalize_native_events(
             )
             onset = float(start["start_time"])
             instrument = str(start["instrument"])
+            if offset < onset:
+                raise NativeEventError(
+                    f"{native_path}:{line_number}: end_time {offset} precedes "
+                    f"start_time {onset} for native event {index}"
+                )
+            if offset == onset:
+                if rejected_path is None:
+                    raise NativeEventError(
+                        f"{native_path}:{line_number}: zero-duration native event {index}; "
+                        "provide rejected_path to quarantine it explicitly"
+                    )
+                rejected.append(
+                    {
+                        "reason": "zero_duration",
+                        "native_start_index": index,
+                        "native_start_line": start_line,
+                        "native_end_line": line_number,
+                        "onset_sec": onset,
+                        "offset_sec": offset,
+                        "pitch_midi": start["pitch"],
+                        "instrument": instrument,
+                        "native_start_event": start,
+                        "native_end_event": value,
+                    }
+                )
+                ended.add(index)
+                continue
             event = NoteEvent(
                 event_id=f"{run_id}:muscriptor:{index}",
                 track_id=f"muscriptor-native:{instrument}",
@@ -145,6 +174,17 @@ def normalize_native_events(
 
     canonical.sort(key=lambda event: (event.onset_sec, event.offset_sec, event.event_id))
     write_jsonl(output_path, canonical)
+    if rejected_path is not None:
+        atomic_write_json(
+            rejected_path,
+            {
+                "schema_version": 1,
+                "run_id": run_id,
+                "policy": "quarantine_exact_zero_duration_only",
+                "rejected_event_count": len(rejected),
+                "events": rejected,
+            },
+        )
 
     instruments = Counter(event.instrument for event in canonical)
     summary: dict[str, Any] = {
@@ -173,6 +213,11 @@ def normalize_native_events(
             "status": "unmapped",
             "reason": "Native names are preserved until a later measured taxonomy mapping.",
         },
+        "rejected_events": {
+            "count": len(rejected),
+            "policy": "quarantine_exact_zero_duration_only",
+            "path": str(rejected_path) if rejected_path is not None else None,
+        },
     }
     atomic_write_json(summary_path, summary)
     return summary
@@ -187,6 +232,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--summary", type=Path, required=True)
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--source-model", required=True)
+    parser.add_argument(
+        "--rejected",
+        type=Path,
+        help="Write an explicit quarantine report for exact zero-duration native notes.",
+    )
     return parser
 
 
@@ -198,6 +248,7 @@ def main(argv: list[str] | None = None) -> int:
         args.summary.resolve(),
         run_id=args.run_id,
         source_model=args.source_model,
+        rejected_path=args.rejected.resolve() if args.rejected is not None else None,
     )
     print(json.dumps(summary, indent=2, sort_keys=True))
     return 0

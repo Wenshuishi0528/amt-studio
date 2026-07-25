@@ -4,18 +4,87 @@ This project records changes by numbered research task until formal semantic
 versions and releases begin. Dates and commit identifiers refer to the local
 Git history.
 
-## Unreleased
+## Task 006 — Human references and formal evaluation — 2026-07-25
+
+Commit: this task's final commit (`feat: complete reference evaluation task 006`)
 
 ### Added
 
 - Added `CHANGELOG.md` for task-level history.
 - Added `HANDOFF.md` for the current Mac/Hyak operating boundary, verified
   artifacts, limitations, and the next-task entry point.
+- Added the Task 006 benchmark freeze, human-reference sealing,
+  note/timed-event metrics, confidence/coverage reporting, correction-effort
+  logging, schemas, and tamper-detecting evaluation outputs.
+- Added frozen-audio revalidation, verified worker/canonical-mix lineage,
+  single-target-track scoring, annotation-seed exclusion, correction-log
+  binding, hashed evaluation run manifests, and an acoustic-piano SoundFont
+  preset check for listening reviews.
+- Added pre-inspection blind candidate-set sealing, immutable annotation-seed
+  binding, worker-verified seed ingestion, mandatory correction review
+  evidence, full top-line derivation manifests, and a hash-plus-exact-preset
+  allowlist for the acoustic-piano review asset.
+- Added semantic seed-copy exclusion, reviewed-artifact hash enforcement,
+  frozen-duration correction validation, boundary-offset censoring, and
+  lineage-preserving separator-stem normalization recovery.
+- Hardened the evaluation harness after focused review: scored-window semantic
+  seed fingerprints, minimum-cost maximum matching, honest unavailable
+  confidence output, masked high-agreement diagnostics, and boundary-bound
+  offset censoring.
+- Froze a replacement different-artist blind project before inference,
+  predeclared its fixed candidate set, and submitted the complete Hyak Slurm
+  dependency chain without inspecting candidate quality.
+- Synced and hash-verified the completed checkpoint-A40 formal blind chain and
+  its four-candidate preinspection seal.
+- Added a Task 006 single-seed review command that binds the benchmark, seed
+  policy, candidate seal, worker artifacts, frozen windows, and approved
+  acoustic-piano SoundFont without exposing the three candidates that remain
+  eligible for primary metrics.
+- Allowed a candidate-corrected blind evaluation to consume exactly the sealed
+  candidate set minus its uniquely hash-bound annotation seed, while recording
+  that exclusion in both the evaluation report and run manifest.
+- Hardened evaluation publication against input changes and output-path races
+  by revalidating all scored snapshots and claiming a new non-overwriting
+  destination before copying verified staged artifacts.
+- Preserved the first replacement-blind owner feedback as subjective,
+  non-metric evidence and kept known wrong, missing, cluttered, or
+  target-role-ambiguous notes unsealed.
+- Ran a fixed annotation-only pYIN correction aid on a Hyak checkpoint CPU
+  node, hash-verified all outputs, and rendered a narrow `Grand Piano` review
+  for the three vocal passages without reading the sealed primary candidates.
+- Added professionally annotated MedleyDB predominant-melody and Vocadito
+  dual-annotator note benchmarks, with candidate routes and windows frozen
+  before inference.
+- Added portable Hyak/Mac candidate resolution, same-source external-reference
+  binding, complete formal-evaluation run provenance, finite event validation,
+  and auditable note-level corrected-seed application.
 
-### Next
+### Verified
 
-- Task 006: freeze human-reference excerpts and implement the evaluation
-  harness before fusion or tuning.
+- MedleyDB A40 candidate job `37690768` and final CPU evaluation job `37692231`
+  completed; GAME ranked first with overall accuracy `0.7271`, raw pitch
+  accuracy `0.6822`, voicing recall `0.9278`, and voicing false alarm `0.2086`
+  at the fixed inclusive 50-cent tolerance.
+- Vocadito A40 candidate job `37691274` and final CPU evaluation job `37692232`
+  completed; GAME ranked first with macro per-track Amax onset+pitch F1
+  `0.7447` and onset+pitch+offset F1 `0.4758`.
+- Both trained-musician annotators remain separately reported; GAME aggregate
+  onset+pitch F1 is `0.5966` against A1 and `0.7379` against A2.
+- All authoritative `v3` outputs and their recorded final source files were
+  hash-verified after Mac synchronization.
+- Focused `/review` ran and all nine final P1/P2 findings received regression
+  fixes.
+- `make check` passed with 155 tests.
+
+### Known limitations
+
+- Owner listening percentages remain subjective and pYIN remains rejected;
+  neither is reported as formal accuracy.
+- MedleyDB frame metrics and Vocadito isolated-vocal note metrics do not
+  constitute full-arrangement or private-song accuracy.
+- The automated note-object discrepancy rate is not an edit-action lower bound
+  or measured human time. Gate 2 remains pending a timed correction session,
+  so Task 007 is not yet authorized.
 
 ## Task 005 — Beat map and canonical events — 2026-07-24
 

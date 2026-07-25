@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import tempfile
 import unittest
 from pathlib import Path
@@ -39,6 +40,22 @@ class NoteEventTests(unittest.TestCase):
         )
         with self.assertRaises(EventValidationError):
             event.validate()
+
+    def test_rejects_non_finite_numeric_fields(self) -> None:
+        base = {
+            "event_id": "bad",
+            "track_id": "melody",
+            "onset_sec": 1.0,
+            "offset_sec": 2.0,
+            "pitch_midi": 60.0,
+            "source_run_id": "run",
+            "source_model": "test",
+        }
+        for field_name in ("onset_sec", "offset_sec", "pitch_midi", "confidence"):
+            with self.subTest(field_name=field_name):
+                values = {**base, field_name: math.nan}
+                with self.assertRaisesRegex(EventValidationError, "finite"):
+                    NoteEvent(**values).validate()
 
 
 if __name__ == "__main__":

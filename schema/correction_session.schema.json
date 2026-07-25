@@ -1,0 +1,160 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/amt-studio/correction_session.schema.json",
+  "title": "AMT Studio correction effort session",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "session_id",
+    "benchmark_freeze_sha256",
+    "excerpt_id",
+    "candidate_sha256",
+    "audio_duration_sec",
+    "total_edit_time_sec",
+    "review_granularity",
+    "operations"
+  ],
+  "properties": {
+    "schema": {
+      "const": "amt-correction-session/v1"
+    },
+    "session_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "benchmark_freeze_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "excerpt_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "candidate_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "audio_duration_sec": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "total_edit_time_sec": {
+      "type": "number",
+      "minimum": 0
+    },
+    "operations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "operation_id",
+          "action",
+          "elapsed_edit_sec",
+          "source_note_ids",
+          "result_note_ids"
+        ],
+        "properties": {
+          "operation_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "action": {
+            "enum": [
+              "add",
+              "delete",
+              "merge",
+              "pitch",
+              "reassign_instrument",
+              "resize_offset",
+              "shift_onset",
+              "split"
+            ]
+          },
+          "elapsed_edit_sec": {
+            "type": "number",
+            "minimum": 0
+          },
+          "source_note_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "result_note_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "comment": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      }
+    },
+    "review_granularity": {
+      "enum": [
+        "note_level_edit",
+        "whole_excerpt_aural_comparison"
+      ]
+    },
+    "full_playback_count": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "additional_review_sec": {
+      "type": "number",
+      "minimum": 0
+    },
+    "decision": {
+      "enum": [
+        "accept_seed",
+        "accept_empty"
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "review_granularity": {
+            "const": "whole_excerpt_aural_comparison"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "full_playback_count",
+          "additional_review_sec",
+          "decision"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "review_granularity": {
+            "const": "note_level_edit"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "total_edit_time_sec": {
+            "exclusiveMinimum": 0
+          },
+          "operations": {
+            "minItems": 1
+          }
+        }
+      }
+    }
+  ]
+}

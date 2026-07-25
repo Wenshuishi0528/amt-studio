@@ -6,6 +6,7 @@ import os
 import re
 import tempfile
 import unicodedata
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -29,10 +30,8 @@ def atomic_write_json(path: Path, value: Any) -> None:
             os.fsync(handle.fileno())
         os.replace(temp_name, path)
     except BaseException:
-        try:
+        with suppress(FileNotFoundError):
             os.unlink(temp_name)
-        except FileNotFoundError:
-            pass
         raise
 
 

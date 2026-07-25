@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/amt-studio/reference_note.schema.json",
+  "title": "AMT Studio human reference note",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "reference_note_id",
+    "onset_sec",
+    "offset_sec",
+    "pitch_midi",
+    "instrument",
+    "target_role",
+    "annotator_confidence",
+    "ambiguity_tags",
+    "evaluation_status",
+    "exclusion_reason",
+    "comment",
+    "offset_censored"
+  ],
+  "properties": {
+    "schema": {
+      "const": "amt-reference-note/v1"
+    },
+    "reference_note_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "onset_sec": {
+      "type": "number",
+      "minimum": 0
+    },
+    "offset_sec": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "pitch_midi": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 127
+    },
+    "instrument": {
+      "type": "string",
+      "minLength": 1
+    },
+    "target_role": {
+      "enum": [
+        "main_melody",
+        "drums",
+        "bass",
+        "harmonic"
+      ]
+    },
+    "annotator_confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "ambiguity_tags": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "harmony_overlap",
+          "ornament",
+          "pitch_center",
+          "phrase_boundary",
+          "source_identity",
+          "timing",
+          "weak_audibility"
+        ]
+      }
+    },
+    "evaluation_status": {
+      "enum": [
+        "include",
+        "exclude"
+      ]
+    },
+    "exclusion_reason": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "comment": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "offset_censored": {
+      "type": "boolean"
+    }
+  }
+}

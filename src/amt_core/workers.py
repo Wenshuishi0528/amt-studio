@@ -34,7 +34,8 @@ def muscriptor_baseline_command(project_dir: Path, *, model: str = "large") -> W
         ],
         notes=[
             f"Create the run directory first: {run_dir}",
-            "This command emits native JSONL. Run a second deterministic command for MIDI if the CLI cannot emit both in one invocation.",
+            "This command emits native JSONL. Run a second deterministic command "
+            "for MIDI if the CLI cannot emit both in one invocation.",
             f"Suggested MIDI output: {midi}",
             "Replace MANUAL_RUN_ID with a generated stable run ID and capture a run manifest.",
         ],

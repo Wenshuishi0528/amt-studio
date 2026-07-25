@@ -1,8 +1,8 @@
 # Project status
 
-Current gate: Gate 1 passed under the user-directed Hyak compute boundary
-Current task: `tasks/005_BEAT_AND_CANONICAL_EVENTS.md` complete
-Next task: `tasks/006_REFERENCE_ANNOTATION_AND_EVAL.md`
+Current gate: Gate 2 awaits a timed human-correction session
+Current task: `tasks/006_REFERENCE_ANNOTATION_AND_EVAL.md` complete
+Next task: measure human correction time before authorizing Task 007
 Current branch: `main`
 
 Verified on the user's Mac:
@@ -128,7 +128,150 @@ Not yet verified:
 - GAME or Basic Pitch repeatability across independent inference runs;
 - candidate fusion, formal score quantization/MusicXML, training, or SwiftUI.
 
-Task 005 is complete. Its performance MIDI retains four unranked candidate
-tracks; its score-grid JSONL is explicitly experimental and is not a formal
-score. Gate 2 remains unpassed until Task 006 freezes human references and
-computes held-out metrics.
+Task 006 implementation now includes a dependency-light reference-note model,
+benchmark freeze policy, human-reference seal, note/octave/instrument and
+confidence/coverage metrics, timed-event F1, correction-effort logs, seeded
+whole-excerpt review, an annotation-only top-line proposal tool, and
+tamper-detecting evaluation output. Candidate-corrected seals now bind the
+verified worker seed and review artifacts immutably; blind results require an
+exact candidate set frozen before output-quality inspection. The first private
+song has a six-excerpt development pack, publicly referred to as
+`development-song-a`, with benchmark SHA-256
+`ec7e6895b36686212da8cbec5e86bee9007f0d733f5b433cdfe56111a02f6838`;
+the owner has confirmed that its six stated coverage types are broadly correct.
+
+A previously unused different-artist song is now frozen before model output as
+the opaque public alias `blind-song-b`, with benchmark SHA-256
+`e235a1faa04990bb53c3d976bfb6bb9241411beae4cc198328eaece747a8e5ee`.
+Its separator, Beat This, GAME, Basic Pitch, vocal-stem MuScriptor, and
+direct-mix MuScriptor baselines ran on Hyak compute nodes. Direct MuScriptor
+produced 8,270 native notes; one exact zero-duration note was explicitly
+quarantined and 8,269 valid notes were recovered without rerunning inference.
+
+Owner listening now provides actionable but still subjective error labels:
+`blind-01` was described as approximately 90% correct, `blind-02`, `blind-04`,
+and `blind-06` retain note identity or segmentation errors, and `blind-05`
+remains cluttered. A post-feedback annotation-only Hyak A40 job (`37627351`)
+transcribed the multistem `other` track with drums, bass, and vocals excluded.
+It completed successfully and produced a cleaner 59-note `blind-05` proposal,
+but owner listening rejected it: the configured review SoundFont did not sound
+like a recognizable acoustic piano, and the original tune was not
+recognizable. This route is closed rather than rerendered with a different
+timbre, because the melody itself failed. The derived proposal is excluded
+from primary blind metrics. The review renderer now verifies the actual bank 0
+program 0 preset and rejects non-acoustic-piano SoundFonts, so the prior
+`FM Bells 1` configuration cannot recur; this guard does not rehabilitate the
+failed melody. Verification now requires both the approved GeneralUser GS
+SHA-256 and the exact bank 0/program 0 name `Grand Piano`; names such as
+`FM Piano` and `Rhodes Piano` are rejected.
+
+A final Hyak annotation-aid investigation used the six-stem guitar output. All
+three predeclared pYIN variants produced zero accepted notes. MuScriptor found
+167 notes in `blind-05`, but 40 of 77 onset groups were polyphonic and up to
+five notes occurred together. The stem therefore still contains lead plus
+accompaniment rather than a trustworthy single melody. This route was rejected
+without producing another owner listening pack. The 90% wording is not a
+measured accuracy result.
+
+The focused Task 006 review found five additional benchmark-integrity defects,
+all now covered by regression tests: seed-copy detection is scoped to scored
+windows and scoring fields; absent confidence emits no numeric threshold
+rows; pair-dependent metrics use globally minimum-cost maximum matching;
+high-agreement diagnostics mask estimates matched to omitted references; and
+offset censoring is accepted only at the frozen context boundary.
+The later formal-blind completion path also fixed a sealed-set contradiction:
+a candidate-corrected reference may evaluate exactly the preinspection sealed
+set minus its uniquely hash-bound annotation seed, and the excluded seed is
+recorded in both reports. Final review additionally requires that seed to
+exist in the sealed set, revalidates every scored input snapshot immediately
+before publication, and publishes into a newly claimed directory without
+overwriting a path that appeared during evaluation. `make check` now passes
+all 155 unit tests;
+script/worker compile checks, JSON-schema parsing,
+external-working-directory CLI startup, and `git diff --check` also pass.
+
+The private-song note references remain unsealed, so no formal note metrics are
+claimed for those songs. Their current artifacts were already inspected and
+cannot be retroactively labeled as formal blind metrics. Task 006 therefore
+uses separately frozen external references for its formal baseline while
+retaining the private-song feedback only as subjective annotation guidance.
+
+A replacement formal blind project, publicly identified only as
+`blind-song-c`, was ingested from a newly supplied different-artist song. Its
+six audio-only excerpts were frozen before any model submission with benchmark
+SHA-256 `f4e1736c833eb0cc427f17d9bb0f99dae7d5211dfe737bd013f9aa78718539f0`.
+The separator route and four main-melody candidate labels were predeclared
+while output quality was uninspected. Superseded multi-job submissions were
+cancelled before start. Job `37637038` used one checkpoint A40 and completed
+the separator, Beat This, GAME, Basic Pitch, and MuScriptor chain in
+`00:25:07` with exit code `0:0`. It automatically wrote the preinspection
+candidate seal before synchronization; candidate-set SHA-256 is
+`02f37949ffe92824cb6b793181f491562c3cd66622f7e2f9d7f727bd53763296`.
+All eight worker runs, the comparison report, seal, and Slurm logs were synced
+to the Mac and every manifest-recorded output was re-hashed successfully.
+
+Before listening, GAME was frozen as the single candidate-corrected annotation
+seed and permanently excluded from primary metrics. A Task 006-specific
+renderer now requires the benchmark freeze, seed policy, candidate seal, exact
+GAME run and artifact hashes, and the approved `Grand Piano` SoundFont before
+creating a package. The six synchronized mix/seed passages are generated and
+hash-verified with status `awaiting_human_review`; no other sealed candidate
+was exposed as an annotation aid.
+
+The first owner review described `blind-02`, `blind-03`, and `blind-04` as
+approximately 95%, 90%, and 80% correct by informal listening, while also
+reporting residual wrong, cluttered, or missing notes. Those percentages are
+preserved only as subjective impressions and are not measured accuracy or
+reference approval. The owner classified `blind-05` and `blind-06` as
+accompaniment/interlude rather than the one-track main melody, so the detected
+seed notes may be false positives; because the feedback was explicitly offered
+as non-expert guidance, the empty-reference interpretation remains provisional.
+
+The raw feedback was recorded privately without modifying the seeded notes.
+An independent annotation-only pYIN aid then ran on the lineage-verified vocal
+stem in Hyak checkpoint CPU job `37650151`. It completed in
+`00:02:54` with exit code `0:0`; all 12 declared outputs were hash-verified
+after synchronization. It proposed 22, 22, and 17 notes for `blind-02` through
+`blind-04`, and a narrow three-passage review pack was rendered with the
+approved `Grand Piano` SoundFont. The aid did not read or expose the three
+sealed primary candidates and is ineligible for primary blind metrics. Its
+`blind-05` and `blind-06` detections will not override the owner's
+accompaniment classification.
+
+Final owner review retained the GAME seed as the more useful annotation aid
+and rejected pYIN as discontinuous and unusable. That route is closed rather
+than awaiting another listening pass. The provisional private-song references
+remain unsealed; formal Task 006 metrics instead use separately frozen,
+professionally annotated external benchmarks without converting the owner's
+subjective percentages into accuracy claims.
+
+The MedleyDB predominant-melody benchmark froze six windows and four candidate
+routes before inference. A40 job `37690768` completed and sealed candidate-set
+SHA-256
+`f34359571dd3396197182c39f4c1c63dac6ae870ddbf49ec79bc6e384e4517c6`.
+Final CPU evaluation job `37692231` completed with exit code `0:0`. At the
+fixed inclusive 50-cent tolerance, GAME ranked first with overall accuracy
+`0.7271`, raw pitch accuracy `0.6822`, voicing recall `0.9278`, and voicing
+false alarm `0.2086`; Basic Pitch ranked second with `0.5564`, `0.4368`,
+`0.8860`, and `0.2723`. The authoritative report SHA-256 is
+`e4407cce7728e0990d0b3070edb43464ba60228296fb80aeb210ef0bc287ea68`.
+
+The Vocadito dual-annotator note benchmark fixed six singers and both
+trained-musician note transcriptions before candidate inference. A40 job
+`37691274` completed and sealed candidate-set SHA-256
+`4de9e1495687a255bf3d8f5244cb31235b781db70d1fc852ffb297fa764a21e7`.
+Final CPU evaluation job `37692232` completed with exit code `0:0`. GAME ranked
+first with macro per-track Amax onset+pitch F1 `0.7447` and
+onset+pitch+offset F1 `0.4758`; its aggregate onset+pitch F1 was `0.5966`
+against A1 and `0.7379` against A2. The authoritative report SHA-256 is
+`f38c2c0d31086418b40ef10e2a9c437c7c76d2771794176b5e9559e64e7a0d60`.
+Amax is retained only as an optimistic summary; A1/A2 results remain visible.
+
+Final `/review` found nine P1/P2 issues. All were fixed with regression tests:
+note-level corrected seeds can now be audited and sealed; Hyak candidate paths
+relocate by run identity and hashes; contour and note references bind to the
+same selected source records; formal contour manifests record command,
+configuration, code, host, device, and timestamps; non-finite events are
+rejected; and the correction proxy no longer claims to be an edit-action lower
+bound. Task 006 acceptance criteria pass, but Gate 2 remains pending because
+no timed human correction session has been measured.

@@ -137,6 +137,90 @@ class MuScriptorAdapterTests(unittest.TestCase):
                     source_model="model",
                 )
 
+    def test_quarantines_exact_zero_duration_with_explicit_report(self) -> None:
+        native = [
+            {
+                "type": "start",
+                "pitch": 66,
+                "start_time": 148.66,
+                "index": 3638,
+                "instrument": "distorted_electric_guitar",
+            },
+            {"type": "end", "end_time": 148.66, "start_event_index": 3638},
+            {
+                "type": "start",
+                "pitch": 67,
+                "start_time": 149.0,
+                "index": 3639,
+                "instrument": "distorted_electric_guitar",
+            },
+            {"type": "end", "end_time": 149.5, "start_event_index": 3639},
+        ]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            rejected_path = root / "rejected.json"
+            result = normalize_native_events(
+                self._write_native(root, native),
+                root / "events.jsonl",
+                root / "summary.json",
+                run_id="run",
+                source_model="model",
+                rejected_path=rejected_path,
+            )
+            events = read_jsonl(root / "events.jsonl")
+            rejected = json.loads(rejected_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].extra["native_start_index"], 3639)
+        self.assertEqual(result["rejected_events"]["count"], 1)
+        self.assertEqual(rejected["policy"], "quarantine_exact_zero_duration_only")
+        self.assertEqual(rejected["events"][0]["native_start_index"], 3638)
+
+    def test_zero_duration_requires_explicit_quarantine_path(self) -> None:
+        native = [
+            {
+                "type": "start",
+                "pitch": 66,
+                "start_time": 1.0,
+                "index": 4,
+                "instrument": "voice",
+            },
+            {"type": "end", "end_time": 1.0, "start_event_index": 4},
+        ]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with self.assertRaisesRegex(NativeEventError, "provide rejected_path"):
+                normalize_native_events(
+                    self._write_native(root, native),
+                    root / "events.jsonl",
+                    root / "summary.json",
+                    run_id="run",
+                    source_model="model",
+                )
+
+    def test_negative_duration_is_never_quarantined(self) -> None:
+        native = [
+            {
+                "type": "start",
+                "pitch": 66,
+                "start_time": 2.0,
+                "index": 5,
+                "instrument": "voice",
+            },
+            {"type": "end", "end_time": 1.9, "start_event_index": 5},
+        ]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with self.assertRaisesRegex(NativeEventError, "precedes start_time"):
+                normalize_native_events(
+                    self._write_native(root, native),
+                    root / "events.jsonl",
+                    root / "summary.json",
+                    run_id="run",
+                    source_model="model",
+                    rejected_path=root / "rejected.json",
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

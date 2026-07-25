@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import math
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 
 class EventValidationError(ValueError):
@@ -34,23 +36,27 @@ class NoteEvent:
             raise EventValidationError(f"Unsupported schema_version: {self.schema_version}")
         if not self.event_id or not self.track_id:
             raise EventValidationError("event_id and track_id are required")
-        if self.onset_sec < 0:
-            raise EventValidationError("onset_sec must be non-negative")
-        if self.offset_sec <= self.onset_sec:
-            raise EventValidationError("offset_sec must be greater than onset_sec")
-        if not 0 <= self.pitch_midi <= 127:
-            raise EventValidationError("pitch_midi must be in [0, 127]")
+        if not math.isfinite(self.onset_sec) or self.onset_sec < 0:
+            raise EventValidationError("onset_sec must be finite and non-negative")
+        if not math.isfinite(self.offset_sec) or self.offset_sec <= self.onset_sec:
+            raise EventValidationError(
+                "offset_sec must be finite and greater than onset_sec"
+            )
+        if not math.isfinite(self.pitch_midi) or not 0 <= self.pitch_midi <= 127:
+            raise EventValidationError("pitch_midi must be finite and in [0, 127]")
         if self.quantized_pitch_midi is not None and not 0 <= self.quantized_pitch_midi <= 127:
             raise EventValidationError("quantized_pitch_midi must be in [0, 127]")
         if self.velocity is not None and not 0 <= self.velocity <= 127:
             raise EventValidationError("velocity must be in [0, 127]")
-        if self.confidence is not None and not 0 <= self.confidence <= 1:
-            raise EventValidationError("confidence must be in [0, 1]")
+        if self.confidence is not None and (
+            not math.isfinite(self.confidence) or not 0 <= self.confidence <= 1
+        ):
+            raise EventValidationError("confidence must be finite and in [0, 1]")
         if not self.source_run_id or not self.source_model:
             raise EventValidationError("source_run_id and source_model are required")
 
     @classmethod
-    def from_dict(cls, value: dict[str, Any]) -> "NoteEvent":
+    def from_dict(cls, value: dict[str, Any]) -> NoteEvent:
         event = cls(**value)
         event.validate()
         return event

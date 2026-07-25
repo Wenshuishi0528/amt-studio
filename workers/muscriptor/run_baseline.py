@@ -536,6 +536,7 @@ def main(argv: list[str] | None = None) -> int:
             normalized_dir / "summary.json",
             run_id=run_id,
             source_model=source_model,
+            rejected_path=normalized_dir / "rejected_events.json",
         )
         manifest["metrics"] = {
             "descriptive_event_summary": summary,

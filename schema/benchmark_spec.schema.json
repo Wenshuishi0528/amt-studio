@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/amt-studio/benchmark_spec.schema.json",
+  "title": "AMT Studio benchmark specification",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "benchmark_id",
+    "project_id",
+    "split",
+    "song_group_id",
+    "artist_group_id",
+    "prior_system_exposure",
+    "excerpts"
+  ],
+  "properties": {
+    "schema": {
+      "const": "amt-benchmark-spec/v1"
+    },
+    "benchmark_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "project_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "split": {
+      "enum": [
+        "train",
+        "development",
+        "blind_test"
+      ]
+    },
+    "song_group_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "artist_group_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "prior_system_exposure": {
+      "type": "boolean"
+    },
+    "excerpts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "excerpt_id",
+          "start_sec",
+          "duration_sec",
+          "coverage_targets",
+          "selection_basis"
+        ],
+        "properties": {
+          "excerpt_id": {
+            "type": "string",
+            "pattern": "^[a-z0-9_-]+$"
+          },
+          "start_sec": {
+            "type": "number",
+            "minimum": 0
+          },
+          "duration_sec": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "coverage_targets": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "lead_vocal",
+                "chorus_or_harmony",
+                "instrumental_intro_or_interlude",
+                "dense_accompaniment",
+                "vibrato_or_glissando",
+                "weak_notes"
+              ]
+            }
+          },
+          "selection_basis": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    }
+  }
+}
