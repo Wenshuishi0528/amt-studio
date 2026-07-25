@@ -284,6 +284,22 @@ projects/private/<blind-song-c-project>/
 pYIN 断断续续、无法使用，因此该路线已经关闭，不再复听、调阈值或重跑。第 5/6
 段的少量 pYIN 检出也不会推翻所有者的伴奏分类。
 
+`blind-04` 另有一次私有乐谱引导修正。所有者明确了六页原谱中的第 3 页，也就是
+三页合并 PDF 第 2 页左半边；目标是第 2 行整行接第 3 行开头。Codex 只转录右手
+最上方旋律，用已有 Beat This 小节起点
+`180.78 / 182.84 / 184.88 / 186.94 / 188.98 s` 对齐，并按原唱音区下移一个
+八度。结果为 22 个音符，旧的 23-note GAME seed 保留不改，便于审计：
+
+```text
+projects/private/<blind-song-c-project>/
+  annotations/reference-task006-blind-v1/score-guided/blind-04-v1/
+```
+
+目录中包含逐音 JSONL、逐小节转录、来源哈希、乐谱裁图、MIDI、纯钢琴、
+原曲叠加钢琴和先原曲后钢琴试听。该 PDF/截图为用户私下提供，来源版权状态未
+独立核实，因此不得提交或分发。此次是 Codex 代录，没有测量项目所有者的人工
+修正用时，也没有签封为正式 reference；Gate 2 状态不变。
+
 ## Task 006 正式评测
 
 MedleyDB predominant-melody 帧级 benchmark：

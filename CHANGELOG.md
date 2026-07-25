@@ -58,6 +58,10 @@ Commit: this task's final commit (`feat: complete reference evaluation task 006`
 - Added portable Hyak/Mac candidate resolution, same-source external-reference
   binding, complete formal-evaluation run provenance, finite event validation,
   and auditable note-level corrected-seed application.
+- Added a private score-guided `blind-04` correction from the owner-supplied
+  original printed page 3, retaining source hashes, exact 22-note
+  transcription, Beat This alignment, the unchanged old seed, and three
+  acoustic-piano review renders without redistributing the score.
 
 ### Verified
 
@@ -72,6 +76,9 @@ Commit: this task's final commit (`feat: complete reference evaluation task 006`
   onset+pitch F1 is `0.5966` against A1 and `0.7379` against A2.
 - All authoritative `v3` outputs and their recorded final source files were
   hash-verified after Mac synchronization.
+- The `blind-04` score crop was visually verified against original printed
+  page 3, systems 2–3; its 22 notes are monotonic within `180.78–190.00 s`,
+  and all three WAV reviews are non-silent PCM stereo at 44.1 kHz.
 - Focused `/review` ran and all nine final P1/P2 findings received regression
   fixes.
 - `make check` passed with 155 tests.
@@ -85,6 +92,9 @@ Commit: this task's final commit (`feat: complete reference evaluation task 006`
 - The automated note-object discrepancy rate is not an edit-action lower bound
   or measured human time. Gate 2 remains pending a timed correction session,
   so Task 007 is not yet authorized.
+- The private `blind-04` score-guided transcription was performed by Codex,
+  not by the owner in a timed editor session; it remains provisional and cannot
+  be used to claim that Gate 2 correction-time evidence is complete.
 
 ## Task 005 — Beat map and canonical events — 2026-07-24
 

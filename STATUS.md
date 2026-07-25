@@ -245,6 +245,20 @@ remain unsealed; formal Task 006 metrics instead use separately frozen,
 professionally annotated external benchmarks without converting the owner's
 subjective percentages into accuracy claims.
 
+The owner later supplied a privately held piano score for `blind-04` and
+clarified that the relevant location is original printed page 3 of 6 (the left
+half of combined PDF page 2), system 2 through the opening of system 3. A
+score-guided provisional reference now records 22 right-hand top-voice notes
+over `180.78–190.00 s`, aligned to the existing Beat This downbeats and shifted
+down one octave to the recorded vocal register. It fixes the seed's missing,
+over-segmented, low-pitched, and split-note regions while retaining the old
+23-note seed unchanged for audit. Private source hashes, the exact
+transcription, a cropped score image, MIDI, and three acoustic-piano review
+renders are stored under
+`projects/private/<blind-song-c-project>/annotations/reference-task006-blind-v1/score-guided/blind-04-v1/`.
+This is Codex transcription from an owner-supplied score, not an owner-operated
+timed correction session, so it remains unsealed and does not close Gate 2.
+
 The MedleyDB predominant-melody benchmark froze six windows and four candidate
 routes before inference. A40 job `37690768` completed and sealed candidate-set
 SHA-256
