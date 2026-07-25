@@ -545,6 +545,43 @@ def _note_matches(
     return _maximum_matching(references, estimates, compatible, cost)
 
 
+def match_note_pairs(
+    references: Iterable[ReferenceNote],
+    estimates: Iterable[NoteEvent],
+    config: EvaluationConfig | None = None,
+    *,
+    require_offset: bool = False,
+) -> list[tuple[int, int]]:
+    """Return deterministic onset-and-pitch matches for included references.
+
+    The pair indices address the included-reference list and the materialized
+    estimate list respectively. This public helper lets calibration code label
+    candidate clusters with exactly the same one-to-one matching policy used
+    by formal evaluation.
+    """
+
+    config = config or EvaluationConfig()
+    config.validate()
+    all_references = list(references)
+    all_estimates = list(estimates)
+    for reference in all_references:
+        reference.validate()
+    for estimate in all_estimates:
+        estimate.validate()
+    included = [
+        reference
+        for reference in all_references
+        if reference.evaluation_status == "include"
+    ]
+    return _note_matches(
+        included,
+        all_estimates,
+        config,
+        require_pitch=True,
+        require_offset=require_offset,
+    )
+
+
 def _primary_metrics(
     references: list[ReferenceNote],
     estimates: list[NoteEvent],

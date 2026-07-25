@@ -4,11 +4,13 @@
 
 ## 一句话状态
 
-Task 001–006 已完成。两套专业标注 blind benchmark 已在候选输出前冻结并完成
-正式帧级/音符级评测；GAME 是当前四条固定路线中最强基线。Gate 2 仍未完全通过，
-唯一缺口是一次真实、计时的人工修正会话，不能用自动 proxy 冒充。
+Task 001–007 已完成。两套专业标注 benchmark 与新的 singer-disjoint Task 007
+开发/盲测集均已按先冻结、后评分的顺序完成。GAME 仍是主旋律最强基线；
+deterministic fusion v1 因 onset+pitch 明显回退而拒绝，不进入默认路线。ADR 0005
+允许以明确命名的 assisted workflow 开展融合研究，但 direct owner edit time
+仍不可用；Gate 4 没有通过。
 
-Task 006 是当前最终任务提交（用 `git log -1 --oneline` 查看）。当前开发分支是
+Task 007 是当前最终任务提交（用 `git log -1 --oneline` 查看）。当前开发分支是
 `main`。
 
 ## 项目目标与硬边界
@@ -315,7 +317,8 @@ MIDI 音高也独立支持 V2。V2 的 22 个音、MIDI 和三种试听均已通
 后的原曲前约 12 dB。所有者完整播放 1 遍并在 41 秒墙钟时间内回复“通过，1遍”。
 从 V1 问题反馈到 V2 接受的助手辅助流程共 449 秒、修正 6 个音。这两个时间均有
 哈希证据，但没有测量所有者直接逐音编辑时间，因此只能作为“助手修正 + 人工最终
-审听”证据，严格 Gate 2 仍未关闭。
+审听”证据。按原 Gate 2 口径，当时仍未关闭；Task 007 的 ADR 0005 后来明确只
+用该命名 workflow 授权融合研究，仍不宣称 direct-edit 效率。
 
 ## Task 006 正式评测
 
@@ -351,20 +354,53 @@ Vocadito 双标注者音符 benchmark：
 验证所有输出大小与 SHA-256。自动 note-object discrepancy 只表示粗略负担，不是
 最少编辑动作或人工用时。
 
+## Task 007 deterministic fusion
+
+- ADR 0005 把本次可审计工作流明确拆为 assisted correction `449 s`、owner final
+  review `41 s`/一次完整播放、direct owner note edit
+  `unavailable_not_measured`；它只授权研究，不证明编辑器效率。
+- ADR 0006 固定 deterministic main-melody fusion、development-only
+  calibration、完整候选/拒收 provenance，以及先生成 fusion evaluation seal、
+  再加载 blind reference 的顺序。
+- Task 007 Vocadito development/blind 各六位 singer，彼此以及 Task 006 六位
+  blind singer 均不重叠。A40 候选作业 `37705578`、开发校准 `37705582`、融合
+  封存 `37706932`、正式评测 `37706934` 均为 `COMPLETED 0:0`。
+- candidate-set SHA-256：
+  `e2584762d81911d8685b45aecbbdf4949d1f4d9c2824289d9a6d6312ca6bb403`；
+  fusion evaluation-seal payload SHA-256：
+  `50181e0c74a22396b9d1fe2770c0750351f890dc17a2c6039332794cfa12f520`。
+- GAME blind macro Amax onset+pitch/onset+pitch+offset F1 是
+  `0.7797`/`0.4316`；fusion 是 `0.7410`/`0.4332`。后者只增加 `0.0016`，
+  前者下降 `0.0387`，因此 frozen primary-metric rule 失败。
+- confidence threshold `0.75` 时保留 `41/293` 个窗口内音符，precision
+  `0.8556`、recall `0.1225`。完整 curve、四个 worker ablation、八个 feature
+  ablation 均已保存；beat phase 因没有 beat 输入而是显式 no-op。
+- fusion 与 GAME 的自动 discrepancy 同为 `85.3723/min`；没有 matched human
+  correction time，也没有 multi-track reference。结论是明确拒绝 v1 trade-off，
+  保留 GAME 为默认基线，Gate 4 不通过。
+- 权威 report SHA-256：
+  `8d529a72cdd9119f7eabf97cf64b6c4010c96d668de8a592a2a0cd896d0c5f75`。
+  本地 ignored private-project 目录已同步 calibration、fusion、两个 seal 和
+  evaluation；所有 manifest 输出与 11 个 sealed scoring-source hash 已重验。
+- `make check` 通过 186 项测试；Ruff、Slurm `bash -n`、Task 007 JSON、
+  compile 和 `git diff --check` 均通过。
+
 ## 当前限制
 
 - 私有歌曲仍只有未签封的 provisional reference；上面的正式指标只适用于
   MedleyDB/Vocadito 固定 benchmark，不能外推成私有歌曲准确率。
-- 尚未进行真实、计时的人工修正会话，因此 Gate 2 不宣称通过，Task 007 暂不授权。
+- direct owner note-edit time 与 matched baseline/fusion correction time
+  仍未测量；不能把 assisted correction 或自动 discrepancy 当作直接编辑效率。
 - Amax 是逐曲选择较有利标注者的乐观汇总，A1/A2 结果必须同时保留。
-- 当前候选没有可校准的逐音置信度，precision/coverage 曲线保持 unavailable。
+- 只有未改动的 full fusion 有 development-calibrated confidence；单 worker
+  与所有 ablation 不得复用这个 calibrator。
 - 没有人工 beat/downbeat 参考，因此当前 567/143 只是模型输出数量，不是
   节拍准确率。
 - GAME 与 Basic Pitch 尚未单独测量独立运行重复性。
 - Beat This 的 minimal post-processor 可产生不规则局部 beat/downbeat
   间隔；已保留原始 logits 和不确定性，尚未以参考标注评估。
-- 尚未实现 candidate fusion、正式 score quantization/MusicXML、训练或
-  SwiftUI 应用。
+- deterministic fusion 已实现但被 blind 结果拒绝；尚未实现正式 score
+  quantization/MusicXML、训练或 SwiftUI 应用。
 - Task004 的试听 MIDI 只是审听材料；Task005 的 `performance.mid` 是四条
   未排序候选轨，`score-grid-experiment.jsonl` 也不是正式乐谱。
 

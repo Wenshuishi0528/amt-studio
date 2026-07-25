@@ -4,6 +4,68 @@ This project records changes by numbered research task until formal semantic
 versions and releases begin. Dates and commit identifiers refer to the local
 Git history.
 
+## Task 007 — Deterministic fusion and confidence v1 — 2026-07-25
+
+Commit: this task's final commit (`feat: complete deterministic fusion task 007`)
+
+### Added
+
+- Added ADR 0005 to distinguish assisted correction, owner final review, and
+  unavailable direct owner editing while authorizing bounded fusion research.
+- Added ADR 0006 for deterministic main-melody fusion and pre-scoring blind
+  fusion sealing.
+- Added deterministic onset/pitch/duration clustering, one-event-per-source
+  agreement, profile-weighted representatives, eight explicit features,
+  main-melody competition, survivor-aware overlap handling, rejected-candidate
+  provenance, and development-only isotonic confidence.
+- Added development calibration with worker-route binding, source reliability,
+  frozen raw-score threshold selection, calibration diagnostics, and immutable
+  input/output hashes.
+- Added immutable fusion runs that verify worker manifests, project/canonical
+  lineage, stable worker/model/input/decoding identities, complete candidate
+  accounting, and final-note provenance.
+- Added blind fusion sealing and evaluation that bind the candidate seal, all
+  fusion/provenance/rejection artifacts, calibration, metric and acceptance
+  protocol, and 11 scoring-source hashes before loading blind references.
+- Added four worker ablations, eight feature ablations, evaluated-window-only
+  precision/coverage, separate main-melody/multi-track states, and explicit
+  unavailable human correction time.
+- Added a fixed Vocadito v3 development/blind split with 12 unique singers,
+  all disjoint from Task 006 blind singers, plus Hyak Slurm entrypoints for
+  preparation, A40 candidate inference, calibration, fusion/sealing, and
+  evaluation.
+
+### Verified
+
+- Preparation jobs `37705519`/`37705562`, A40 candidate job `37705578`,
+  calibration job `37705582`, blind fusion/seal job `37706932`, and evaluation
+  job `37706934` all completed on Hyak compute nodes with exit code `0:0`.
+- Blind candidate-set SHA-256 is
+  `e2584762d81911d8685b45aecbbdf4949d1f4d9c2824289d9a6d6312ca6bb403`;
+  fusion evaluation-seal payload SHA-256 is
+  `50181e0c74a22396b9d1fe2770c0750351f890dc17a2c6039332794cfa12f520`.
+- GAME remained strongest at blind macro Amax onset+pitch F1 `0.7797` and
+  onset+pitch+offset F1 `0.4316`; fusion scored `0.7410` and `0.4332`.
+- At confidence threshold `0.75`, fusion retained `41/293` evaluated-window
+  notes with onset+pitch precision `0.8556` and recall `0.1225`.
+- All synchronized calibration, fusion, seal, and evaluation artifacts match
+  their manifests; all 11 scoring-source hashes match the sealed values.
+- Final focused `/review` found no remaining P0–P2 issue.
+- `make check` passed with 186 tests; Ruff, Slurm shell syntax, Task 007 JSON,
+  compile, and `git diff --check` validation also passed.
+
+### Decision and limitations
+
+- Rejected deterministic fusion v1 as the default route: a `0.0016`
+  offset-aware gain does not justify a `0.0387` onset+pitch regression.
+- GAME remains the main-melody baseline. Blind ablation findings are diagnostic
+  only and were not used for retuning.
+- Fusion and GAME share the same automated discrepancy rate, `85.3723/min`.
+  Matched human correction time and multi-track reference metrics remain
+  unavailable, so Gate 4 does not pass.
+- The authoritative evaluation report SHA-256 is
+  `8d529a72cdd9119f7eabf97cf64b6c4010c96d668de8a592a2a0cd896d0c5f75`.
+
 ## Task 006 — Human references and formal evaluation — 2026-07-25
 
 Commit: this task's final commit (`feat: complete reference evaluation task 006`)
@@ -98,8 +160,9 @@ Commit: this task's final commit (`feat: complete reference evaluation task 006`
 - MedleyDB frame metrics and Vocadito isolated-vocal note metrics do not
   constitute full-arrangement or private-song accuracy.
 - The automated note-object discrepancy rate is not an edit-action lower bound
-  or measured human time. Gate 2 remains pending a timed correction session,
-  so Task 007 is not yet authorized.
+  or measured human time. At Task 006 close, the original Gate 2 wording still
+  blocked Task 007; Task 007's later ADR 0005 authorized only the explicitly
+  named assisted workflow and did not create a direct-edit efficiency claim.
 - The private `blind-04` score-guided transcription was performed by Codex,
   not by the owner in a timed editor session; it remains provisional and cannot
   be used to claim that Gate 2 correction-time evidence is complete.

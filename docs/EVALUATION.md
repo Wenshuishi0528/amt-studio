@@ -106,6 +106,50 @@ actions because one split or merge can change multiple objects. It does not
 estimate seconds of human work and cannot be presented as measured manual
 correction time.
 
+## Task 007 deterministic-fusion evaluation
+
+Task 007 fixes a new six-singer Vocadito development split and a separate
+six-singer blind-test split. Both are disjoint from each other and from the
+six Task 006 Vocadito blind singers. Only the development split may determine
+worker reliability, the raw-score threshold, or isotonic confidence
+calibration.
+
+The four declared routes are GAME and Basic Pitch on the selected vocal stem,
+MuScriptor on that vocal stem, and MuScriptor directly on the canonical mix.
+Their stable worker/model/input/decoding identities are frozen during
+development calibration and must match independently verified blind worker
+artifacts. A label cannot be substituted for another route.
+
+Blind evaluation has two distinct seals:
+
+1. `candidate_set_seal.json` binds all four blind worker outputs before their
+   quality is inspected.
+2. The fusion evaluation seal binds the candidate seal, full fusion outputs,
+   rejected/provenance artifacts, development calibration, metric
+   configuration, ranking and acceptance rules, and evaluator source hashes
+   before any blind reference is loaded or scored.
+
+Main-melody note metrics use the same dual-annotator Amax policy as Task 006.
+The strongest single baseline is the maximum baseline for each primary metric;
+fusion must be non-regressing against both maxima and strictly improve at least
+one to count as a metric improvement. This still does not pass the
+correction-time criterion: matched human correction time must be measured
+under the same named workflow, otherwise the overall trade-off is reported as
+inconclusive or rejected.
+
+Precision-versus-coverage uses only events whose onsets fall inside the frozen
+evaluation windows. Full-fusion confidence is calibrated; worker and feature
+ablations retain the development-selected raw-score threshold but report no
+calibrated confidence because each ablation changes the feature-model
+identity. A missing beat map remains an explicit unavailable feature.
+
+The completed v1 blind evaluation rejected the trade-off. GAME scored macro
+Amax onset+pitch/onset+pitch+offset F1 `0.7797`/`0.4316`; fusion scored
+`0.7410`/`0.4332`. The small offset-aware gain did not satisfy the frozen
+non-regression rule, automated discrepancy did not improve, and matched human
+correction time remained unavailable. These blind results are evaluation-only
+and must not be used to retune v1.
+
 ## Freeze and annotation protocol
 
 1. Write an `amt-benchmark-spec/v1` file whose non-overlapping excerpts

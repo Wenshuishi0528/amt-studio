@@ -1,8 +1,8 @@
 # Project status
 
-Current gate: Gate 2 awaits a timed human-correction session
-Current task: `tasks/006_REFERENCE_ANNOTATION_AND_EVAL.md` complete
-Next task: measure human correction time before authorizing Task 007
+Current gate: Gate 4 not passed; deterministic fusion v1 was rejected
+Current task: `tasks/007_FUSION_V1.md` complete
+Next task: `tasks/008_HYAK_BATCH.md`
 Current branch: `main`
 
 Verified on the user's Mac:
@@ -279,8 +279,9 @@ and placed the piano approximately 12 dB forward; the owner completed one full
 playback and accepted v2 in 41 seconds wall-clock time. The complete
 feedback-to-v2 assisted workflow took 449 seconds and changed six pitches.
 These are valid assisted-correction and final-review measurements, but direct
-owner note-edit time was not measured; the original strict Gate 2 therefore
-remains open rather than being silently redefined.
+owner note-edit time was not measured. ADR 0005 now accepts this explicitly
+named workflow as sufficient to authorize Task 007 research while preserving
+direct owner edit time as unavailable and making no editor-efficiency claim.
 
 The MedleyDB predominant-melody benchmark froze six windows and four candidate
 routes before inference. A40 job `37690768` completed and sealed candidate-set
@@ -310,5 +311,42 @@ relocate by run identity and hashes; contour and note references bind to the
 same selected source records; formal contour manifests record command,
 configuration, code, host, device, and timestamps; non-finite events are
 rejected; and the correction proxy no longer claims to be an edit-action lower
-bound. Task 006 acceptance criteria pass, but Gate 2 remains pending because
-no timed human correction session has been measured.
+bound. Task 006 acceptance criteria pass. ADR 0005 subsequently authorized
+Task 007 from the measured assisted workflow without claiming direct-edit
+efficiency.
+
+Task 007 now implements deterministic main-melody clustering, eight explicit
+features, development-only source reliability and isotonic confidence,
+survivor-aware overlap handling, full candidate/rejection provenance, stable
+worker-route binding, and immutable blind fusion evaluation. ADR 0006 records
+the architecture and requires the fusion run plus the complete scoring
+protocol to be sealed before any blind reference is loaded.
+
+The fixed Task 007 Vocadito split uses six development singers and six new
+blind singers, disjoint from each other and from all six Task 006 blind
+singers. A40 candidate job `37705578` completed in `00:23:17`; development
+calibration job `37705582`, blind fusion/seal job `37706932`, and final
+evaluation job `37706934` all completed on Hyak CPU compute nodes with exit
+code `0:0`. Candidate-set SHA-256 is
+`e2584762d81911d8685b45aecbbdf4949d1f4d9c2824289d9a6d6312ca6bb403`,
+and fusion evaluation-seal payload SHA-256 is
+`50181e0c74a22396b9d1fe2770c0750351f890dc17a2c6039332794cfa12f520`.
+
+GAME remained the strongest single blind baseline with macro Amax
+onset+pitch F1 `0.7797` and onset+pitch+offset F1 `0.4316`. Full fusion scored
+`0.7410` and `0.4332`: the `0.0016` offset-aware gain does not compensate for
+the `0.0387` onset+pitch regression, so the frozen non-regression rule failed.
+At confidence threshold `0.75`, fusion retained `41/293` evaluated-window
+notes and reached precision `0.8556` at recall `0.1225`; the full
+precision/coverage curve and all 12 ablations remain preserved.
+
+Fusion and GAME have the same automated discrepancy rate, `85.3723` note
+objects per minute. No matched human correction-time comparison or sealed
+multi-track reference exists. Deterministic fusion v1 is therefore retained as
+a reproducible rejected experiment, not promoted over GAME, and Gate 4 does
+not pass. The authoritative report SHA-256 is
+`8d529a72cdd9119f7eabf97cf64b6c4010c96d668de8a592a2a0cd896d0c5f75`.
+All private Task 007 evidence was synchronized to the Mac and re-hashed
+successfully. `make check` passes 186 tests; Ruff, Slurm shell syntax, Task 007
+JSON, compile, and diff checks also pass. Final focused `/review` has no
+remaining P0–P2 finding.

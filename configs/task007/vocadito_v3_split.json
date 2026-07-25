@@ -1,0 +1,119 @@
+{
+  "schema": "amt-task007-vocadito-split/v1",
+  "dataset": {
+    "name": "vocadito",
+    "version": "v3",
+    "doi": "10.5281/zenodo.5578807",
+    "archive_md5": "dea40fd18f14d899643c4ba221b33a46",
+    "archive_sha256": "e0d6b99d3f9c594afe5ae5c4d7bdacebe569e53b809e90b89d1c771c4f9990e3",
+    "license": "CC-BY-4.0"
+  },
+  "excluded_task006_blind_singers": [
+    "S1",
+    "S5",
+    "S11",
+    "S19",
+    "S28",
+    "S29"
+  ],
+  "candidate_routes": [
+    "game-vocal-a",
+    "basic-pitch-vocal-a",
+    "muscriptor-vocal-a",
+    "muscriptor-direct"
+  ],
+  "splits": {
+    "development": {
+      "project_id": "vocadito-task007-development-v1",
+      "benchmark_id": "vocadito-task007-development-v1",
+      "pack_id": "external-note-task007-development-v1",
+      "split": "development",
+      "prior_system_exposure": false,
+      "candidate_output_quality_uninspected_before_freeze": true,
+      "tracks": [
+        {
+          "track_id": 2,
+          "singer_id": "S2",
+          "average_midi_pitch": 65,
+          "language": "Spanish"
+        },
+        {
+          "track_id": 4,
+          "singer_id": "S3",
+          "average_midi_pitch": 47,
+          "language": "Catalan/Valencian"
+        },
+        {
+          "track_id": 10,
+          "singer_id": "S7",
+          "average_midi_pitch": 49,
+          "language": "English"
+        },
+        {
+          "track_id": 13,
+          "singer_id": "S10",
+          "average_midi_pitch": 51,
+          "language": "French"
+        },
+        {
+          "track_id": 15,
+          "singer_id": "S12",
+          "average_midi_pitch": 61,
+          "language": "English"
+        },
+        {
+          "track_id": 25,
+          "singer_id": "S20",
+          "average_midi_pitch": 60,
+          "language": "French"
+        }
+      ]
+    },
+    "blind_test": {
+      "project_id": "vocadito-task007-blind-v1",
+      "benchmark_id": "vocadito-task007-blind-v1",
+      "pack_id": "external-note-task007-blind-v1",
+      "split": "blind_test",
+      "prior_system_exposure": false,
+      "candidate_output_quality_uninspected_before_freeze": true,
+      "tracks": [
+        {
+          "track_id": 5,
+          "singer_id": "S4",
+          "average_midi_pitch": 57,
+          "language": "Catalan/Valencian"
+        },
+        {
+          "track_id": 7,
+          "singer_id": "S6",
+          "average_midi_pitch": 63,
+          "language": "Tagalog"
+        },
+        {
+          "track_id": 11,
+          "singer_id": "S8",
+          "average_midi_pitch": 59,
+          "language": "English"
+        },
+        {
+          "track_id": 18,
+          "singer_id": "S13",
+          "average_midi_pitch": 52,
+          "language": "English"
+        },
+        {
+          "track_id": 27,
+          "singer_id": "S22",
+          "average_midi_pitch": 56,
+          "language": "French"
+        },
+        {
+          "track_id": 34,
+          "singer_id": "S27",
+          "average_midi_pitch": 58,
+          "language": "English"
+        }
+      ]
+    }
+  }
+}

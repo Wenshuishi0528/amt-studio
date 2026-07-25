@@ -1,6 +1,6 @@
 # Task 008: Hyak batch experiment system
 
-Status: blocked by Task 007
+Status: ready after Task 007
 
 ## Objective
 

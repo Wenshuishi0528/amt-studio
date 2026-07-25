@@ -1,0 +1,28 @@
+{
+  "schema": "amt-fusion-source-metadata/v1",
+  "declared_before_task007_development_scoring": true,
+  "scope": "Vocadito v3 solo-vocal development benchmark",
+  "sources": [
+    {
+      "label": "game-vocal-a",
+      "stem_quality": 1.0,
+      "instrument_presence": 1.0
+    },
+    {
+      "label": "basic-pitch-vocal-a",
+      "stem_quality": 1.0,
+      "instrument_presence": 1.0
+    },
+    {
+      "label": "muscriptor-vocal-a",
+      "stem_quality": 1.0,
+      "instrument_presence": 1.0
+    },
+    {
+      "label": "muscriptor-direct",
+      "stem_quality": 1.0,
+      "instrument_presence": 1.0
+    }
+  ],
+  "rationale": "Every benchmark source is isolated solo vocal, so stem quality and target-instrument presence are fixed equally before scoring. Worker reliability is measured from the development references."
+}

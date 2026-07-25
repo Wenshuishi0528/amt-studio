@@ -30,6 +30,9 @@ Pass when:
 - at least three independent candidate paths are available where feasible;
 - a fixed human-confirmed reference set exists;
 - note metrics and correction effort are measured;
+- correction effort names the workflow and reports assisted correction,
+  owner final review, and direct owner edit time separately; an unmeasured
+  component is recorded as unavailable rather than inferred;
 - failure cases are categorized by separation, pitch, onset, offset, octave, harmony leakage, or melody selection.
 
 ## Gate 3: Multi-track baseline
@@ -50,7 +53,9 @@ Pass when:
 - it improves at least one primary metric without unacceptable regression in another;
 - high-confidence precision is reported with coverage;
 - the contribution of each path is measured by ablation;
-- manual correction time improves on blind examples.
+- correction effort improves on blind examples under the same named workflow;
+- direct owner edit-time improvement is not claimed when that component was
+  not measured.
 
 ## Gate 5: Learned refiner proves value
 

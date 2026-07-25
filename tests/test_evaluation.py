@@ -11,6 +11,7 @@ from amt_core.evaluation import (
     evaluate_melody_frames,
     evaluate_notes,
     evaluate_timed_events,
+    match_note_pairs,
     project_note_events_to_melody_frames,
     summarize_correction_session,
 )
@@ -181,6 +182,9 @@ class EvaluationTests(unittest.TestCase):
         report = evaluate_notes(references, estimates)
         self.assertEqual(report["primary"]["onset_chroma"]["matches"], 2)
         self.assertEqual(report["primary"]["octave_error"]["errors"], 1)
+
+        pairs = match_note_pairs(references, estimates)
+        self.assertEqual(pairs, [(0, 0)])
 
     def test_reference_validation_rejects_unexplained_exclusion(self) -> None:
         with self.assertRaisesRegex(EvaluationError, "exclusion_reason"):

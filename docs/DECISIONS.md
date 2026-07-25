@@ -49,3 +49,20 @@ project machine; model inference, separation, sweeps, and training run through
 Slurm on Hyak. This temporary boundary is detailed in
 `docs/adr/0003-hyak-research-compute-boundary.md` and does not change D-007's
 long-term product goal.
+
+## D-012: Keep assisted correction and direct editing evidence separate
+
+Gate 2 may use an auditable assistant-mediated correction workflow to
+authorize fusion research, but its total correction time, owner final-review
+time, and direct owner-operated edit time are separate measurements. Missing
+direct-edit time remains unavailable and cannot support an editor-efficiency
+claim. See
+`docs/adr/0005-assisted-correction-evidence-and-fusion-authorization.md`.
+
+## D-013: Seal deterministic fusion before blind scoring
+
+Task 007 uses development-only deterministic main-melody fusion. The blind
+fusion output and complete scoring protocol are sealed before reference notes
+are loaded or metrics are calculated; ablations do not reuse the full model's
+calibrator. See
+`docs/adr/0006-deterministic-fusion-and-blind-evaluation.md`.

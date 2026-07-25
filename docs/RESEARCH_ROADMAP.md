@@ -35,6 +35,10 @@ Deliverable: a fixed blind benchmark and an annotation audit trail.
 
 Deliverable: fusion v1 with ablations and confidence/coverage curves.
 
+Task 007 completed this deliverable, but the sealed blind result rejected v1
+as a default route: onset+pitch regressed despite a negligible offset-aware
+gain. GAME remains the baseline and Gate 4 is still open.
+
 ## Phase D: Learned correction
 
 Start with a note-level or sequence-level reranker/refiner. Candidate features can include:
