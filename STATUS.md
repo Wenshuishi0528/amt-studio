@@ -273,6 +273,14 @@ validation. The owner now estimates v2 at above 95% by informal listening and
 accepts it as the current private reference. The estimate is not a measured
 accuracy metric; v2 remains formally unsealed and provides no timed human
 correction evidence, so Gate 2 is unchanged.
+The first attempted timed review was invalidated because the original mix
+masked the piano guide. A replacement 12-second review attenuated the original
+and placed the piano approximately 12 dB forward; the owner completed one full
+playback and accepted v2 in 41 seconds wall-clock time. The complete
+feedback-to-v2 assisted workflow took 449 seconds and changed six pitches.
+These are valid assisted-correction and final-review measurements, but direct
+owner note-edit time was not measured; the original strict Gate 2 therefore
+remains open rather than being silently redefined.
 
 The MedleyDB predominant-melody benchmark froze six windows and four candidate
 routes before inference. A40 job `37690768` completed and sealed candidate-set

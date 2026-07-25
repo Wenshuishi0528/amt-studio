@@ -110,6 +110,11 @@ Commit: this task's final commit (`feat: complete reference evaluation task 006`
   above 95% and accepted V2 as the current private reference. This remains
   subjective listening evidence, not a formal metric, seal, or timed
   correction record.
+- Invalidated a masked timed-review mix, then completed a piano-forward
+  replacement with one full 12-second playback and owner acceptance in 41
+  seconds wall-clock time. The full six-pitch assisted correction took 449
+  seconds end to end; direct owner note-edit time remains unavailable, so the
+  strict Gate 2 was not redefined or marked complete.
 
 ## Task 005 — Beat map and canonical events — 2026-07-24
 
