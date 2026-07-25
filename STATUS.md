@@ -269,7 +269,10 @@ one diatonic step too high. A non-overwriting `blind-04-v2` now changes
 `D-Bb-Bb-Bb / D-Bb-D-C`. Existing Hyak-generated vocal pYIN frame medians
 independently support all eight corrected interval pitches. The v2 MIDI and
 three review WAVs pass hash, duration, channel, sample-rate, and 22-note
-validation, but remain `awaiting_owner_review` and unsealed.
+validation. The owner now estimates v2 at above 95% by informal listening and
+accepts it as the current private reference. The estimate is not a measured
+accuracy metric; v2 remains formally unsealed and provides no timed human
+correction evidence, so Gate 2 is unchanged.
 
 The MedleyDB predominant-melody benchmark froze six windows and four candidate
 routes before inference. A40 job `37690768` completed and sealed candidate-set

@@ -307,7 +307,9 @@ projects/private/<blind-song-c-project>/
 `D-C-C-B♭ / E♭-C-E♭-D` 修为谱面的
 `D-B♭-B♭-B♭ / D-B♭-D-C`。已有 Hyak 人声 pYIN 帧在八个对应区间的中位
 MIDI 音高也独立支持 V2。V2 的 22 个音、MIDI 和三种试听均已通过结构与哈希
-验证，位于同级 `blind-04-v2/`，但状态仍是 `awaiting_owner_review`，未签封。
+验证，位于同级 `blind-04-v2/`。所有者随后主观认为 V2 正确率在 95% 以上，并
+接受其作为当前私有参考。该数值不是实测指标；V2 仍未正式签封，也没有人工计时
+修正证据，因此 Gate 2 状态不变。
 
 ## Task 006 正式评测
 

@@ -106,6 +106,10 @@ Commit: this task's final commit (`feat: complete reference evaluation task 006`
 - The owner estimated the first score-guided audition at roughly 80% correct
   and heard obvious wrong notes; the value is subjective, and the artifact is
   explicitly marked `needs_revision` rather than accepted or sealed.
+- After the six-note V2 correction, the owner informally estimated accuracy
+  above 95% and accepted V2 as the current private reference. This remains
+  subjective listening evidence, not a formal metric, seal, or timed
+  correction record.
 
 ## Task 005 — Beat map and canonical events — 2026-07-24
 
