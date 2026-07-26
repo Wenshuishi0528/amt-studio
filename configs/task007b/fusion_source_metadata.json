@@ -1,0 +1,18 @@
+{
+  "schema": "amt-fusion-source-metadata/v1",
+  "declared_before_task007b_development_scoring": true,
+  "scope": "Vocadito v3 Task 007B previously unexposed solo-vocal development benchmark",
+  "sources": [
+    {
+      "label": "game-vocal-a",
+      "stem_quality": 1.0,
+      "instrument_presence": 1.0
+    },
+    {
+      "label": "basic-pitch-vocal-a",
+      "stem_quality": 1.0,
+      "instrument_presence": 1.0
+    }
+  ],
+  "rationale": "Task 007 v1 blind diagnostics motivate a predeclared two-route hypothesis: GAME remains the strongest baseline and Basic Pitch is retained as the only complementary route. Old blind scores do not set Task 007B thresholds or source reliability."
+}

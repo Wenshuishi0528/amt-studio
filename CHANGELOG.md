@@ -4,6 +4,44 @@ This project records changes by numbered research task until formal semantic
 versions and releases begin. Dates and commit identifiers refer to the local
 Git history.
 
+## Task 007B — Gate 4 recovery rejection — 2026-07-26
+
+Commit: this task's final commit (`feat: add Gate 4 recovery experiment`)
+
+### Added
+
+- Froze a new five-singer development and six-singer blind Vocadito split,
+  disjoint from Task 006 and Task 007 v1.
+- Added a constrained GAME plus Basic Pitch fusion plan, A40/CPU Slurm chain,
+  sealed two-candidate evaluation support, automatic Gate 4 precondition
+  assessment, and regression coverage.
+- Preserved official annotation CSVs while explicitly accepting at most 5 ms
+  of end-boundary timestamp/PCM quantization drift.
+
+### Verified
+
+- Preparation `37720512`, A40 candidates `37720513`, calibration `37720514`,
+  final seal `37722126`, and evaluation/assessment `37722127` completed `0:0`.
+- Candidate, fusion, scoring-source, and benchmark seals verified. Final report
+  SHA-256 is
+  `ea66e1b20b3739478a56b89a0c5e104af55b959de15007de7f34dbded507a1f7`.
+- GAME scored `0.7814` onset+pitch F1 and `0.3676`
+  onset+pitch+offset F1. Fusion scored `0.6924` and `0.3276`, regressions of
+  `0.0891` and `0.0400`.
+- The frozen assessment emitted `reject_v2_without_blind_retuning`. Local
+  ignored evidence was synchronized and its hashes match Hyak.
+- Full `make check` passed before submission. Final infrastructure fixes pass
+  the affected 19-test suite plus Slurm syntax, compile, and diff checks. The
+  single `/review` was run but stopped after it expanded into unrelated old
+  code without a completed P0/P1 report.
+
+### Limitations
+
+- Gate 4 remains open. No matched human-correction comparison is justified for
+  rejected v2, and neither Task 009B2B nor Task 010 may start from this result.
+- This result is limited to the fixed solo-vocal Vocadito excerpts and must not
+  be generalized to full songs or used for blind retuning.
+
 ## Task 009B2A — Formal macOS UI-flow verification — 2026-07-25
 
 Commit: this slice's final commit

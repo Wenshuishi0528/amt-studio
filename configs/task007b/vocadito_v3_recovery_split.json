@@ -1,0 +1,134 @@
+{
+  "schema": "amt-task007-vocadito-split/v2",
+  "experiment_id": "task007b-gate4-recovery-v2",
+  "dataset": {
+    "name": "vocadito",
+    "version": "v3",
+    "doi": "10.5281/zenodo.5578807",
+    "archive_md5": "dea40fd18f14d899643c4ba221b33a46",
+    "archive_sha256": "e0d6b99d3f9c594afe5ae5c4d7bdacebe569e53b809e90b89d1c771c4f9990e3",
+    "license": "CC-BY-4.0"
+  },
+  "excluded_prior_experiment_singers": [
+    "S1",
+    "S2",
+    "S3",
+    "S4",
+    "S5",
+    "S6",
+    "S7",
+    "S8",
+    "S10",
+    "S11",
+    "S12",
+    "S13",
+    "S19",
+    "S20",
+    "S22",
+    "S27",
+    "S28",
+    "S29"
+  ],
+  "selection_policy": {
+    "chosen_before_candidate_inference": true,
+    "one_track_per_singer": true,
+    "withheld_same_singer_tracks": [
+      28,
+      31,
+      40
+    ],
+    "rationale": "Use one previously unexposed track per previously unexposed singer; balance language and average pitch without inspecting audio, annotations, or candidate output quality."
+  },
+  "candidate_routes": [
+    "game-vocal-a",
+    "basic-pitch-vocal-a"
+  ],
+  "splits": {
+    "development": {
+      "project_id": "vocadito-task007b-development-v2",
+      "benchmark_id": "vocadito-task007b-development-v2",
+      "pack_id": "external-note-task007b-development-v2",
+      "split": "development",
+      "prior_system_exposure": false,
+      "candidate_output_quality_uninspected_before_freeze": true,
+      "tracks": [
+        {
+          "track_id": 12,
+          "singer_id": "S9",
+          "average_midi_pitch": 59,
+          "language": "English"
+        },
+        {
+          "track_id": 20,
+          "singer_id": "S15",
+          "average_midi_pitch": 58,
+          "language": "English"
+        },
+        {
+          "track_id": 23,
+          "singer_id": "S18",
+          "average_midi_pitch": 48,
+          "language": "French"
+        },
+        {
+          "track_id": 29,
+          "singer_id": "S23",
+          "average_midi_pitch": 58,
+          "language": "French"
+        },
+        {
+          "track_id": 33,
+          "singer_id": "S26",
+          "average_midi_pitch": 53,
+          "language": "English"
+        }
+      ]
+    },
+    "blind_test": {
+      "project_id": "vocadito-task007b-blind-v2",
+      "benchmark_id": "vocadito-task007b-blind-v2",
+      "pack_id": "external-note-task007b-blind-v2",
+      "split": "blind_test",
+      "prior_system_exposure": false,
+      "candidate_output_quality_uninspected_before_freeze": true,
+      "tracks": [
+        {
+          "track_id": 19,
+          "singer_id": "S14",
+          "average_midi_pitch": 55,
+          "language": "English"
+        },
+        {
+          "track_id": 21,
+          "singer_id": "S16",
+          "average_midi_pitch": 50,
+          "language": "English"
+        },
+        {
+          "track_id": 22,
+          "singer_id": "S17",
+          "average_midi_pitch": 59,
+          "language": "English"
+        },
+        {
+          "track_id": 26,
+          "singer_id": "S21",
+          "average_midi_pitch": 48,
+          "language": "French"
+        },
+        {
+          "track_id": 30,
+          "singer_id": "S24",
+          "average_midi_pitch": 56,
+          "language": "French+English"
+        },
+        {
+          "track_id": 32,
+          "singer_id": "S25",
+          "average_midi_pitch": 59,
+          "language": "English"
+        }
+      ]
+    }
+  }
+}

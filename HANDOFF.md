@@ -432,6 +432,41 @@ Vocadito 双标注者音符 benchmark：
 - `make check` 通过 186 项测试；Ruff、Slurm `bash -n`、Task 007 JSON、
   compile 和 `git diff --check` 均通过。
 
+## Task 007B Gate 4 恢复实验
+
+- 新 split 在推理前固定：development 为
+  `12/S9, 20/S15, 23/S18, 29/S23, 33/S26`，blind 为
+  `19/S14, 21/S16, 22/S17, 26/S21, 30/S24, 32/S25`。11 位 singer
+  与 Task 006/007 v1 均不重叠。
+- 正式成功作业为准备 `37720512`、A40 候选 `37720513`、开发校准
+  `37720514`、attempt-2 seal `37722126`、评测与自动判定 `37722127`；
+  均为 `COMPLETED 0:0`。候选作业实际运行于 A40 节点 `g3046`。
+- 官方 track 30 A1 最后一个音符比 PCM 边界长 `2.77 ms`。原 CSV 未改，
+  freeze 与 scoring 都固定采用最多 `5 ms` 的边界量化容差；超过 `5 ms`
+  仍拒绝。第一次 seal 被旧三候选下限阻塞后，旧默认仍保留为三，
+  Task 007B 必须显式指定两候选。所有失败/取消尝试都只属于基础设施证据，
+  没有用于改阈值或 blind 调参。
+- candidate-set seal SHA-256：
+  `3022a656447cab707a643fd7dfe496cf27e1fcce2d8d2715eeb16c7d868e0ab1`；
+  attempt-2 fusion evaluation seal SHA-256：
+  `351a176eebe7a07df71075a8ed26ac22e454d662c8111905d534cf86051d0ffe`。
+- GAME blind onset+pitch/onset+pitch+offset F1 为
+  `0.7814082068/0.3676085616`；fusion 为
+  `0.6923501742/0.3276084961`，分别下降
+  `0.0890580326/0.0400000655`。两条 frozen automatic gate 都失败。
+- 权威 report SHA-256：
+  `ea66e1b20b3739478a56b89a0c5e104af55b959de15007de7f34dbded507a1f7`；
+  gate decision SHA-256：
+  `4338127e5009589e2f336086d62b78a9b99be8630580ed380b671f8b238fd732`。
+  决定为 `reject_v2_without_blind_retuning`，`gate4_passed=false`。
+- 因自动前置门槛失败，不再让 owner 做 matched correction，避免浪费人工。
+  Task 007B blind 结果不得调参。Task 009B2B 与 Task 010 继续阻塞；下一步
+  是产品/数据策略决定，而不是继续消耗同一 Vocadito blind 集。
+- Mac ignored 证据已同步至
+  `projects/private/vocadito-task007b-{development,blind}-v2/`、
+  `projects/private/task007b-logs/` 与
+  `projects/private/task007b-data-logs/`，关键哈希与 Hyak 一致。
+
 ## 当前限制
 
 - 私有歌曲仍只有未签封的 provisional reference；上面的正式指标只适用于

@@ -9,6 +9,7 @@ from scripts.evaluate_external_notes import (
     _correction_proxy,
     _external_reference_records,
     _portable_candidate_events_path,
+    _validate_candidate_count,
     _voice_events_in_window,
     read_external_note_csv,
 )
@@ -38,6 +39,14 @@ def _event(
 
 
 class ExternalNoteEvaluationTests(unittest.TestCase):
+    def test_candidate_count_floor_is_explicit_and_never_below_two(self) -> None:
+        records = [{"label": "a"}, {"label": "b"}]
+        self.assertIs(_validate_candidate_count(records, 2), records)
+        with self.assertRaisesRegex(ExternalNoteEvaluationError, "at least 3"):
+            _validate_candidate_count(records, 3)
+        with self.assertRaisesRegex(ExternalNoteEvaluationError, "at least 2"):
+            _validate_candidate_count(records, 1)
+
     def test_reads_hz_note_rows_into_canonical_timeline(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "notes.csv"
@@ -54,6 +63,26 @@ class ExternalNoteEvaluationTests(unittest.TestCase):
             self.assertEqual(notes[0].offset_sec, 10.75)
             self.assertEqual(notes[0].pitch_midi, 69.0)
             self.assertEqual(notes[1].pitch_midi, 81.0)
+
+            path.write_text("1.9,440.0,0.104\n", encoding="utf-8")
+            within_tolerance = read_external_note_csv(
+                path,
+                excerpt_id="blind-01",
+                annotator="a1",
+                start_sec=10.0,
+                duration_sec=2.0,
+            )
+            self.assertEqual(len(within_tolerance), 1)
+
+            path.write_text("1.9,440.0,0.106\n", encoding="utf-8")
+            with self.assertRaisesRegex(ExternalNoteEvaluationError, "exceed"):
+                read_external_note_csv(
+                    path,
+                    excerpt_id="blind-01",
+                    annotator="a1",
+                    start_sec=10.0,
+                    duration_sec=2.0,
+                )
 
             path.write_text("1.9,440.0,0.25\n", encoding="utf-8")
             with self.assertRaisesRegex(

@@ -29,6 +29,7 @@ from amt_core.project import initialize_project
 from amt_core.utils import atomic_write_json, sha256_file
 
 CONFIG_SCHEMA = "amt-task007-vocadito-split/v1"
+RECOVERY_CONFIG_SCHEMA = "amt-task007-vocadito-split/v2"
 SELECTION_SCHEMA = "amt-external-note-selection/v1"
 CONCATENATION_SCHEMA = "amt-external-note-concatenation/v1"
 BENCHMARK_SCHEMA = "amt-external-note-benchmark-manifest/v1"
@@ -38,6 +39,10 @@ EXPECTED_ROUTES = (
     "basic-pitch-vocal-a",
     "muscriptor-vocal-a",
     "muscriptor-direct",
+)
+RECOVERY_EXPECTED_ROUTES = (
+    "game-vocal-a",
+    "basic-pitch-vocal-a",
 )
 TASK006_BLIND_SINGERS = frozenset({"S1", "S5", "S11", "S19", "S28", "S29"})
 EXPECTED_TRACKS = {
@@ -58,10 +63,34 @@ EXPECTED_TRACKS = {
         (34, "S27"),
     ),
 }
+TASK007_V1_SINGERS = frozenset(
+    singer_id
+    for pairs in EXPECTED_TRACKS.values()
+    for _track_id, singer_id in pairs
+)
+RECOVERY_EXCLUDED_SINGERS = TASK006_BLIND_SINGERS | TASK007_V1_SINGERS
+RECOVERY_EXPECTED_TRACKS = {
+    "development": (
+        (12, "S9"),
+        (20, "S15"),
+        (23, "S18"),
+        (29, "S23"),
+        (33, "S26"),
+    ),
+    "blind_test": (
+        (19, "S14"),
+        (21, "S16"),
+        (22, "S17"),
+        (26, "S21"),
+        (30, "S24"),
+        (32, "S25"),
+    ),
+}
 SAFE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z", re.ASCII)
 SAMPLE_RATE = 44_100
 SAMPLE_WIDTH = 2
 CHANNELS = 1
+NOTE_BOUNDARY_TOLERANCE_SEC = 0.005
 LEAD_SILENCE_FRAMES = SAMPLE_RATE
 BETWEEN_SILENCE_FRAMES = 2 * SAMPLE_RATE
 TAIL_SILENCE_FRAMES = SAMPLE_RATE
@@ -90,8 +119,11 @@ def _require_safe_id(value: object, *, label: str) -> str:
 def validate_split_config(value: Mapping[str, Any]) -> dict[str, Any]:
     """Validate and return the exact fixed Task 007 split configuration."""
 
-    if value.get("schema") != CONFIG_SCHEMA:
-        raise VocaditoPreparationError(f"config schema must be {CONFIG_SCHEMA}")
+    schema = value.get("schema")
+    if schema not in {CONFIG_SCHEMA, RECOVERY_CONFIG_SCHEMA}:
+        raise VocaditoPreparationError(
+            f"config schema must be {CONFIG_SCHEMA} or {RECOVERY_CONFIG_SCHEMA}"
+        )
     dataset = value.get("dataset")
     if (
         not isinstance(dataset, dict)
@@ -102,18 +134,41 @@ def validate_split_config(value: Mapping[str, Any]) -> dict[str, Any]:
     ):
         raise VocaditoPreparationError("config must identify the pinned Vocadito v3 dataset")
     routes = value.get("candidate_routes")
-    if routes != list(EXPECTED_ROUTES):
+    if schema == CONFIG_SCHEMA:
+        expected_routes = EXPECTED_ROUTES
+        expected_tracks = EXPECTED_TRACKS
+        excluded_singers = TASK006_BLIND_SINGERS
+        excluded = value.get("excluded_task006_blind_singers")
+        if not isinstance(excluded, list) or set(excluded) != excluded_singers:
+            raise VocaditoPreparationError("Task 006 blind singer exclusion is incomplete")
+    else:
+        expected_routes = RECOVERY_EXPECTED_ROUTES
+        expected_tracks = RECOVERY_EXPECTED_TRACKS
+        excluded_singers = RECOVERY_EXCLUDED_SINGERS
+        excluded = value.get("excluded_prior_experiment_singers")
+        policy = value.get("selection_policy")
+        if (
+            value.get("experiment_id") != "task007b-gate4-recovery-v2"
+            or not isinstance(excluded, list)
+            or set(excluded) != excluded_singers
+            or not isinstance(policy, dict)
+            or policy.get("chosen_before_candidate_inference") is not True
+            or policy.get("one_track_per_singer") is not True
+            or policy.get("withheld_same_singer_tracks") != [28, 31, 40]
+        ):
+            raise VocaditoPreparationError(
+                "Task 007B recovery identity, prior-singer exclusion, or selection policy "
+                "is incomplete"
+            )
+    if routes != list(expected_routes):
         raise VocaditoPreparationError("candidate routes differ from the fixed Task 007 plan")
-    excluded = value.get("excluded_task006_blind_singers")
-    if not isinstance(excluded, list) or set(excluded) != TASK006_BLIND_SINGERS:
-        raise VocaditoPreparationError("Task 006 blind singer exclusion is incomplete")
 
     splits = value.get("splits")
-    if not isinstance(splits, dict) or set(splits) != set(EXPECTED_TRACKS):
+    if not isinstance(splits, dict) or set(splits) != set(expected_tracks):
         raise VocaditoPreparationError("config must contain development and blind_test only")
     all_tracks: set[int] = set()
     all_singers: set[str] = set()
-    for split_name, expected_pairs in EXPECTED_TRACKS.items():
+    for split_name, expected_pairs in expected_tracks.items():
         split = splits.get(split_name)
         if not isinstance(split, dict) or split.get("split") != split_name:
             raise VocaditoPreparationError(f"{split_name} split identity is invalid")
@@ -149,9 +204,14 @@ def validate_split_config(value: Mapping[str, Any]) -> dict[str, Any]:
             pairs.append((track_id, singer_id))
             if track_id in all_tracks or singer_id in all_singers:
                 raise VocaditoPreparationError("tracks and singers must be split-disjoint")
-            if singer_id in TASK006_BLIND_SINGERS:
+            if singer_id in excluded_singers:
+                exclusion_label = (
+                    "Task 006 blind data"
+                    if schema == CONFIG_SCHEMA
+                    else "Task 006/007 prior experiments"
+                )
                 raise VocaditoPreparationError(
-                    f"{split_name} singer {singer_id} overlaps Task 006 blind data"
+                    f"{split_name} singer {singer_id} overlaps {exclusion_label}"
                 )
             all_tracks.add(track_id)
             all_singers.add(singer_id)
@@ -225,7 +285,11 @@ def _validated_note_csv(path: Path, *, duration_sec: float) -> int:
                     or onset < 0
                     or pitch_hz <= 0
                     or duration <= 0
-                    or onset + duration > duration_sec + 1e-6
+                    # Vocadito timestamps are decimal annotations independent
+                    # of the PCM frame grid. Preserve the official CSV while
+                    # accepting at most 5 ms of end-boundary quantization drift.
+                    or onset + duration
+                    > duration_sec + NOTE_BOUNDARY_TOLERANCE_SEC
                 ):
                     raise VocaditoPreparationError(
                         f"{path}:{line_number}: note is outside the source audio"
@@ -405,7 +469,7 @@ def _selection_manifest(
                 "notes_a2_count": record["note_references"]["a2"]["note_count"],
             }
         )
-    return {
+    selection = {
         "schema": SELECTION_SCHEMA,
         "selection_frozen_at": datetime.now(UTC).isoformat(),
         "selection_before_candidate_inference": True,
@@ -415,10 +479,17 @@ def _selection_manifest(
         "split": split_name,
         "split_config_sha256": config_sha256,
         "metadata": metadata_record,
-        "excluded_task006_blind_singers": sorted(TASK006_BLIND_SINGERS),
         "tracks": selected,
         "candidate_plan": config["candidate_routes"],
     }
+    if config["schema"] == CONFIG_SCHEMA:
+        selection["excluded_task006_blind_singers"] = sorted(TASK006_BLIND_SINGERS)
+    else:
+        selection["excluded_prior_experiment_singers"] = sorted(
+            RECOVERY_EXCLUDED_SINGERS
+        )
+        selection["selection_policy"] = config["selection_policy"]
+    return selection
 
 
 def prepare_concatenation(
@@ -434,7 +505,12 @@ def prepare_concatenation(
 
     records, metadata_record = collect_source_records(extracted_root, split["tracks"])
     split_root = artifact_root / split_name
-    output_audio = split_root / f"vocadito-task007-{split_name}-six.wav"
+    output_name = (
+        f"vocadito-task007-{split_name}-six.wav"
+        if config["schema"] == CONFIG_SCHEMA
+        else f"{split['benchmark_id']}.wav"
+    )
+    output_audio = split_root / output_name
     mapping_path = split_root / "concatenation_manifest.json"
     selection_path = split_root / "selection_manifest.json"
     frozen_paths = (output_audio, mapping_path, selection_path)
@@ -554,7 +630,7 @@ def ensure_project(audio_path: Path, project_dir: Path, *, split_name: str) -> d
         manifest = initialize_project(
             audio_path,
             project_dir,
-            title=f"Vocadito v3 Task 007 {split_name} six-track benchmark",
+            title=f"Vocadito v3 {project_dir.name} {split_name} fixed benchmark",
             copy_original=False,
         )
     source = manifest.get("source")
@@ -715,7 +791,8 @@ def freeze_benchmark_pack(
         atomic_write_json(stage / "benchmark_manifest.json", benchmark)
         (stage / "README.md").write_text(
             "# Task 007 external dual-annotator note benchmark\n\n"
-            f"Split: `{split_name}`. The six singer-disjoint Vocadito v3 tracks "
+            f"Split: `{split_name}`. The {len(excerpts)} singer-disjoint "
+            "Vocadito v3 tracks "
             "and both trained-musician note annotations were frozen before "
             "Task 007 candidate inference. Candidate output quality was not "
             "inspected while preparing this pack.\n",

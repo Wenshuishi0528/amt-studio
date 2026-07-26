@@ -41,6 +41,9 @@ class ExternalNoteEvaluationError(RuntimeError):
     """Raised when an external note benchmark cannot be scored safely."""
 
 
+NOTE_BOUNDARY_TOLERANCE_SEC = 0.005
+
+
 def _load_object(path: Path, *, label: str) -> dict[str, Any]:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
@@ -86,7 +89,11 @@ def read_external_note_csv(
                     or local_onset < 0
                     or frequency_hz <= 0
                     or note_duration <= 0
-                    or local_onset + note_duration > duration_sec + 1e-6
+                    # Vocadito decimal note timestamps can end a few PCM
+                    # frames beyond the WAV boundary. Preserve the official
+                    # reference and allow the same fixed 5 ms drift as freeze.
+                    or local_onset + note_duration
+                    > duration_sec + NOTE_BOUNDARY_TOLERANCE_SEC
                 ):
                     raise ExternalNoteEvaluationError(
                         f"{path}:{line_number}: note values exceed the frozen excerpt"
@@ -146,11 +153,27 @@ def _verified_benchmark(
     return manifest, payload
 
 
+def _validate_candidate_count(records: object, minimum_candidates: int) -> list[Any]:
+    if (
+        isinstance(minimum_candidates, bool)
+        or not isinstance(minimum_candidates, int)
+        or minimum_candidates < 2
+    ):
+        raise ExternalNoteEvaluationError("minimum candidate count must be an integer of at least 2")
+    if not isinstance(records, list) or len(records) < minimum_candidates:
+        raise ExternalNoteEvaluationError(
+            f"at least {minimum_candidates} sealed candidates are required"
+        )
+    return records
+
+
 def _verified_candidate_set(
     pack_dir: Path,
     manifest: dict[str, Any],
     payload: dict[str, Any],
     input_snapshots: InputSnapshots,
+    *,
+    minimum_candidates: int = 3,
 ) -> tuple[dict[str, Any], list[tuple[dict[str, Any], list[NoteEvent]]]]:
     seal_path = pack_dir / "candidate_set_seal.json"
     _track_input(input_snapshots, seal_path, label="candidate set seal")
@@ -172,9 +195,10 @@ def _verified_candidate_set(
         or confirmation.get("candidate_selection_or_tuning_after_freeze_prohibited") is not True
     ):
         raise ExternalNoteEvaluationError("candidate preinspection confirmation is invalid")
-    records = freeze.get("candidates")
-    if not isinstance(records, list) or len(records) < 3:
-        raise ExternalNoteEvaluationError("at least three sealed candidates are required")
+    records = _validate_candidate_count(
+        freeze.get("candidates"),
+        minimum_candidates,
+    )
 
     verified: list[tuple[dict[str, Any], list[NoteEvent]]] = []
     labels: set[str] = set()

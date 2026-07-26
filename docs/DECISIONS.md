@@ -98,3 +98,11 @@ already verified canonical audio into a local waveform and navigate
 confidence values already present in the selected track. Missing confidence
 is excluded, and source-model confidence is not compared across models. See
 `docs/adr/0009-model-independent-review-surfaces.md`.
+
+## D-017: Gate 4 recovery uses new singers and a constrained v2
+
+Task 009B2B is paused while Task 007B tests GAME plus Basic Pitch on eleven
+previously unexposed Vocadito singers. Task 007 v1 blind results may motivate
+the two-route hypothesis but cannot tune it. Development-only calibration, a
+pre-scoring blind seal, fixed automatic thresholds, and a no-retuning stop rule
+are required. See ADR 0010.

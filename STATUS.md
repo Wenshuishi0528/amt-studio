@@ -1,11 +1,33 @@
 # Project status
 
-Current gate: Gate 4 not passed; deterministic fusion v1 was rejected
-Current task: `tasks/009_MAC_APP_SHELL.md` in progress; Task 009A and the
-model-independent Task 009B1 review surfaces plus Task 009B2A formal UI flow
-are verified
-Next task: Task 009B2B backend/import integration remains blocked by Gate 4
+Current gate: Gate 4 not passed; deterministic fusion v1 and the constrained
+v2 recovery were both rejected on sealed blind evidence
+Current task: `tasks/007B_FUSION_V2_GATE4_RECOVERY.md` complete — automatic
+precondition failed and v2 was rejected without blind retuning
+Paused task: Task 009B2B backend/import integration remains blocked by Gate 4
+Next task: make a product/data-strategy decision; do not start Task 009B2B,
+Task 010, another Vocadito retune, or matched human correction on rejected v2
 Current branch: `main`
+
+Verified for Task 007B:
+
+- five development and six blind Vocadito singers were frozen before inference;
+  all eleven were disjoint from Task 006 and Task 007 v1;
+- A40 candidate job `37720513`, development calibration `37720514`, final
+  fusion seal `37722126`, and evaluation/assessment `37722127` all completed
+  `0:0`; no model or evaluation ran on a login node;
+- the final blind report verified candidate and fusion seals,
+  development-only calibration, no blind retuning, and both frozen worker
+  ablations;
+- GAME remained strongest at onset+pitch F1 `0.7814` and
+  onset+pitch+offset F1 `0.3676`; fusion scored `0.6924` and `0.3276`,
+  regressing by `0.0891` and `0.0400`;
+- the automatic decision is `reject_v2_without_blind_retuning`; no matched
+  human-correction task is justified and Gate 4 remains open;
+- final report SHA-256 is
+  `ea66e1b20b3739478a56b89a0c5e104af55b959de15007de7f34dbded507a1f7`;
+  decision SHA-256 is
+  `4338127e5009589e2f336086d62b78a9b99be8630580ed380b671f8b238fd732`.
 
 Verified for Task 009B2A:
 

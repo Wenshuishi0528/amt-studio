@@ -1,0 +1,32 @@
+{
+  "schema": "amt-fusion-config/v1",
+  "declared_before_task007b_development_scoring": true,
+  "config": {
+    "onset_tolerance_sec": 0.06,
+    "pitch_tolerance_semitones": 0.5,
+    "duration_tolerance_sec": 0.35,
+    "duration_tolerance_ratio": 1.0,
+    "beat_tolerance_sec": 0.08,
+    "plausible_duration_min_sec": 0.12,
+    "plausible_duration_max_sec": 2.5,
+    "continuity_gap_sec": 2.0,
+    "continuity_pitch_span_semitones": 12.0,
+    "register_low_midi": 36.0,
+    "register_high_midi": 84.0,
+    "register_taper_semitones": 12.0,
+    "minimum_raw_score": 0.45,
+    "competing_onset_tolerance_sec": 0.06,
+    "minimum_final_duration_sec": 0.04,
+    "target_instrument": "voice",
+    "feature_weights": {
+      "source_agreement": 0.35,
+      "worker_reliability": 0.25,
+      "stem_quality": 0.1,
+      "beat_phase": 0.05,
+      "duration": 0.05,
+      "local_continuity": 0.1,
+      "register": 0.05,
+      "instrument_presence": 0.05
+    }
+  }
+}

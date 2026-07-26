@@ -32,6 +32,7 @@ from scripts.evaluate_benchmark import (
 )
 from scripts.evaluate_external_notes import (
     ExternalNoteEvaluationError,
+    NOTE_BOUNDARY_TOLERANCE_SEC,
     _correction_proxy,
     _external_reference_records,
     _portable_candidate_events_path,
@@ -142,6 +143,7 @@ def _evaluation_protocol(config: EvaluationConfig) -> dict[str, Any]:
             ),
             "numeric_rows": "sealed_full_fusion_only",
         },
+        "external_note_end_boundary_tolerance_sec": NOTE_BOUNDARY_TOLERANCE_SEC,
     }
 
 
@@ -674,6 +676,7 @@ def _seal_payload(
     candidate_seal_binding: dict[str, Any],
     fusion: VerifiedFusion,
     evaluation_config: EvaluationConfig,
+    minimum_candidates: int,
 ) -> dict[str, Any]:
     return {
         "schema": SEAL_PAYLOAD_SCHEMA,
@@ -684,6 +687,8 @@ def _seal_payload(
         "candidate_set": {
             "candidate_set_sha256": candidate_seal["candidate_set_sha256"],
             "candidate_set_seal_sha256": candidate_seal_binding["sha256"],
+            "candidate_count": len(fusion.candidates),
+            "minimum_candidates": minimum_candidates,
         },
         "fusion": {
             "run_id": fusion.manifest["run_id"],
@@ -733,6 +738,7 @@ def create_fusion_evaluation_seal(
     *,
     rhythm_path: Path | None = None,
     evaluation_config: EvaluationConfig | None = None,
+    minimum_candidates: int = 3,
     confirm_blind_output_uninspected: bool = False,
     confirm_reference_not_used: bool = False,
 ) -> dict[str, Any]:
@@ -758,6 +764,7 @@ def create_fusion_evaluation_seal(
             benchmark_manifest,
             payload,
             snapshots,
+            minimum_candidates=minimum_candidates,
         )
     except (ExternalNoteEvaluationError, BenchmarkEvaluationError) as exc:
         raise FusionEvaluationError(str(exc)) from exc
@@ -784,6 +791,7 @@ def create_fusion_evaluation_seal(
         candidate_seal_binding,
         fusion,
         frozen_evaluation_config,
+        minimum_candidates,
     )
     seal = {
         "schema": SEAL_SCHEMA,
@@ -803,6 +811,7 @@ def _verify_evaluation_seal(
     candidate_seal_binding: dict[str, Any],
     fusion: VerifiedFusion,
     evaluation_config: EvaluationConfig,
+    minimum_candidates: int,
     snapshots: InputSnapshots,
 ) -> dict[str, Any]:
     binding = _snapshot(snapshots, seal_path, label="fusion evaluation seal")
@@ -814,6 +823,7 @@ def _verify_evaluation_seal(
         candidate_seal_binding,
         fusion,
         evaluation_config,
+        minimum_candidates,
     )
     if (
         seal.get("schema") != SEAL_SCHEMA
@@ -1319,6 +1329,7 @@ def evaluate_fusion(
     *,
     rhythm_path: Path | None = None,
     config: EvaluationConfig | None = None,
+    minimum_candidates: int = 3,
     command: list[str] | None = None,
 ) -> dict[str, Any]:
     """Evaluate one pre-sealed fusion run and its fixed ablations."""
@@ -1339,6 +1350,7 @@ def evaluate_fusion(
             benchmark_manifest,
             payload,
             snapshots,
+            minimum_candidates=minimum_candidates,
         )
     except (ExternalNoteEvaluationError, BenchmarkEvaluationError) as exc:
         raise FusionEvaluationError(str(exc)) from exc
@@ -1366,6 +1378,7 @@ def evaluate_fusion(
         candidate_seal_binding,
         fusion,
         metric_config,
+        minimum_candidates,
         snapshots,
     )
     excerpts, references, total_duration = _load_blind_references(
@@ -1760,6 +1773,7 @@ def build_parser() -> argparse.ArgumentParser:
         subparser.add_argument("--config", required=True, type=Path)
         subparser.add_argument("--calibration", required=True, type=Path)
         subparser.add_argument("--rhythm", type=Path)
+        subparser.add_argument("--minimum-candidates", type=int, default=3)
 
     seal_parser = subparsers.add_parser("seal")
     add_common(seal_parser)
@@ -1796,6 +1810,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.calibration,
                 args.output,
                 rhythm_path=args.rhythm,
+                minimum_candidates=args.minimum_candidates,
                 confirm_blind_output_uninspected=(args.confirm_blind_output_uninspected),
                 confirm_reference_not_used=args.confirm_reference_not_used,
             )
@@ -1809,6 +1824,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.seal,
                 args.output_dir,
                 rhythm_path=args.rhythm,
+                minimum_candidates=args.minimum_candidates,
                 command=command,
             )
     except (

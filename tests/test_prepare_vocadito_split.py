@@ -21,6 +21,7 @@ from scripts.prepare_vocadito_split import (
     TAIL_SILENCE_FRAMES,
     TASK006_BLIND_SINGERS,
     VocaditoPreparationError,
+    _validated_note_csv,
     ensure_project,
     freeze_benchmark_pack,
     load_split_config,
@@ -123,6 +124,16 @@ class PrepareVocaditoSplitTests(unittest.TestCase):
                 hostname="klone-login01",
             )
         require_slurm_compute_node({"SLURM_JOB_ID": "123"}, hostname="n001")
+
+    def test_note_boundary_allows_only_up_to_five_ms_quantization_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            note_path = Path(temporary) / "notes.csv"
+            note_path.write_text("0.9,440.0,0.104\n", encoding="utf-8")
+            self.assertEqual(_validated_note_csv(note_path, duration_sec=1.0), 1)
+
+            note_path.write_text("0.9,440.0,0.106\n", encoding="utf-8")
+            with self.assertRaisesRegex(VocaditoPreparationError, "outside"):
+                _validated_note_csv(note_path, duration_sec=1.0)
 
     def test_concatenation_is_hash_bound_and_reusable(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
