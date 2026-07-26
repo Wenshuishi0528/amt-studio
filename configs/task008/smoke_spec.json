@@ -1,0 +1,196 @@
+{
+  "batch_id": "task008-smoke-v7",
+  "contract_version": "amt-batch-spec/v1",
+  "created_at": "2026-07-25T00:00:00+00:00",
+  "retention": {
+    "keep_recent_completed": 0,
+    "max_cache_bytes": 67108864,
+    "max_failed_attempts_per_cache": 2
+  },
+  "rows": [
+    {
+      "authorization_id": "project-owned-smoke-fixture",
+      "python_path": "../../.venv/bin/python",
+      "repository_root_path": "../..",
+      "code_paths": [
+        {
+          "name": "batch-core",
+          "path": "../../src/amt_core/batch.py"
+        },
+        {
+          "name": "batch-finalizer",
+          "path": "../../slurm/31_task008_batch_finalize.slurm"
+        },
+        {
+          "name": "batch-manager",
+          "path": "../../scripts/manage_hyak_batch.py"
+        },
+        {
+          "name": "batch-freeze-slurm",
+          "path": "../../slurm/29_task008_freeze.slurm"
+        },
+        {
+          "name": "batch-slurm",
+          "path": "../../slurm/30_task008_batch_array.slurm"
+        },
+        {
+          "name": "batch-submitter",
+          "path": "../../scripts/hyak/submit_batch.py"
+        },
+        {
+          "name": "batch-utils",
+          "path": "../../src/amt_core/utils.py"
+        },
+        {
+          "name": "fixture-worker",
+          "path": "../../scripts/task008_fixture_worker.py"
+        }
+      ],
+      "code_revision": "86de5af",
+      "configuration_path": "fixtures/config-a.json",
+      "input_path": "fixtures/input-a.txt",
+      "models": [
+        {
+          "name": "fixture-model",
+          "path": "fixtures/model.txt"
+        }
+      ],
+      "row_id": "resume-once",
+      "selected_outputs": [
+        "infer/result.json"
+      ],
+      "stages": [
+        {
+          "command": [
+            "{python}",
+            "{repo_root}/scripts/task008_fixture_worker.py",
+            "--input",
+            "{input}",
+            "--configuration",
+            "{configuration}",
+            "--model",
+            "{model:fixture-model}",
+            "--output",
+            "{stage_dir}/prepared.json"
+          ],
+          "outputs": [
+            "prepared.json"
+          ],
+          "stage_id": "prepare"
+        },
+        {
+          "command": [
+            "{python}",
+            "{repo_root}/scripts/task008_fixture_worker.py",
+            "--input",
+            "{run_dir}/stages/prepare/prepared.json",
+            "--configuration",
+            "{configuration}",
+            "--model",
+            "{model:fixture-model}",
+            "--output",
+            "{stage_dir}/result.json",
+            "--checkpoint-dir",
+            "{checkpoint_dir}",
+            "--interrupt-once"
+          ],
+          "outputs": [
+            "result.json"
+          ],
+          "stage_id": "infer"
+        }
+      ]
+    },
+    {
+      "authorization_id": "project-owned-smoke-fixture",
+      "python_path": "../../.venv/bin/python",
+      "repository_root_path": "../..",
+      "code_paths": [
+        {
+          "name": "batch-core",
+          "path": "../../src/amt_core/batch.py"
+        },
+        {
+          "name": "batch-finalizer",
+          "path": "../../slurm/31_task008_batch_finalize.slurm"
+        },
+        {
+          "name": "batch-manager",
+          "path": "../../scripts/manage_hyak_batch.py"
+        },
+        {
+          "name": "batch-freeze-slurm",
+          "path": "../../slurm/29_task008_freeze.slurm"
+        },
+        {
+          "name": "batch-slurm",
+          "path": "../../slurm/30_task008_batch_array.slurm"
+        },
+        {
+          "name": "batch-submitter",
+          "path": "../../scripts/hyak/submit_batch.py"
+        },
+        {
+          "name": "batch-utils",
+          "path": "../../src/amt_core/utils.py"
+        },
+        {
+          "name": "fixture-worker",
+          "path": "../../scripts/task008_fixture_worker.py"
+        }
+      ],
+      "code_revision": "86de5af",
+      "configuration_path": "fixtures/config-b.json",
+      "input_path": "fixtures/input-b.txt",
+      "models": [
+        {
+          "name": "fixture-model",
+          "path": "fixtures/model.txt"
+        }
+      ],
+      "row_id": "cache-hit",
+      "selected_outputs": [
+        "infer/result.json"
+      ],
+      "stages": [
+        {
+          "command": [
+            "{python}",
+            "{repo_root}/scripts/task008_fixture_worker.py",
+            "--input",
+            "{input}",
+            "--configuration",
+            "{configuration}",
+            "--model",
+            "{model:fixture-model}",
+            "--output",
+            "{stage_dir}/prepared.json"
+          ],
+          "outputs": [
+            "prepared.json"
+          ],
+          "stage_id": "prepare"
+        },
+        {
+          "command": [
+            "{python}",
+            "{repo_root}/scripts/task008_fixture_worker.py",
+            "--input",
+            "{run_dir}/stages/prepare/prepared.json",
+            "--configuration",
+            "{configuration}",
+            "--model",
+            "{model:fixture-model}",
+            "--output",
+            "{stage_dir}/result.json"
+          ],
+          "outputs": [
+            "result.json"
+          ],
+          "stage_id": "infer"
+        }
+      ]
+    }
+  ],
+  "schema_version": 1
+}

@@ -367,3 +367,29 @@ correction logs must match the benchmark, a frozen excerpt, and an evaluated
 candidate; their duration must match that frozen excerpt. Whole-excerpt review
 time must account for every declared playback plus additional review time and
 must state whether the seed or an empty excerpt was accepted.
+
+## Batch execution telemetry
+
+Task008 batch telemetry measures infrastructure, not transcription accuracy.
+The execution failure rate is:
+
+```text
+(failed attempts + interrupted attempts)
+--------------------------------------------------
+(completed + failed + interrupted executed attempts)
+```
+
+A cache hit performs no experiment stage and is excluded from that
+denominator. Cache-hit rate is reported separately across all attempts. The
+resource summary also records aggregate stage wall time, peak child-process
+RSS, Slurm allocation fields, host/device evidence, cache bytes, and the
+declared retention budget.
+
+Because content caches can be reused across batches, telemetry includes only
+attempts whose batch ID, manifest SHA-256, row ID, and cache key match the
+current manifest. Attempt JSON and stdout/stderr logs are copied to the
+persistent index before an incomplete terminal cache becomes retention-safe.
+
+An intentionally injected interruption remains a failed execution attempt even
+when a later retry succeeds. Final row status and attempt failure rate are
+therefore separate fields. Neither value is a model-quality result.

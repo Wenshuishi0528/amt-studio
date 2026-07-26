@@ -1,8 +1,8 @@
 # Project status
 
 Current gate: Gate 4 not passed; deterministic fusion v1 was rejected
-Current task: `tasks/007_FUSION_V1.md` complete
-Next task: `tasks/008_HYAK_BATCH.md`
+Current task: `tasks/008_HYAK_BATCH.md` complete
+Next task: `tasks/009_MAC_APP_SHELL.md` remains blocked by stable backend gates
 Current branch: `main`
 
 Verified on the user's Mac:
@@ -350,3 +350,59 @@ All private Task 007 evidence was synchronized to the Mac and re-hashed
 successfully. `make check` passes 186 tests; Ruff, Slurm shell syntax, Task 007
 JSON, compile, and diff checks also pass. Final focused `/review` has no
 remaining P0–P2 finding.
+
+Task 008 now provides a model-agnostic Hyak batch layer with compute-node
+frozen manifests, cross-manifest content-addressed
+input/configuration/model/code/stage keys, atomic hash-verified stage
+completion, persistent per-stage checkpoints, cleanup of unpublished stage
+data, Slurm termination forwarding, append-only attempt indexes and logs,
+serialized preflighted retention, and persistent raw/derived output archives.
+The runtime binding preserves the virtualenv launcher and fingerprints its
+resolved interpreter plus installed packages; Python entry points must be
+frozen code artifacts. ADR 0007 records these boundaries without adding a
+model dependency to the root environment.
+
+Final smoke manifest `task008-smoke-v7` has SHA-256
+`44c265b6f402798d4ed277fb2e7f94524747a432f5fac97f87061dc6f42de18d`;
+freeze job `37712191` hashed it on compute node `n3467`. GPU scheduler
+test-only checks `37712211` and `37712212` accepted STF L40S and checkpoint
+A40 profiles without allocating GPUs. CPU array `37712213` deliberately
+interrupted one row after completing its prepare stage while the other row
+completed. Identical replay array `37712227` reused that prepare stage,
+completed only the unfinished infer stage, and served the other row as a full
+cache hit. Both finalizers (`37712215`, `37712230`) completed on compute nodes.
+
+The final index reports both rows completed. Across four attempts it records
+one deliberate interruption, two executions completed, one cache hit, an
+execution failure rate of `1/3`, and a cache-hit rate of `1/4`. The index and
+resource/failure summary SHA-256 values are
+`766d07fedc4c360412b15cd724e7c0d635ebd519a7e259965703e0cdf37dfdb0`
+and
+`81e0b02708e69bac727d4ec9c9962f30ba283c900a3236d8419b59f2145da6ca`.
+All four append-only attempts, ten attempt logs, selected and prepare outputs,
+manifests, indexes, and scheduler logs were synchronized to the ignored local
+`hyak-results/` area and re-hashed; interrupted-run `tmp/` is empty and the
+synced manifest loads offline. The final resource summary counts `117,938`
+bytes across all 14 directories in the shared cache root, not only v7 rows.
+This smoke verifies batch mechanics only; it is not a transcription-quality or
+GPU-throughput result.
+
+Task 008 acceptance criteria pass. `make check` now passes 216 tests; Ruff
+lint, Slurm shell syntax, JSON parsing, compile, and diff checks also pass.
+Gate 4 remains
+unchanged, so the native app task is still blocked by model/backend quality
+rather than batch infrastructure.
+
+The single final Task 008 `/review` reported two P1 findings and one P2. The
+two blocking findings are fixed in `amt-batch-execution/v2`: every worker now
+runs against cache-local immutable input/configuration/model/code snapshots,
+and arbitrary inherited environment variables no longer reach a stage.
+Explicit stage environment values remain supported and are part of the cache
+key. Targeted regression tests cover both boundaries. Per the requested stop
+rule, the P2 edge case for regular files placed directly in the cache root was
+not expanded into additional infrastructure work.
+
+Smoke v7 remains the authoritative Hyak scheduler, resume, cache, finalizer,
+and retention evidence and predates this final P1 hardening. No additional
+Hyak smoke was run. The final local `make check` passes 216 tests. Task 009 has
+not started.

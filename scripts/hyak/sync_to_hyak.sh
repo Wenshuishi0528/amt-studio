@@ -13,6 +13,8 @@ rsync -azP --delete \
   --exclude '.uv-cache/' \
   --exclude '__pycache__/' \
   --exclude '*.pyc' \
+  --exclude '.DS_Store' \
+  --exclude 'hyak-results/' \
   --exclude 'data/private/' \
   --exclude 'projects/private/' \
   --exclude 'weights/' \

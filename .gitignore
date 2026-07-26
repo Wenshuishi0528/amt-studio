@@ -32,6 +32,7 @@ slurm-*.err
 /model-cache/**
 /runs/**
 /exports/**
+/hyak-results/**
 
 # Third-party worker environments and checkouts
 /workers/**/.venv/

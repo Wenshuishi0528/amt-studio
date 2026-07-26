@@ -4,13 +4,14 @@
 
 ## 一句话状态
 
-Task 001–007 已完成。两套专业标注 benchmark 与新的 singer-disjoint Task 007
+Task 001–008 已完成。两套专业标注 benchmark 与新的 singer-disjoint Task 007
 开发/盲测集均已按先冻结、后评分的顺序完成。GAME 仍是主旋律最强基线；
 deterministic fusion v1 因 onset+pitch 明显回退而拒绝，不进入默认路线。ADR 0005
 允许以明确命名的 assisted workflow 开展融合研究，但 direct owner edit time
-仍不可用；Gate 4 没有通过。
+仍不可用；Gate 4 没有通过。Task 008 的 Hyak 批处理、续跑、缓存、索引和持久化
+同步已经验证，但不改变模型质量结论。
 
-Task 007 是当前最终任务提交（用 `git log -1 --oneline` 查看）。当前开发分支是
+Task 008 是当前最终任务提交（用 `git log -1 --oneline` 查看）。当前开发分支是
 `main`。
 
 ## 项目目标与硬边界
@@ -403,6 +404,51 @@ Vocadito 双标注者音符 benchmark：
   quantization/MusicXML、训练或 SwiftUI 应用。
 - Task004 的试听 MIDI 只是审听材料；Task005 的 `performance.mid` 是四条
   未排序候选轨，`score-grid-experiment.jsonl` 也不是正式乐谱。
+
+## Task 008 Hyak 批处理
+
+- ADR 0007 固定了 `amt-batch-spec/v1`、冻结 manifest、可跨 manifest 复用的
+  按内容寻址阶段缓存、persistent 完整输出归档和 scrubbed retention。
+- 每一行都绑定 input/config/model、相关源码、code revision、阶段命令及输出
+  SHA-256；Python 还绑定未解引用的 virtualenv 入口、解析后的解释器以及
+  installed-package fingerprint。所有 Python entry point 都必须是冻结源码；
+  发生变化就不能误用旧缓存。
+- 三种提交 profile 是 `priority-l40s`、`checkpoint-a40`、`cpu-smoke`。前两者
+  已通过 Hyak `sbatch --test-only`，没有为 smoke 占用 GPU。
+- 最终 smoke manifest 是 `task008-smoke-v7`，SHA-256：
+  `44c265b6f402798d4ed277fb2e7f94524747a432f5fac97f87061dc6f42de18d`。
+  `37712191` 在计算节点 `n3467` 冻结 manifest，login node 没有做 artifact
+  hashing；GPU test-only probe 是 `37712211` 与 `37712212`。
+- 首轮数组 `37712213` 按设计中断一行、完成一行；第二轮 `37712227` 对中断行
+  复用 prepare 后只完成 infer，对已完成行直接整行 cache hit。finalizer
+  `37712215` 和 `37712230` 都是 `COMPLETED 0:0`。
+- 最终 index 为 2/2 行完成；execution failure rate 是 `1/3`，cache-hit rate
+  是 `1/4`。这次失败是刻意注入的续跑测试，不是生产模型失败率。
+- 四个尝试记录与十个 stdout/stderr log 均以 append-only 方式保存在
+  persistent index；中断产生的 unpublished `tmp/` 已清空，只保留 checkpoint。
+  每行的 prepare 与 infer 声明输出都已持久化，`selected_outputs` 只负责标记
+  重要子集。
+- repository executable 与 Python runtime 均冻结并纳入 cache key；非
+  `srun` active step 不能执行 row。retention 由 global/cache lock 串行化，
+  跳过 active cache；terminal incomplete cache 只有在 attempt JSON/log 已
+  持久化后才能淘汰，超预算时不再接收新的 unique cache。当前 shared root
+  是 14 个目录、`117,938` bytes。
+- Mac 的 ignored 证据位于
+  `hyak-results/{manifests,indexes,selected,logs}/`。完整 scrubbed cache 不会
+  同步回来；完整声明输出先复制到 persistent storage 并重验后，retention
+  才允许清理 completed cache，且预算无法安全满足时会在任何删除前失败。
+  array job ID 会在提交 finalizer 之前先落盘。Mac 可用
+  `verify_source=False` 离线读取同步回来的冻结 manifest。
+- 当前 Hyak 队列已清空。Task 009 仍因 Gate 4 和 stable backend gate 阻塞；
+  Task 008 完成不代表应该立即开发正式 SwiftUI 产品壳。
+- 最终只运行了一次 `/review`：它报告两个 P1 和一个 P2。两个 P1 已通过
+  `amt-batch-execution/v2` 修复：stage 只读取 cache 内不可变的
+  input/config/model/code snapshot，不再继承任意 shell/Slurm 环境；显式
+  stage environment 仍可使用且会进入 cache key。对应回归测试已加入。
+- 按停止指令没有处理 P2 的 cache root 顶层散落普通文件计费边缘情况，也
+  没有再跑 smoke。v7 仍是 scheduler/resume/cache/finalizer/retention 的
+  权威 Hyak 证据，但早于最后的 v2 本地加固；最终 `make check` 通过 216
+  项测试。不要把 v7 的源码 hash 误写成最终提交后的源码 hash。
 
 ## 快速健康检查
 

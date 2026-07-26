@@ -66,3 +66,17 @@ fusion output and complete scoring protocol are sealed before reference notes
 are loaded or metrics are calculated; ablations do not reuse the full model's
 calibrator. See
 `docs/adr/0006-deterministic-fusion-and-blind-evaluation.md`.
+
+## D-014: Freeze and content-address Hyak batch work
+
+Hyak batch arrays are derived from manifests frozen in a Slurm compute step.
+Cache reuse requires verified input, configuration, virtualenv launcher,
+resolved Python runtime, installed-package fingerprint, frozen Python entry
+point and repository code, command, and output hashes; all declared raw and
+derived outputs plus append-only attempt JSON/log evidence are copied to
+persistent storage before scrubbed-cache retention. Selected-output markers
+remain explicit. Global/per-cache locks protect active work, terminal
+incomplete caches are removable only after evidence persistence, and the
+retention budget covers the shared cache root.
+See
+`docs/adr/0007-content-addressed-hyak-batches.md`.

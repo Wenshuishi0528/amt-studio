@@ -4,6 +4,83 @@ This project records changes by numbered research task until formal semantic
 versions and releases begin. Dates and commit identifiers refer to the local
 Git history.
 
+## Task 008 — Hyak batch experiment system — 2026-07-25
+
+Commit: this task's final commit (`feat: complete Hyak batch task 008`)
+
+### Added
+
+- Added ADR 0007 and the `amt-batch-spec/v1`,
+  `amt-batch-manifest/v1`, `amt-batch-complete/v1`, selection, and index
+  contracts.
+- Added content-addressed batch rows that bind input, configuration, model,
+  relevant code, code revision, virtualenv launcher, resolved interpreter,
+  installed-package fingerprint, and ordered stage definitions, with safe
+  reuse across later manifests containing identical work. Python entry points
+  must be frozen repository artifacts.
+- Added `amt-batch-execution/v2`: stages now consume cache-local immutable
+  snapshots of every declared input, configuration, model, and code artifact.
+  Stage processes use a controlled environment; only explicitly declared
+  stage values are cache-key-bound and forwarded.
+- Added atomic, hash-verified stage completion; persistent per-stage
+  checkpoints; cleanup of unpublished stage data; termination forwarding;
+  persistent raw/derived output archives with selected-output markers; and
+  fully preflighted fail-closed retention.
+- Added manifest-derived Slurm arrays with STF L40S, checkpoint A40, and CPU
+  smoke profiles, compute-node manifest freezing, durable array submission
+  records before dependent-finalizer submission, and centralized experiment
+  indexes.
+- Added execution-failure, cache-hit, wall-time, peak-RSS, allocation,
+  host/device, and storage-budget summaries backed by manifest-filtered,
+  append-only persistent attempt records and stdout/stderr logs.
+- Added global retention serialization, active-cache protection, safe cleanup
+  of terminal incomplete caches after evidence persistence, and new-work
+  admission blocking while the shared root is already over budget.
+- Added Hyak-to-Mac synchronization for frozen manifests, logs, indexes, and
+  selected results while excluding complete scrubbed caches.
+
+### Verified
+
+- Final smoke manifest `task008-smoke-v7` has SHA-256
+  `44c265b6f402798d4ed277fb2e7f94524747a432f5fac97f87061dc6f42de18d`;
+  freeze job `37712191` completed on CPU compute node `n3467`.
+- Hyak scheduler test-only probes accepted the real STF L40S and checkpoint
+  A40 profiles as `37712211` and `37712212` without executing GPU work.
+- First CPU array `37712213` deliberately interrupted one row after its
+  prepare stage and completed the other. Replay array `37712227` reused the
+  completed prepare stage, finished only the interrupted stage, and returned
+  an entire-row cache hit for the already completed row.
+- Finalizers `37712215` and `37712230` completed on Slurm compute nodes. The
+  final index reports both rows completed, execution failure rate `1/3`, and
+  cache-hit rate `1/4`.
+- All four append-only attempts, ten attempt logs, selected and prepare
+  outputs, manifests, scheduler logs, and indexes were synchronized to the Mac
+  and re-hashed. Central index
+  SHA-256 is
+  `766d07fedc4c360412b15cd724e7c0d635ebd519a7e259965703e0cdf37dfdb0`.
+- The synchronized manifest loaded offline, and shared-root retention counted
+  all 14 cache directories (`117,938` bytes), not only the v7 rows.
+- The single final `/review` reported two P1 findings and one P2. Both P1
+  findings were fixed with regression coverage; the requested P0/P1-only stop
+  rule left the P2 root-level stray cache-file accounting edge case unchanged.
+- No post-review Hyak smoke was run. Smoke v7 remains the scheduler/resume/
+  cache/finalizer/retention evidence and predates the final execution-v2
+  hardening.
+- `make check` passed with 216 tests; Ruff lint, JSON, Slurm shell, compile,
+  and diff checks passed.
+
+### Limitations
+
+- The smoke uses only project-owned text fixtures. It proves orchestration,
+  interruption recovery, caching, provenance, retention, and sync behavior;
+  it does not measure model quality, GPU throughput, or compatibility of a
+  specific model's internal checkpoint format.
+- Gate 4 remains open because Task 007 fusion quality was rejected. Task 009
+  remains blocked by stable backend gates.
+- Retention does not account for arbitrary regular files placed directly at
+  the cache root; managed cache directories remain covered. This P2 review
+  finding is documented rather than expanded after Task 008's stop instruction.
+
 ## Task 007 — Deterministic fusion and confidence v1 — 2026-07-25
 
 Commit: this task's final commit (`feat: complete deterministic fusion task 007`)

@@ -61,6 +61,18 @@ A failed worker cannot corrupt another worker's environment.
 
 Runs workers, compares configurations, evaluates against references, and builds fused tracks. It can execute locally or through Slurm.
 
+Hyak batch experiments use frozen manifest rows and content-addressed stage
+caches. A cache hit is valid only after output re-verification. Every declared
+raw and derived output, its selected-output markers, append-only attempt
+provenance, and experiment indexes live in persistent storage before cache
+retention. The cache key also binds the virtualenv launcher, resolved Python
+runtime, installed-package fingerprint, and frozen code used by expanded
+repository commands. Python entry points must be frozen artifacts. Retention
+measures the complete shared cache root, serializes deletion against active
+rows, and removes terminal incomplete caches only after attempt records and
+logs are persistent; unpublished intermediates and resumable stage checkpoints
+may live in scrubbed storage.
+
 ### Layer D: macOS application
 
 SwiftUI/AVFoundation front end. During research it invokes the Python backend as a local subprocess or service. Once the algorithms stabilize, selected workers can be converted to CoreML/ONNX or bundled separately. Do not force early model conversion at the expense of accuracy.

@@ -39,6 +39,15 @@ Task 007 completed this deliverable, but the sealed blind result rejected v1
 as a default route: onset+pitch regressed despite a negligible offset-aware
 gain. GAME remains the baseline and Gate 4 is still open.
 
+Task 008 completed the research execution layer around these experiments:
+frozen manifest rows, content-addressed stage caching, interruption-safe
+replay, explicit priority/checkpoint profiles, persistent raw/derived output
+archives, append-only attempts and logs, virtualenv/interpreter/package and
+code-entry binding, compute-node manifest hashing, concurrency-safe
+shared-root retention, and centralized resource/failure indexes. This removes
+batch orchestration as a blocker but does not change the rejected fusion
+result.
+
 ## Phase D: Learned correction
 
 Start with a note-level or sequence-level reranker/refiner. Candidate features can include:

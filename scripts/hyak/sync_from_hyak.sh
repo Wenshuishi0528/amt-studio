@@ -15,6 +15,10 @@ rsync -azP \
   "$HYAK_HOST:$REMOTE_ROOT/manifests/" "$LOCAL_RESULTS/manifests/"
 rsync -azP \
   "$HYAK_HOST:$REMOTE_ROOT/logs/" "$LOCAL_RESULTS/logs/"
+rsync -azP \
+  "$HYAK_HOST:$REMOTE_ROOT/indexes/" "$LOCAL_RESULTS/indexes/"
+rsync -azP \
+  "$HYAK_HOST:$REMOTE_ROOT/selected/" "$LOCAL_RESULTS/selected/"
 
-echo "Manifests and logs synced to $LOCAL_RESULTS"
-echo "Sync selected project run directories explicitly after reviewing size."
+echo "Manifests, logs, experiment indexes, and persistent output archives synced to $LOCAL_RESULTS"
+echo "Unselected cache entries and project run directories remain remote."
