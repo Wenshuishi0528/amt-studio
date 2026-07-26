@@ -43,6 +43,20 @@ class MelodyContourEvaluationError(RuntimeError):
     """Raised when contour evidence or blind-evaluation lineage is invalid."""
 
 
+REFERENCE_ROLE_BY_SPLIT = {
+    "development": "development_instrumental_melody",
+    "blind_test": "blind_test_vocal_melody",
+}
+
+
+def _verify_reference_role_for_split(*, split: Any, reference_role: str) -> None:
+    expected_role = REFERENCE_ROLE_BY_SPLIT.get(split)
+    if expected_role is None or reference_role != expected_role:
+        raise MelodyContourEvaluationError(
+            f"reference role {reference_role!r} is not permitted for split {split!r}"
+        )
+
+
 def _load_object(path: Path, *, label: str) -> dict[str, Any]:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
@@ -147,9 +161,9 @@ def _verified_pack(
         manifest.get("schema") != "amt-benchmark-pack/v1"
         or not isinstance(payload, dict)
         or canonical_json_sha256(payload) != manifest.get("benchmark_freeze_sha256")
-        or payload.get("split") != "blind_test"
+        or payload.get("split") not in {"development", "blind_test"}
     ):
-        raise MelodyContourEvaluationError("blind benchmark freeze is invalid")
+        raise MelodyContourEvaluationError("development/blind benchmark freeze is invalid")
     excerpts = payload.get("excerpts")
     if not isinstance(excerpts, list) or not excerpts:
         raise MelodyContourEvaluationError("blind benchmark has no frozen excerpts")
@@ -190,6 +204,7 @@ def _verify_project_reference_binding(
     input_snapshots: InputSnapshots,
     *,
     reference_sha256: str,
+    reference_role: str = "blind_test_vocal_melody",
 ) -> None:
     project_dir = pack_dir.parent.parent
     project_manifest_path = project_dir / "manifest.json"
@@ -209,7 +224,7 @@ def _verify_project_reference_binding(
         or not isinstance(source, dict)
         or not any(
             isinstance(track, dict)
-            and track.get("role") == "blind_test_vocal_melody"
+            and track.get("role") == reference_role
             and track.get("melody1_sha256") == reference_sha256
             and track.get("mix_sha256") == source.get("sha256")
             for track in selected_tracks
@@ -255,22 +270,29 @@ def _verified_candidate_records(
     _track_input(input_snapshots, seal_path, label="candidate set seal")
     seal = _load_object(seal_path, label="candidate set seal")
     freeze = seal.get("freeze_payload")
+    split = payload.get("split")
     if (
         seal.get("schema") != "amt-evaluation-candidate-set-seal/v1"
         or not isinstance(freeze, dict)
         or canonical_json_sha256(freeze) != seal.get("candidate_set_sha256")
         or freeze.get("benchmark_freeze_sha256")
         != manifest.get("benchmark_freeze_sha256")
-        or freeze.get("split") != "blind_test"
+        or freeze.get("split") != split
     ):
-        raise MelodyContourEvaluationError("blind candidate set seal is invalid")
+        raise MelodyContourEvaluationError("candidate set seal is invalid")
     confirmation = freeze.get("confirmation")
     if (
         not isinstance(confirmation, dict)
         or confirmation.get("candidate_output_quality_uninspected_before_freeze") is not True
-        or confirmation.get("candidate_selection_or_tuning_after_freeze_prohibited") is not True
+        or (
+            split == "blind_test"
+            and confirmation.get(
+                "candidate_selection_or_tuning_after_freeze_prohibited"
+            )
+            is not True
+        )
     ):
-        raise MelodyContourEvaluationError("blind candidate set confirmation is invalid")
+        raise MelodyContourEvaluationError("candidate set confirmation is invalid")
     records = freeze.get("candidates")
     if not isinstance(records, list) or not records:
         raise MelodyContourEvaluationError("candidate set is empty")
@@ -361,6 +383,7 @@ def evaluate_melody_contour(
     output_dir: Path,
     *,
     expected_reference_sha256: str,
+    reference_role: str = "blind_test_vocal_melody",
     instrument: str = "voice",
     cent_tolerance: float = 50.0,
 ) -> dict[str, Any]:
@@ -379,6 +402,11 @@ def evaluate_melody_contour(
     actual_reference_hash = reference_snapshot["sha256"]
     if actual_reference_hash != expected_reference_sha256:
         raise MelodyContourEvaluationError("reference contour SHA-256 does not match")
+    manifest, payload = _verified_pack(pack_dir, input_snapshots)
+    _verify_reference_role_for_split(
+        split=payload.get("split"),
+        reference_role=reference_role,
+    )
     provenance_snapshot = _track_input(
         input_snapshots,
         provenance_path,
@@ -393,14 +421,13 @@ def evaluate_melody_contour(
         or not any(
             isinstance(track, dict)
             and track.get("melody1_sha256") == actual_reference_hash
-            and track.get("role") == "blind_test_vocal_melody"
+            and track.get("role") == reference_role
             for track in selected_tracks
         )
     ):
         raise MelodyContourEvaluationError(
             "reference contour is not approved by the private dataset provenance"
         )
-    manifest, payload = _verified_pack(pack_dir, input_snapshots)
     seal, candidates = _verified_candidate_records(
         pack_dir,
         manifest,
@@ -413,6 +440,7 @@ def evaluate_melody_contour(
         selected_tracks,
         input_snapshots,
         reference_sha256=actual_reference_hash,
+        reference_role=reference_role,
     )
     times, reference = read_melody_contour_csv(reference_csv)
     excerpts = payload.get("excerpts")
@@ -504,9 +532,12 @@ def evaluate_melody_contour(
         },
         "policy": {
             "instrument_filter": instrument,
+            "reference_role": reference_role,
             "projection_rule": "highest_pitch_then_latest_onset_then_lexical_event_id",
             "cent_tolerance": cent_tolerance,
-            "candidate_selection_after_blind_scoring_prohibited": True,
+            "candidate_selection_after_scoring_prohibited": (
+                payload.get("split") == "blind_test"
+            ),
             "owner_listening_percentages_used_as_formal_accuracy": False,
         },
         "leaderboard": leaderboard,
@@ -559,6 +590,8 @@ def evaluate_melody_contour(
                 str(reference_csv),
                 "--reference-sha256",
                 expected_reference_sha256,
+                "--reference-role",
+                reference_role,
                 "--provenance",
                 str(provenance_path),
                 "--output-dir",
@@ -570,6 +603,7 @@ def evaluate_melody_contour(
             ],
             "configuration": {
                 "instrument_filter": instrument,
+                "reference_role": reference_role,
                 "cent_tolerance": cent_tolerance,
                 "projection_rule": report["policy"]["projection_rule"],
             },
@@ -620,6 +654,10 @@ def main() -> int:
     parser.add_argument("--pack-dir", type=Path, required=True)
     parser.add_argument("--reference-csv", type=Path, required=True)
     parser.add_argument("--reference-sha256", required=True)
+    parser.add_argument(
+        "--reference-role",
+        default="blind_test_vocal_melody",
+    )
     parser.add_argument("--provenance", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--instrument", default="voice")
@@ -631,6 +669,7 @@ def main() -> int:
         args.provenance,
         args.output_dir,
         expected_reference_sha256=args.reference_sha256,
+        reference_role=args.reference_role,
         instrument=args.instrument,
         cent_tolerance=args.cent_tolerance,
     )

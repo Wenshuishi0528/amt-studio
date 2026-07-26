@@ -49,7 +49,16 @@ def normalize_note_events(
     *,
     run_id: str,
     source_model: str,
+    instrument: str = "voice",
 ) -> dict[str, Any]:
+    if not isinstance(instrument, str) or not instrument.strip():
+        raise NativeEventError("instrument must be a non-empty string")
+    instrument = instrument.strip()
+    route_tag = (
+        "lead-vocal-baseline"
+        if instrument == "voice"
+        else "direct-mix-main-melody-candidate"
+    )
     canonical: list[NoteEvent] = []
 
     try:
@@ -126,8 +135,8 @@ def normalize_note_events(
                 native_index = row_number - 2
                 event = NoteEvent(
                     event_id=f"{run_id}:basic-pitch:{native_index}",
-                    track_id="basic-pitch-native:voice",
-                    instrument="voice",
+                    track_id=f"basic-pitch-native:{instrument}",
+                    instrument=instrument,
                     onset_sec=onset,
                     offset_sec=offset,
                     pitch_midi=float(pitch),
@@ -140,7 +149,7 @@ def normalize_note_events(
                     source_event_ids=[f"native-csv-row:{row_number}"],
                     tags=[
                         "candidate",
-                        "lead-vocal-baseline",
+                        route_tag,
                         "confidence-unavailable",
                     ],
                     extra={
@@ -173,7 +182,16 @@ def normalize_note_events(
         "run_id": run_id,
         "source_model": source_model,
         "event_count": len(canonical),
-        "instrument_counts": {"voice": len(canonical)},
+        "instrument_counts": {instrument: len(canonical)},
+        "instrument_assignment": {
+            "value": instrument,
+            "source": (
+                "selected vocal-stem route"
+                if instrument == "voice"
+                else "explicit unknown-instrument direct-mix route"
+            ),
+            "model_inferred": False,
+        },
         "pitch_midi": {
             "minimum": min((event.pitch_midi for event in canonical), default=None),
             "maximum": max((event.pitch_midi for event in canonical), default=None),
@@ -211,6 +229,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--summary", type=Path, required=True)
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--source-model", required=True)
+    parser.add_argument("--instrument", default="voice")
     return parser
 
 
@@ -222,6 +241,7 @@ def main(argv: list[str] | None = None) -> int:
         args.summary.resolve(),
         run_id=args.run_id,
         source_model=args.source_model,
+        instrument=args.instrument,
     )
     print(json.dumps(summary, indent=2, sort_keys=True))
     return 0

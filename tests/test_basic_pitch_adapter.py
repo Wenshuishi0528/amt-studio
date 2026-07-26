@@ -60,6 +60,31 @@ class BasicPitchAdapterTests(unittest.TestCase):
                     source_model="model",
                 )
 
+    def test_direct_mix_instrument_is_explicitly_unknown_not_voice(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            native = root / "events.csv"
+            native.write_text(
+                "start_time_s,end_time_s,pitch_midi,velocity,pitch_bend\n"
+                "0.0,1.0,72,90\n",
+                encoding="utf-8",
+            )
+            output = root / "events.jsonl"
+            summary = normalize_note_events(
+                native,
+                output,
+                root / "summary.json",
+                run_id="direct-mix",
+                source_model="model",
+                instrument="other",
+            )
+            events = read_jsonl(output)
+
+        self.assertEqual([event.instrument for event in events], ["other"])
+        self.assertIn("direct-mix-main-melody-candidate", events[0].tags)
+        self.assertEqual(summary["instrument_counts"], {"other": 1})
+        self.assertFalse(summary["instrument_assignment"]["model_inferred"])
+
     def test_rejects_nonfinite_and_invalid_note_rows(self) -> None:
         invalid_rows = (
             ("nan,1,60,100\n", "must be finite"),

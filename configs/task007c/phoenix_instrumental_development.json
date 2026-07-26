@@ -1,0 +1,65 @@
+{
+  "schema": "amt-benchmark-spec/v1",
+  "benchmark_id": "medleydb-phoenix-task007c-development-v1",
+  "project_id": "medleydb-phoenix-scotch-morris",
+  "split": "development",
+  "song_group_id": "medleydb-phoenix-scotch-morris",
+  "artist_group_id": "phoenix",
+  "prior_system_exposure": false,
+  "excerpts": [
+    {
+      "excerpt_id": "dev-01",
+      "start_sec": 0.0,
+      "duration_sec": 20.0,
+      "coverage_targets": [
+        "instrumental_intro_or_interlude"
+      ],
+      "selection_basis": "First fixed duration-only window; no candidate output or Melody 1 value was used to select it."
+    },
+    {
+      "excerpt_id": "dev-02",
+      "start_sec": 30.0,
+      "duration_sec": 20.0,
+      "coverage_targets": [
+        "lead_vocal"
+      ],
+      "selection_basis": "Second fixed duration-only window; the legacy coverage label is nominal for a predominant instrumental melody."
+    },
+    {
+      "excerpt_id": "dev-03",
+      "start_sec": 60.0,
+      "duration_sec": 20.0,
+      "coverage_targets": [
+        "chorus_or_harmony"
+      ],
+      "selection_basis": "Third fixed duration-only window; the legacy coverage label is nominal and does not alter scoring."
+    },
+    {
+      "excerpt_id": "dev-04",
+      "start_sec": 90.0,
+      "duration_sec": 20.0,
+      "coverage_targets": [
+        "vibrato_or_glissando"
+      ],
+      "selection_basis": "Fourth fixed duration-only window; continuous-pitch errors remain visible under frame scoring."
+    },
+    {
+      "excerpt_id": "dev-05",
+      "start_sec": 120.0,
+      "duration_sec": 20.0,
+      "coverage_targets": [
+        "dense_accompaniment"
+      ],
+      "selection_basis": "Fifth fixed duration-only window; no density measurement was used to select it."
+    },
+    {
+      "excerpt_id": "dev-06",
+      "start_sec": 150.0,
+      "duration_sec": 20.0,
+      "coverage_targets": [
+        "weak_notes"
+      ],
+      "selection_basis": "Sixth fixed duration-only window; no candidate or reference quality was inspected for selection."
+    }
+  ]
+}

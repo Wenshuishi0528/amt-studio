@@ -48,6 +48,16 @@ shared-root retention, and centralized resource/failure indexes. This removes
 batch orchestration as a blocker but does not change the rejected fusion
 result.
 
+Task 007B's constrained two-route vocal recovery and Task 007C's fixed
+instrumental full-mix development probe were both rejected. The instrumental
+probe's `0.9648` voicing false-alarm rate showed that its nearly threshold-level
+voiced-frame pitch result came with pervasive accompaniment output. Phoenix is
+not retuned and no instrumental blind set is acquired for that route. The next
+research slice is therefore a lead-vocal-only MVP around retained GAME
+evidence, together with genuinely new artist-disjoint accompanied-vocal
+reference/correction data; it is not another reuse of scored Vocadito or
+Phoenix material.
+
 ## Phase D: Learned correction
 
 Start with a note-level or sequence-level reranker/refiner. Candidate features can include:

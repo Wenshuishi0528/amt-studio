@@ -24,7 +24,7 @@ fi
 
 : "${AMT_REPO_ROOT:?Export AMT_REPO_ROOT as the absolute repository path}"
 : "${PROJECT_DIR:?Export PROJECT_DIR as the initialized private project}"
-: "${BASIC_PITCH_AUDIO:?Export BASIC_PITCH_AUDIO as the selected separator vocal stem}"
+: "${BASIC_PITCH_AUDIO:?Export BASIC_PITCH_AUDIO as a selected vocal stem or the exact canonical mix}"
 
 REPO_ROOT="$AMT_REPO_ROOT"
 ROOT_PYTHON="${AMT_ROOT_PYTHON:-$REPO_ROOT/.venv/bin/python}"
@@ -79,25 +79,43 @@ print(f"{stem}_basic_pitch")
 PY
 )"
 CANONICAL_MIX="$PROJECT_DIR/audio/canonical/mix.flac"
-PARENT_RUN_DIR="$(dirname "$(dirname "$(dirname "$INPUT_AUDIO")")")"
-PARENT_MANIFEST="$PARENT_RUN_DIR/run_manifest.json"
-if [[ ! -f "$CANONICAL_MIX" || ! -f "$PARENT_MANIFEST" ]]; then
-  echo "Canonical mix or parent separator manifest is unavailable." >&2
+if [[ ! -f "$CANONICAL_MIX" ]]; then
+  echo "Canonical mix is unavailable." >&2
   exit 2
 fi
-read -r CANONICAL_SHA PARENT_MANIFEST_SHA < <(
-  "$ROOT_PYTHON" - "$CANONICAL_MIX" "$PARENT_MANIFEST" <<'PY'
+read -r INPUT_KIND CANONICAL_SHA PARENT_MANIFEST_SHA < <(
+  "$ROOT_PYTHON" - "$CANONICAL_MIX" "$INPUT_AUDIO" <<'PY'
 import hashlib
 import pathlib
 import sys
 
-print(*(hashlib.sha256(pathlib.Path(path).read_bytes()).hexdigest() for path in sys.argv[1:]))
+canonical = pathlib.Path(sys.argv[1]).resolve(strict=True)
+audio = pathlib.Path(sys.argv[2]).resolve(strict=True)
+canonical_sha = hashlib.sha256(canonical.read_bytes()).hexdigest()
+if audio == canonical:
+    print("direct_canonical_mix", canonical_sha, "-")
+else:
+    try:
+        relative = audio.relative_to(canonical.parents[2] / "runs")
+    except ValueError as exc:
+        raise SystemExit("Basic Pitch input is neither canonical mix nor project run audio") from exc
+    if (
+        len(relative.parts) != 4
+        or relative.parts[1:3] != ("raw", "stems")
+        or pathlib.Path(relative.parts[3]).stem != "vocals"
+    ):
+        raise SystemExit("Basic Pitch non-mix input must be a separator vocals stem")
+    parent_manifest = canonical.parents[2] / "runs" / relative.parts[0] / "run_manifest.json"
+    if not parent_manifest.is_file():
+        raise SystemExit("Parent separator manifest is unavailable")
+    parent_sha = hashlib.sha256(parent_manifest.read_bytes()).hexdigest()
+    print("separator_vocal_stem", canonical_sha, parent_sha)
 PY
 )
 
 run_manifest_is_valid() {
   local run_id="$1"
-  "$ROOT_PYTHON" "$VERIFY_RUN_MANIFEST" \
+  local verify_args=(
     --run-dir "$PROJECT_DIR/runs/$run_id" \
     --worker basic_pitch \
     --input "$INPUT_AUDIO" \
@@ -114,9 +132,8 @@ run_manifest_is_valid() {
     --expect-field 'model="basic-pitch-icassp-2022-onnx"' \
     --expect-field 'model_provenance.serialization="onnx"' \
     --expect-field 'model_provenance.onnxruntime_provider="CPUExecutionProvider"' \
-    --expect-field 'input_lineage.kind="separator_vocal_stem"' \
+    --expect-field "input_lineage.kind=\"$INPUT_KIND\"" \
     --expect-field "input_lineage.canonical_mix_sha256=\"$CANONICAL_SHA\"" \
-    --expect-field "input_lineage.parent_manifest_sha256=\"$PARENT_MANIFEST_SHA\"" \
     --expect-field decoding.onset_threshold=0.5 \
     --expect-field decoding.frame_threshold=0.3 \
     --expect-field decoding.minimum_note_length_ms=127.7 \
@@ -133,6 +150,13 @@ run_manifest_is_valid() {
     --require-output normalized/events.jsonl \
     --require-output normalized/summary.json \
     --quiet
+  )
+  if [[ "$INPUT_KIND" == "separator_vocal_stem" ]]; then
+    verify_args+=(
+      --expect-field "input_lineage.parent_manifest_sha256=\"$PARENT_MANIFEST_SHA\""
+    )
+  fi
+  "$ROOT_PYTHON" "$VERIFY_RUN_MANIFEST" "${verify_args[@]}"
 }
 
 RUN_ID="$BASE_RUN_ID"

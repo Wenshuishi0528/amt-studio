@@ -1,6 +1,6 @@
 # AMT Studio 项目交接
 
-最后更新：2026-07-25
+最后更新：2026-07-26
 
 ## 一句话状态
 
@@ -16,8 +16,9 @@ deterministic fusion v1 因 onset+pitch 明显回退而拒绝，不进入默认�
 音频和音符。Task 009B2A 只补齐真实应用交互验证；Task 009B2B 的后台/模型集成
 仍受 Gate 4 阻塞。
 
-Task 009B2A 是当前最终任务切片（用 `git log -1 --oneline` 查看）。当前开发
-分支是 `main`。
+Task 009B2A 之后，Task 007B 的两路线恢复实验和 Task 007C 的器乐 full-mix
+开发探针均已按冻结规则完成并被拒绝。当前最终任务切片是 Task 007C（用
+`git log -1 --oneline` 查看）；开发分支是 `main`。
 
 ## 项目目标与硬边界
 
@@ -466,6 +467,48 @@ Vocadito 双标注者音符 benchmark：
   `projects/private/vocadito-task007b-{development,blind}-v2/`、
   `projects/private/task007b-logs/` 与
   `projects/private/task007b-data-logs/`，关键哈希与 Hyak 一致。
+
+## Task 007C 器乐 full-mix 开发探针
+
+- Phoenix `ScotchMorris` 只能作为
+  `development_instrumental_melody`。六个 20 秒窗口只按曲长固定为
+  `0/30/60/90/120/150` 秒；候选在读 Melody 1 评分前签封，但这个附加签封
+  不会把 development 变成 blind。
+- 唯一候选是 Basic Pitch `0.4.0` 默认解码直接处理 exact canonical mix。
+  adapter 现在只允许 canonical mix 通过明确的 `direct_canonical_mix`
+  lineage；输出标为未知乐器 `other`，既不冒充 voice，也不改变既有 separator
+  vocal-stem 合约。
+- 准备 `37732190`、候选 `37732191`、评测 `37732192` 均在 Hyak compute
+  node 上 `COMPLETED 0:0`。候选产生 1,701 个事件；20,676 帧上的 raw pitch
+  accuracy 为 `0.6932`、overall accuracy 为 `0.3339`、voicing false alarm
+  为 `0.9648`，三个冻结条件全部失败。85.33% 的评分帧有多音重叠，最多同时
+  7 个事件，说明伴奏泄露而不是稳定的单线主旋律。
+- 自动决定是 `reject_direct_mix_instrumental_route_for_v1`。不得在 Phoenix
+  上救援式调参，也不为这条失败路线采集新器乐 blind set。v1 研究范围收窄为
+  lead-vocal main melody；Gate 4 仍不通过，Task 009B2B 与 Task 010 继续阻塞。
+- benchmark freeze SHA-256：
+  `e64a30cd6acdfe8064bace7a2872fe36e22056e45939ff07722a39db4ceda5b8`；
+  candidate-set payload SHA-256：
+  `cc5b7df33ba9bdc36b020b2461a68b1cdb98827527ff8f855c1f0b880ee168a9`；
+  report SHA-256：
+  `fbe730efde84b8f1cb70c5a81844c1573eca9a8a51cee468d23603525b90a7df`；
+  hardened v2 decision SHA-256：
+  `5bb86efc3ee236013b71147d1b54ceea76c3a5e76bd6f1455014dca41805aa13`。
+  v2 判定会在读取 metrics 前重验 benchmark/candidate seals、candidate
+  events/run manifest、evaluation run manifest、reference hash、50-cent
+  容差和固定投影。
+- ignored 私有证据与 Slurm logs 已同步至
+  `projects/private/medleydb-phoenix-scotch-morris/`。完整
+  `make check` 通过 230 项 Python 与 17 项 Swift 测试（1 项预期 private
+  integration skip）。
+- 唯一一次 `/review` 报告 2 个 P1 与 2 个 P2。两个 P1 已修复并有针对性
+  回归：development reference 不能进入 blind split，automatic assessment
+  不能再信任未认证的 report 数字。按收尾边界，prepare-pack reuse 与通用
+  direct-mix/project-manifest binding 两个 P2 只记录、不扩展；没有重跑模型、
+  scoring 或 smoke。
+- 下一步只应定义 lead-vocal-only research MVP，并明确真正新的 accompanied
+  vocal artist-disjoint blind/reference/correction data 条件；不得把 Task
+  006/007/007B 已评分的 blind 输出改作调参集。
 
 ## 当前限制
 

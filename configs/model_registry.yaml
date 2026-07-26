@@ -53,7 +53,7 @@ models:
 
   basic_pitch:
     role: general_single_source_amt
-    status: verified_hyak_selected_stem_baseline
+    status: verified_hyak_selected_stem_baseline_direct_mix_instrumental_probe_rejected
     environment: workers/basic_pitch
     upstream: https://github.com/spotify/basic-pitch
     install_hint: uv sync --project workers/basic_pitch --locked

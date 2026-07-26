@@ -383,16 +383,26 @@ class BasicPitchRunnerTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "invalid note-on count"):
             run_baseline.verify_native_event_count({"note_on_count": True}, 1)
 
-    def test_rejects_non_separator_input(self) -> None:
+    def test_accepts_exact_canonical_mix_and_rejects_other_untracked_audio(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             project, _ = create_project_fixture(root)
             canonical = project / "audio" / "canonical" / "mix.flac"
+            lineage = run_baseline.input_lineage(
+                project.resolve(),
+                canonical.resolve(),
+                audio_sha256=sha256_file(canonical),
+            )
+            self.assertEqual(lineage["kind"], "direct_canonical_mix")
+            self.assertEqual(lineage["instrument_assignment"], "unknown_other")
+
+            arbitrary = project / "arbitrary.wav"
+            arbitrary.write_bytes(b"not a project worker input")
             with self.assertRaisesRegex(ValueError, "separator vocal stem"):
                 run_baseline.input_lineage(
                     project.resolve(),
-                    canonical.resolve(),
-                    audio_sha256=sha256_file(canonical),
+                    arbitrary.resolve(),
+                    audio_sha256=sha256_file(arbitrary),
                 )
 
     def test_rejects_separator_parent_bound_to_stale_canonical_mix(self) -> None:
@@ -414,7 +424,7 @@ class BasicPitchRunnerTests(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertIn('CANONICAL_MIX="$PROJECT_DIR/audio/canonical/mix.flac"', script)
-        self.assertIn('PARENT_MANIFEST="$PARENT_RUN_DIR/run_manifest.json"', script)
+        self.assertIn('parent_manifest = canonical.parents[2] / "runs"', script)
         self.assertIn(
             '--expect-field "input_lineage.canonical_mix_sha256=\\"$CANONICAL_SHA\\""',
             script,
@@ -423,6 +433,8 @@ class BasicPitchRunnerTests(unittest.TestCase):
             '--expect-field "input_lineage.parent_manifest_sha256=\\"$PARENT_MANIFEST_SHA\\""',
             script,
         )
+        self.assertIn('"direct_canonical_mix"', script)
+        self.assertIn('"separator_vocal_stem"', script)
 
 
 if __name__ == "__main__":

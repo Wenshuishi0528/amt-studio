@@ -1,9 +1,12 @@
 # Basic Pitch worker
 
 Task004 uses Spotify Basic Pitch as an independent, instrument-agnostic
-lead-vocal candidate generator. It receives the selected separator vocal stem
-and writes canonical note events without tuning thresholds to the reference
-song.
+lead-vocal candidate generator. It normally receives the selected separator
+vocal stem and writes canonical note events without tuning thresholds to the
+reference song. Task 007C additionally permits the project's exact canonical
+mix through the explicit `direct_canonical_mix` lineage for a fixed
+instrumental development probe. Direct-mix output is labeled `other`, not
+voice, because Basic Pitch does not infer instrument identity.
 
 ## Runtime boundary
 
@@ -46,6 +49,9 @@ export PROJECT_DIR=/absolute/path/to/private/project
 export BASIC_PITCH_AUDIO=/absolute/path/to/selected/vocals.flac
 sbatch slurm/22_basic_pitch_baseline.slurm
 ```
+
+For the Task 007C direct-mix development probe, set `BASIC_PITCH_AUDIO` to the
+exact `audio/canonical/mix.flac`. Other arbitrary files remain rejected.
 
 The run preserves all upstream files under `raw/native/`:
 

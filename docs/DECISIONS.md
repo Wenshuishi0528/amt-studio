@@ -106,3 +106,13 @@ previously unexposed Vocadito singers. Task 007 v1 blind results may motivate
 the two-route hypothesis but cannot tune it. Development-only calibration, a
 pre-scoring blind seal, fixed automatic thresholds, and a no-retuning stop rule
 are required. See ADR 0010.
+
+## D-018: Probe instrumental development data before acquiring a new blind set
+
+After Task 007B rejects vocal fusion v2, test one fixed Basic Pitch
+direct-full-mix route on the existing Phoenix MedleyDB development track.
+Phoenix must remain development-only. Only a predeclared pass may justify a
+new artist-disjoint instrumental blind benchmark; a failure scopes v1 to lead
+vocal melody and is not retuned. The completed probe failed all three frozen
+conditions, primarily because voicing false alarm reached `0.9648`; therefore
+the direct-mix instrumental route is rejected for v1. See ADR 0011.

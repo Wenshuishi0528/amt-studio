@@ -211,6 +211,21 @@ def input_lineage(
     *,
     audio_sha256: str,
 ) -> dict[str, Any]:
+    canonical_mix = (project_dir / "audio" / "canonical" / "mix.flac").resolve()
+    if audio == canonical_mix:
+        if not canonical_mix.is_file():
+            raise FileNotFoundError(f"Canonical mix not found: {canonical_mix}")
+        canonical_mix_sha256 = sha256_file(canonical_mix)
+        if canonical_mix_sha256 != audio_sha256:
+            raise RuntimeError("Canonical mix input hash changed during lineage validation")
+        return {
+            "kind": "direct_canonical_mix",
+            "timeline_basis": "canonical_mix_seconds",
+            "canonical_mix_path": str(canonical_mix),
+            "canonical_mix_sha256": canonical_mix_sha256,
+            "instrument_assignment": "unknown_other",
+        }
+
     runs_dir = (project_dir / "runs").resolve()
     try:
         relative_to_runs = audio.relative_to(runs_dir)
@@ -258,7 +273,6 @@ def input_lineage(
             f"{audio_sha256} != {parent_output.get('sha256')}"
         )
 
-    canonical_mix = (project_dir / "audio" / "canonical" / "mix.flac").resolve()
     if not canonical_mix.is_file():
         raise FileNotFoundError(f"Canonical mix not found: {canonical_mix}")
     canonical_mix_sha256 = sha256_file(canonical_mix)
@@ -693,6 +707,11 @@ def main(argv: list[str] | None = None) -> int:
             normalized_dir / "summary.json",
             run_id=run_id,
             source_model=source_model,
+            instrument=(
+                "voice"
+                if lineage["kind"] == "separator_vocal_stem"
+                else "other"
+            ),
         )
         verify_native_event_count(midi_validation, summary["event_count"])
         manifest["validation"] = {

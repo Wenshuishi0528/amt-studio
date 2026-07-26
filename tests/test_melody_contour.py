@@ -9,6 +9,7 @@ from scripts.evaluate_melody_contour import (
     MelodyContourEvaluationError,
     _portable_candidate_events_path,
     _verify_project_reference_binding,
+    _verify_reference_role_for_split,
     evaluate_contour_candidate,
     read_melody_contour_csv,
 )
@@ -30,6 +31,24 @@ def _event(identifier: str, onset: float, offset: float, pitch: float) -> NoteEv
 
 
 class MelodyContourEvaluationTests(unittest.TestCase):
+    def test_reference_role_is_bound_to_verified_split(self) -> None:
+        _verify_reference_role_for_split(
+            split="blind_test",
+            reference_role="blind_test_vocal_melody",
+        )
+        _verify_reference_role_for_split(
+            split="development",
+            reference_role="development_instrumental_melody",
+        )
+        with self.assertRaisesRegex(
+            MelodyContourEvaluationError,
+            "not permitted",
+        ):
+            _verify_reference_role_for_split(
+                split="blind_test",
+                reference_role="development_instrumental_melody",
+            )
+
     def test_reads_headerless_contour_and_rejects_nonmonotonic_time(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             valid = Path(directory) / "valid.csv"
@@ -118,6 +137,27 @@ class MelodyContourEvaluationTests(unittest.TestCase):
                 {},
                 reference_sha256="reference-hash",
             )
+            tracks[0]["role"] = "development_instrumental_melody"
+            _verify_project_reference_binding(
+                pack,
+                payload,
+                tracks,
+                {},
+                reference_sha256="reference-hash",
+                reference_role="development_instrumental_melody",
+            )
+            with self.assertRaisesRegex(
+                MelodyContourEvaluationError,
+                "not bound",
+            ):
+                _verify_project_reference_binding(
+                    pack,
+                    payload,
+                    tracks,
+                    {},
+                    reference_sha256="reference-hash",
+                )
+            tracks[0]["role"] = "blind_test_vocal_melody"
             tracks[0]["mix_sha256"] = "another-source"
             with self.assertRaisesRegex(
                 MelodyContourEvaluationError,

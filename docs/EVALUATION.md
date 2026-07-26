@@ -45,13 +45,15 @@ only for private, non-commercial research evaluation under the stricter terms
 stated by the official MedleyDB download page. They are never committed,
 redistributed, or included in a release.
 
-For note-event candidates, evaluation first applies a fixed,
-reference-independent projection. Only events whose normalized instrument is
-exactly `voice` are eligible. At each reference timestamp, overlapping events
-are reduced by highest pitch, then latest onset, then lexical event ID. Reports
-include the overlap-frame fraction so polyphonic clutter remains visible.
-This projection is frozen before candidate inference and is not adjusted after
-seeing scores.
+For Task 006 vocal note-event candidates, evaluation first applies a fixed,
+reference-independent projection and only normalized `voice` events are
+eligible. A separately declared instrumental direct-mix development probe may
+instead filter unknown-instrument `other`; it must not relabel those events as
+voice or claim instrument assignment. At each reference timestamp, overlapping
+events are reduced by highest pitch, then latest onset, then lexical event ID.
+Reports include the overlap-frame fraction so polyphonic clutter remains
+visible. The route, instrument filter, and projection are frozen before
+candidate inference and are not adjusted after seeing scores.
 
 The dependency-light implementation follows the standard melody quantities
 documented by
@@ -149,6 +151,27 @@ Amax onset+pitch/onset+pitch+offset F1 `0.7797`/`0.4316`; fusion scored
 non-regression rule, automated discrepancy did not improve, and matched human
 correction time remained unavailable. These blind results are evaluation-only
 and must not be used to retune v1.
+
+## Task 007C instrumental development probe
+
+Task 007C uses the existing Phoenix `ScotchMorris` MedleyDB sample only as
+`development_instrumental_melody`. Six non-overlapping 20-second windows start
+at `0`, `30`, `60`, `90`, `120`, and `150` seconds and were chosen only from
+track duration. The one frozen candidate is Basic Pitch `0.4.0` with its
+published default decoding on the exact canonical full mix. Its normalized
+events retain instrument `other`.
+
+The candidate set is sealed before the Melody 1 contour is loaded for scoring,
+but development scoring may inform only the declared route decision. It does
+not make Phoenix blind, authorize a performance claim, or permit Phoenix
+retuning. Advancement requires raw pitch accuracy and overall accuracy both at
+least `0.70`, plus voicing false alarm at most `0.25`.
+
+The completed probe failed all three conditions: raw pitch accuracy `0.6932`,
+overall accuracy `0.3339`, and voicing false alarm `0.9648`. The automatic
+decision rejects Basic Pitch direct full mix as the v1 instrumental
+main-melody route. No new instrumental blind set is acquired for this rejected
+route, and the v1 research scope is lead-vocal main melody.
 
 ## Freeze and annotation protocol
 

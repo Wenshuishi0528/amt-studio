@@ -4,6 +4,58 @@ This project records changes by numbered research task until formal semantic
 versions and releases begin. Dates and commit identifiers refer to the local
 Git history.
 
+## Task 007C — Instrumental full-mix development rejection — 2026-07-26
+
+Commit: this task's final commit
+(`feat: test instrumental melody development route`)
+
+### Added
+
+- Froze a duration-only six-window Phoenix MedleyDB development probe before
+  inference, with explicit development provenance and no blind-performance
+  claim.
+- Added exact canonical full-mix lineage to the Basic Pitch adapter while
+  preserving the separator-vocal contract. Direct-mix output is normalized as
+  unknown instrument `other`, never mislabeled as voice.
+- Added a development-capable melody evaluator path, automatic three-condition
+  assessment, Slurm prepare/evaluate jobs, an ADR, configuration, and
+  regression coverage.
+- Excluded local Swift `.build/` and `dist/` products from Hyak synchronization
+  and removed the accidentally synchronized regenerable copies from the remote
+  repository mirror.
+
+### Verified
+
+- Prepare job `37732190`, Basic Pitch job `37732191`, and evaluation job
+  `37732192` all completed `0:0` on Hyak compute nodes.
+- The sealed candidate produced 1,701 `other` events. Across 20,676 frames,
+  raw pitch accuracy was `0.6932`, overall accuracy was `0.3339`, and voicing
+  false alarm was `0.9648`; all frozen conditions failed.
+- Benchmark freeze SHA-256 is
+  `e64a30cd6acdfe8064bace7a2872fe36e22056e45939ff07722a39db4ceda5b8`;
+  candidate-set payload SHA-256 is
+  `cc5b7df33ba9bdc36b020b2461a68b1cdb98827527ff8f855c1f0b880ee168a9`;
+  final report SHA-256 is
+  `fbe730efde84b8f1cb70c5a81844c1573eca9a8a51cee468d23603525b90a7df`.
+- The automatic decision is
+  `reject_direct_mix_instrumental_route_for_v1`. Phoenix was not retuned and
+  remains development-only.
+- Hardened v2 decision SHA-256 is
+  `5bb86efc3ee236013b71147d1b54ceea76c3a5e76bd6f1455014dca41805aa13`;
+  it authenticates the seals, candidate artifacts, evaluation run manifest,
+  reference, 50-cent tolerance, and fixed projection before reading metrics.
+- `make check` passed 230 Python and 17 Swift tests, with one expected
+  private-integration skip. The single `/review` reported two P1 and two P2
+  findings; both P1 findings were fixed with targeted regression tests, while
+  the two non-blocking hardening suggestions were left documented without
+  expanding Task 007C.
+
+### Decision
+
+- Do not acquire an instrumental blind set for this rejected direct-mix route.
+  Scope the v1 research product to lead-vocal main melody around retained GAME
+  evidence. Gate 4 remains open, so Task 009B2B and Task 010 stay blocked.
+
 ## Task 007B — Gate 4 recovery rejection — 2026-07-26
 
 Commit: this task's final commit (`feat: add Gate 4 recovery experiment`)

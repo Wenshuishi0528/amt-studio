@@ -1,13 +1,46 @@
 # Project status
 
-Current gate: Gate 4 not passed; deterministic fusion v1 and the constrained
-v2 recovery were both rejected on sealed blind evidence
-Current task: `tasks/007B_FUSION_V2_GATE4_RECOVERY.md` complete — automatic
-precondition failed and v2 was rejected without blind retuning
+Current gate: Gate 4 not passed; deterministic fusion v1 and constrained v2
+were rejected on sealed blind evidence, and the direct-mix instrumental
+development route also failed its frozen preconditions
+Current task: `tasks/007C_INSTRUMENTAL_MELODY_DEV_PROBE.md` complete —
+automatic development decision rejected the route without Phoenix retuning
 Paused task: Task 009B2B backend/import integration remains blocked by Gate 4
-Next task: make a product/data-strategy decision; do not start Task 009B2B,
-Task 010, another Vocadito retune, or matched human correction on rejected v2
+Next task: define a lead-vocal-only research MVP around retained GAME evidence
+and specify genuinely new accompanied-vocal blind/reference/correction data;
+do not start Task 009B2B, Task 010, another Vocadito/Phoenix retune, or matched
+human correction on either rejected route
 Current branch: `main`
+
+Verified for Task 007C:
+
+- Phoenix remains `development_instrumental_melody`; its six 20-second windows
+  were selected only from duration, and neither its reference nor its result
+  is eligible for a blind-performance claim;
+- prepare `37732190`, Basic Pitch `37732191`, and evaluation `37732192` all
+  completed `0:0` on Hyak compute nodes;
+- the exact canonical mix was bound by SHA-256
+  `1f38bc42cd31134e5592ec7bbc0bed1bdb51e90c3101f442535459af1c56a0bc`,
+  and 1,701 normalized events retained unknown instrument `other`;
+- across 20,676 contour frames, raw pitch accuracy was `0.6932`, overall
+  accuracy was `0.3339`, and voicing false alarm was `0.9648`; all three
+  frozen automatic conditions failed;
+- the automatic decision is
+  `reject_direct_mix_instrumental_route_for_v1`; Phoenix retuning, a new
+  instrumental blind set for this route, production promotion, Task 009B2B,
+  and Task 010 are all unauthorized;
+- report SHA-256 is
+  `fbe730efde84b8f1cb70c5a81844c1573eca9a8a51cee468d23603525b90a7df`;
+  hardened v2 decision SHA-256 is
+  `5bb86efc3ee236013b71147d1b54ceea76c3a5e76bd6f1455014dca41805aa13`;
+- ignored private evidence and scheduler logs were synchronized and verified.
+  `make check` passed 230 Python and 17 Swift tests, with one expected
+  private-integration skip;
+- the single `/review` found two P1 and two P2 issues. Both P1 issues are fixed:
+  development references cannot enter a blind split, and automatic assessment
+  now authenticates the frozen seals/artifacts and exact scoring policy. The
+  two P2 hardening suggestions were left documented without expanding scope.
+  Targeted P1 tests pass, and no model or scoring job was repeated.
 
 Verified for Task 007B:
 
