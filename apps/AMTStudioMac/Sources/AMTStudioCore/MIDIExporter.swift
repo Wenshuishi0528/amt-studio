@@ -61,6 +61,8 @@ public enum MIDIExporter {
     snapshot: ProjectSnapshot,
     bundleID: String,
     to outputURL: URL,
+    includedTrackIDs: Set<String>? = nil,
+    trackVolumes: [String: Double] = [:],
     ticksPerBeat: Int = 960
   ) throws -> MIDIExportReport {
     guard ticksPerBeat > 0, ticksPerBeat <= 32_767 else {
@@ -78,7 +80,29 @@ public enum MIDIExporter {
     ]
     var noteCount = 0
     var melodicChannels = Array(0...15).filter { $0 != 9 }
-    for track in snapshot.tracks {
+    let availableTrackIDs = Set(snapshot.tracks.map(\.id))
+    let selectedTrackIDs = includedTrackIDs ?? availableTrackIDs
+    guard !selectedTrackIDs.isEmpty,
+      selectedTrackIDs.isSubset(of: availableTrackIDs)
+    else {
+      throw AMTProjectError.malformedManifest(
+        "试听音轨为空或包含未知音轨"
+      )
+    }
+    for (trackID, volume) in trackVolumes {
+      guard availableTrackIDs.contains(trackID),
+        volume.isFinite,
+        (0...1).contains(volume)
+      else {
+        throw AMTProjectError.malformedManifest(
+          "音轨音量无效"
+        )
+      }
+    }
+    let selectedTracks = snapshot.tracks.filter {
+      selectedTrackIDs.contains($0.id)
+    }
+    for track in selectedTracks {
       let editor = try EditorProject(
         snapshot: snapshot,
         bundleID: bundleID,
@@ -104,7 +128,8 @@ public enum MIDIExporter {
           notes: notes,
           timeline: timeline,
           channel: channel,
-          program: generalMIDIProgram(instrument)
+          program: generalMIDIProgram(instrument),
+          volume: trackVolumes[track.id] ?? 1
         )
       )
     }
@@ -126,7 +151,7 @@ public enum MIDIExporter {
     try file.write(to: outputURL, options: [.atomic])
     return MIDIExportReport(
       noteCount: noteCount,
-      trackCount: snapshot.tracks.count,
+      trackCount: selectedTracks.count,
       ticksPerBeat: ticksPerBeat
     )
   }
@@ -202,8 +227,12 @@ public enum MIDIExporter {
     notes: [EditorNote],
     timeline: TempoTimeline,
     channel: UInt8 = 0,
-    program: UInt8? = nil
+    program: UInt8? = nil,
+    volume: Double = 1
   ) throws -> [MIDIEvent] {
+    guard volume.isFinite, (0...1).contains(volume) else {
+      throw AMTProjectError.malformedManifest("音轨音量无效")
+    }
     var events = [
       MIDIEvent(
         tick: 0,
@@ -220,6 +249,17 @@ public enum MIDIExporter {
         )
       )
     }
+    events.append(
+      MIDIEvent(
+        tick: 0,
+        order: 2,
+        data: Data([
+          0xB0 | channel,
+          7,
+          UInt8((volume * 127).rounded()),
+        ])
+      )
+    )
     for note in notes {
       _ = try note.validated()
       let onset = try timeline.tick(at: note.onsetSec)
@@ -239,7 +279,7 @@ public enum MIDIExporter {
       events.append(
         MIDIEvent(
           tick: onset,
-          order: 2,
+          order: 3,
           data: Data([0x90 | channel, pitch, velocity])
         )
       )

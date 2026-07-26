@@ -374,12 +374,20 @@ public struct EditorTrack: Codable, Sendable, Equatable, Identifiable {
   public let label: String
   public let role: String
   public let instrument: String?
+  public let eventCount: Int
 
-  public init(id: String, label: String, role: String, instrument: String?) {
+  public init(
+    id: String,
+    label: String,
+    role: String,
+    instrument: String?,
+    eventCount: Int
+  ) {
     self.id = id
     self.label = label
     self.role = role
     self.instrument = instrument
+    self.eventCount = eventCount
   }
 }
 

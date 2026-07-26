@@ -4,6 +4,51 @@ This project records changes by numbered research task until formal semantic
 versions and releases begin. Dates and commit identifiers refer to the local
 Git history.
 
+## Task 009B2C — Reconnectable multitrack mixer — 2026-07-26
+
+Commit: this task's final commit
+
+### Added
+
+- Added explicit current-track versus all-track audition modes and a visible
+  mixer with per-track note counts, mute, solo, and MIDI volume.
+- Added current audible-mix MIDI export while preserving the existing current
+  edited-track and complete-multitrack exports.
+- Added mixer persistence across restart and safe filtering/volume validation
+  in the multitrack MIDI writer.
+- Added Hyak connection state, owner-controlled Terminal relogin, automatic
+  ControlMaster detection, active-job persistence, and same-job resume after
+  SSH expiry.
+- Added duplicate-submission prevention while a job is active and local
+  completed-state restore that does not block the next song.
+
+### Verified
+
+- Real Job `37735878` completed `0:0` in `00:24:50` on L40 node `g3096`;
+  the production status route fetched the result and the Hyak queue is empty.
+- The fetched `STILL LOVE HER` result retains 10,989 events across 7 predicted
+  tracks, including 254 `voice` events. Its MIDI has 8 tracks including
+  conductor, 6 program changes, and 2,115 percussion note-ons.
+- The production Swift loader and selected/full-arrangement integration test
+  pass on that private result.
+- Swift unit tests cover track selection, volume controller serialization,
+  mixer persistence, and completed-job restore. The formal XCUITest passes
+  open, real waveform, playback, review, editing, undo/redo, and relaunch
+  restoration.
+- The single bounded `/review` found no P0 and one P1: direct upload after SSH
+  expiry did not enter the explicit reconnect state. That path is fixed; no
+  lower-priority review expansion was performed.
+- Final `make check` passes 247 Python tests and 21 Swift tests, with two
+  expected environment-gated Swift skips.
+- The release app builds, passes plist/signature validation, launches with a
+  real 13-track project, and visibly exposes the new mixer.
+
+### Scope
+
+- This changes product orchestration and audition only. It does not retrain,
+  retune, or alter MuScriptor, claim instrument-label accuracy, restart the
+  paused Task 007 route, or run model compute on the Mac/login node.
+
 ## Task 009B2B — MuScriptor private Beta workflow — 2026-07-26
 
 Commit: this task's final commit

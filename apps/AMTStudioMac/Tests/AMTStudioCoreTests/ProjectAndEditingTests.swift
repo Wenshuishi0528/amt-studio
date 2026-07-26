@@ -330,6 +330,44 @@ final class ProjectAndEditingTests: XCTestCase {
     XCTAssertEqual(countOccurrences(of: Data("MTrk".utf8), in: data), 2)
   }
 
+  func testArrangementPreviewHonorsTrackSelectionAndVolume() throws {
+    let fixture = try FixtureProject()
+    defer { fixture.remove() }
+    let snapshot = try ProjectLoader.open(projectURL: fixture.root)
+    let output = fixture.root.appendingPathComponent(
+      "exports/app-mix.performance.mid"
+    )
+    let report = try MIDIExporter.exportArrangement(
+      snapshot: snapshot,
+      bundleID: "bundle-a",
+      to: output,
+      includedTrackIDs: Set(["candidate-a"]),
+      trackVolumes: ["candidate-a": 0.5]
+    )
+    let data = try Data(contentsOf: output)
+
+    XCTAssertEqual(report.trackCount, 1)
+    XCTAssertEqual(report.noteCount, 2)
+    XCTAssertNotNil(data.range(of: Data([0xB0, 0x07, 0x40])))
+
+    XCTAssertThrowsError(
+      try MIDIExporter.exportArrangement(
+        snapshot: snapshot,
+        bundleID: "bundle-a",
+        to: output,
+        includedTrackIDs: []
+      )
+    )
+    XCTAssertThrowsError(
+      try MIDIExporter.exportArrangement(
+        snapshot: snapshot,
+        bundleID: "bundle-a",
+        to: output,
+        includedTrackIDs: Set(["missing-track"])
+      )
+    )
+  }
+
   func testMIDIExportRejectsHugeTimesWithoutIntegerTrap() throws {
     let fixture = try FixtureProject()
     defer { fixture.remove() }

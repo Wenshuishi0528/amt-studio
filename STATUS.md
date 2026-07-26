@@ -1,14 +1,50 @@
 # Project status
 
-Current product milestone: Task 009B2B private Beta, using the useful Task 002
-MuScriptor full-song multitrack baseline selected by the project owner
+Current product milestone: Task 009B2C usable private Beta, using the useful
+Task 002 MuScriptor full-song multitrack baseline selected by the project owner
 Research status: Gate 4 remains not passed for the rejected fusion routes; no
 new dataset, fusion, retuning, or training work is in the product critical path
-Current task: Task 009B2B private Beta implementation complete; hand the app to
-the owner for product acceptance
+Current task: Task 009B2C reconnect and multitrack mixer implementation
+complete; hand the fetched new-song result to the owner for product acceptance
 Next task: only owner acceptance and genuine P0/P1 fixes; do not restart
 Task 007 experiments or Task 010
 Current branch: `main`
+
+Implemented for Task 009B2C usability:
+
+- all fetched MuScriptor tracks are now audible in-app, with explicit
+  `当前音轨` and `合奏` modes plus per-track note count, mute, solo, and MIDI
+  volume controls;
+- the default is the complete audible arrangement, while selecting a track
+  still changes only the piano-roll editor; model labels remain visibly
+  described as fallible predictions;
+- mixer state survives restart, and MIDI export now distinguishes current
+  edited track, current audible mix, and untouched complete multitrack;
+- the app persists an active Hyak project separately from the recent editor
+  project, reports connection state, and prevents duplicate submission while a
+  job is active;
+- an expired SSH session does not mark the Slurm job failed. `连接 Hyak` opens
+  Terminal, waits for the owner-controlled password/Duo flow, then resumes
+  polling and result retrieval;
+- completed projects restore their local job ID/state without blocking the
+  next song;
+- real new-song Job `37735878` completed `0:0` in `00:24:50` on L40 node
+  `g3096`. It was fetched through the production status interface, and the
+  Hyak queue is now empty;
+- the new `STILL LOVE HER` bundle contains all 10,989 events across 7 predicted
+  instrument tracks; `voice` is the default with 254 events. Its convenience
+  MIDI has 8 tracks including conductor, 6 program changes, and 2,115
+  percussion note-ons;
+- the production Swift loader and selected/full-arrangement real-project test
+  pass on the new private result. The formal macOS UI flow also passes open,
+  waveform, playback, review, edit, undo/redo, and process-restart restoration;
+- the single bounded Task 009B2C review found no P0 and one P1. The direct
+  upload path now recognizes expired SSH and enters the explicit relogin/resume
+  state; no lower-priority review expansion was performed;
+- final `make check` passes all 247 Python tests and 21 Swift tests, with two
+  expected environment-gated Swift skips;
+- the release app was rebuilt, ad-hoc signed, launched with a real 13-track
+  project, and visually confirmed to show the mixer and complete editor.
 
 Implemented for Task 009B2B private Beta:
 

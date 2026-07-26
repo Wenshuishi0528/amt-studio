@@ -61,7 +61,7 @@ public final class AudioTransport: ObservableObject {
       }
     } catch {
       clearMIDI(
-        message: "钢琴预览暂不可用：\(error.localizedDescription)"
+        message: "MIDI 预览暂不可用：\(error.localizedDescription)"
       )
     }
   }

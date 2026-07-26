@@ -198,6 +198,66 @@ final class AppModelTests: XCTestCase {
     XCTAssertEqual(reopened.editor?.selectedTrack.id, "candidate-ui")
     XCTAssertEqual(reopened.notes.first, moved)
   }
+
+  func testMixerControlsAndSettingsPersistAcrossRestart() throws {
+    let fixture = try AppFixtureProject()
+    defer { fixture.remove() }
+    let suiteName = "AMTStudioUITests.\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let model = AppModel(
+      defaults: defaults,
+      initialProjectURL: fixture.root,
+      restoreRecent: false
+    )
+    model.openInitialProjectIfNeeded()
+
+    XCTAssertEqual(model.midiPlaybackMode, .mix)
+    XCTAssertEqual(model.audibleTrackCount, 1)
+    XCTAssertEqual(model.trackChoices.first?.eventCount, 1)
+    model.toggleMute("candidate-ui")
+    XCTAssertEqual(model.audibleTrackCount, 0)
+    model.enableAllTracks()
+    model.setTrackVolume(0.25, trackID: "candidate-ui")
+    model.listenToSelectedTrack()
+
+    let reopened = AppModel(defaults: defaults, restoreRecent: true)
+    reopened.openInitialProjectIfNeeded()
+    XCTAssertEqual(reopened.midiPlaybackMode, .currentTrack)
+    XCTAssertEqual(
+      reopened.volume(for: "candidate-ui"),
+      0.25,
+      accuracy: 0.000_001
+    )
+    XCTAssertEqual(reopened.audibleTrackIDs, Set(["candidate-ui"]))
+  }
+
+  func testCompletedBetaProjectRestoresWithoutBlockingNewSubmission() throws {
+    let fixture = try AppFixtureProject()
+    defer { fixture.remove() }
+    try fixture.writePrivateBetaState(
+      jobID: "fixture-job",
+      slurmState: "COMPLETED"
+    )
+    let suiteName = "AMTStudioUITests.\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    defaults.set(
+      fixture.root.path,
+      forKey: "AMTStudio.activeBetaProjectPath"
+    )
+
+    let model = AppModel(defaults: defaults, restoreRecent: true)
+    model.openInitialProjectIfNeeded()
+
+    XCTAssertEqual(model.catalog?.rootURL.path, fixture.root.path)
+    XCTAssertEqual(model.betaJobID, "fixture-job")
+    XCTAssertEqual(model.betaSlurmState, "COMPLETED")
+    XCTAssertFalse(model.hasActiveBetaJob)
+    XCTAssertNil(
+      defaults.string(forKey: "AMTStudio.activeBetaProjectPath")
+    )
+  }
 }
 
 private final class AppFixtureProject {
@@ -332,6 +392,24 @@ private final class AppFixtureProject {
 
   func remove() {
     try? FileManager.default.removeItem(at: root)
+  }
+
+  func writePrivateBetaState(
+    jobID: String,
+    slurmState: String
+  ) throws {
+    try FileManager.default.createDirectory(
+      at: root.appendingPathComponent("app"),
+      withIntermediateDirectories: true
+    )
+    try writeFixtureJSON(
+      [
+        "schema_version": 1,
+        "job_id": jobID,
+        "slurm_state": slurmState,
+      ],
+      to: root.appendingPathComponent("app/private_beta_job.json")
+    )
   }
 }
 

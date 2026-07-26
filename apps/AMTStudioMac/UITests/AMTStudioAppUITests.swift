@@ -10,13 +10,14 @@ final class AMTStudioAppUITests: XCTestCase {
     defer { fixture.remove() }
     let app = XCUIApplication()
     defer { app.terminate() }
-    app.launchArguments = [
+    let launchArguments = [
       "--project",
       fixture.root.path,
       "--no-recent-project",
       "-ApplePersistenceIgnoreState",
       "YES",
     ]
+    app.launchArguments = launchArguments
     app.launch()
     ensureWindow(for: app)
     let status = app.descendants(matching: .any)["status-message"]
@@ -24,16 +25,17 @@ final class AMTStudioAppUITests: XCTestCase {
       status.waitForExistence(timeout: 8),
       "应用没有打开 UI 测试项目"
     )
+    let pianoRoll = app.descendants(matching: .any)["piano-roll"]
     XCTAssertTrue(
-      waitForLabel(status, prefix: "候选轨 UI candidate"),
-      "应用没有自动选择唯一候选轨"
+      pianoRoll.waitForExistence(timeout: 8),
+      "应用没有自动打开唯一音轨的编辑器"
     )
     let waveform = app.descendants(matching: .any)["audio-waveform"]
     XCTAssertTrue(
       waitForLabel(waveform, prefix: "已加载"),
       "音频波形没有完成解码"
     )
-    XCTAssertTrue(app.descendants(matching: .any)["piano-roll"].exists)
+    XCTAssertTrue(pianoRoll.exists)
     XCTAssertTrue(app.sliders["review-confidence-threshold"].exists)
     XCTAssertTrue(app.buttons["review-next"].isEnabled)
 
@@ -71,12 +73,22 @@ final class AMTStudioAppUITests: XCTestCase {
     )
 
     app.terminate()
-    app.launch()
-    ensureWindow(for: app)
-    XCTAssertTrue(status.waitForExistence(timeout: 8))
-    XCTAssertTrue(waitForLabel(status, prefix: "候选轨 UI candidate"))
+    let relaunched = XCUIApplication()
+    defer { relaunched.terminate() }
+    relaunched.launchArguments = launchArguments
+    relaunched.launch()
+    ensureWindow(for: relaunched)
     XCTAssertTrue(
-      enabledButton("undo-edit", in: app).waitForExistence(timeout: 4)
+      relaunched.descendants(matching: .any)["status-message"]
+        .waitForExistence(timeout: 8)
+    )
+    XCTAssertTrue(
+      relaunched.descendants(matching: .any)["piano-roll"]
+        .waitForExistence(timeout: 8)
+    )
+    XCTAssertTrue(
+      enabledButton("undo-edit", in: relaunched)
+        .waitForExistence(timeout: 4)
     )
   }
 

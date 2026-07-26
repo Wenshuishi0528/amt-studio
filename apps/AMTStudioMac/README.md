@@ -48,6 +48,19 @@ make mac-ui-test
 This target requires full Xcode and a logged-in macOS GUI session. It is kept
 separate from the portable repository-level `make check`.
 
-Audio import, background inference progress/cancellation, worker/model-pack
-integration, and production inference remain gated and are not embedded in
-this package.
+The private Beta can import a song, submit the pinned MuScriptor worker to a
+Hyak L40 Slurm node, persist the active job across app restarts, and retrieve
+the finished canonical bundle. If the SSH session expires, `连接 Hyak` opens
+the local Terminal login flow; after password and Duo are completed, the app
+detects the connection and resumes polling without resubmitting the job.
+
+Fetched MuScriptor results open in `合奏` mode by default. The sidebar exposes
+every predicted instrument track with note count, mute, solo, and volume
+controls, while `当前音轨` isolates the track being edited. MIDI export offers
+the current edited track, the current audible mix, or the complete multitrack.
+The model labels are predictions, and all original canonical tracks remain
+unchanged.
+
+Cancellation, MusicXML, training, and generic model-pack discovery remain
+outside this private Beta. Inference is not embedded in the Mac app and never
+runs on a Hyak login node.

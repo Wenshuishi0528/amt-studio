@@ -30,6 +30,14 @@ immutable per-instrument bundle. `voice` is the default main-melody view, while
 all accompaniment predictions remain available and explicitly unverified.
 This does not revive rejected fusion or run the model on the Mac.
 
+Task 009B2C turns those preserved tracks into a usable audition mixer. It
+defaults to all-track playback, exposes mute/solo/volume per predicted track,
+supports current-track isolation and current-mix export, and restores mixer
+settings after restart. The app also persists an active Hyak project
+separately from the recent editor project. Expired SSH authentication is shown
+as a reconnect state; completing password and Duo in Terminal resumes polling
+the existing Slurm job rather than submitting another one.
+
 Before first Hyak use, copy `configs/hyak.example.json` to the ignored
 `configs/local_hyak.json` and fill in `host` plus `remote_root`. The current
 machine already has this non-secret local configuration; passwords and Duo

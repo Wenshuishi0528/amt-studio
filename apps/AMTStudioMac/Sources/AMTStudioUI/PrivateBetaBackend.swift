@@ -11,6 +11,9 @@ struct PrivateBetaResponse: Decodable, Sendable {
   let runID: String?
   let bundleID: String?
   let slurmState: String?
+  let host: String?
+  let user: String?
+  let controlPath: String?
 
   enum CodingKeys: String, CodingKey {
     case ok
@@ -23,12 +26,16 @@ struct PrivateBetaResponse: Decodable, Sendable {
     case runID = "run_id"
     case bundleID = "bundle_id"
     case slurmState = "slurm_state"
+    case host
+    case user
+    case controlPath = "control_path"
   }
 }
 
 enum PrivateBetaBackendError: Error, LocalizedError {
   case repositoryNotFound
   case uvNotFound
+  case hyakLoginRequired(String)
   case invalidResponse(String)
 
   var errorDescription: String? {
@@ -37,6 +44,8 @@ enum PrivateBetaBackendError: Error, LocalizedError {
       "找不到 AMT Studio 源码目录。请从仓库内的 dist 应用启动。"
     case .uvNotFound:
       "找不到 uv。请确认 /opt/homebrew/bin/uv 已安装。"
+    case .hyakLoginRequired(let detail):
+      detail
     case .invalidResponse(let detail):
       "后台返回无法读取：\(detail)"
     }
@@ -117,6 +126,16 @@ struct PrivateBetaBackend: Sendable {
     ])
   }
 
+  func connection() throws -> PrivateBetaResponse {
+    try execute([
+      "run",
+      "amt-private-beta",
+      "connection",
+      "--repo-root",
+      repositoryRoot.path,
+    ])
+  }
+
   private func execute(_ arguments: [String]) throws -> PrivateBetaResponse {
     let process = Process()
     let stdout = Pipe()
@@ -137,7 +156,8 @@ struct PrivateBetaBackend: Sendable {
         String(data: diagnostic, encoding: .utf8)
         ?? String(data: output, encoding: .utf8)
         ?? error.localizedDescription
-      throw PrivateBetaBackendError.invalidResponse(text.trimmingCharacters(in: .whitespacesAndNewlines))
+      throw PrivateBetaBackendError.invalidResponse(
+        text.trimmingCharacters(in: .whitespacesAndNewlines))
     }
   }
 

@@ -1,9 +1,8 @@
 # Task 009: Native macOS application shell
 
-Status: private Beta implementation complete — Task 009A, 009B1, 009B2A, and
-the bounded 009B2B MuScriptor path are complete. Implementation, Task 002
-integration, real Hyak end-to-end Job `37734361`, final review, and final
-checks pass; owner product acceptance is next.
+Status: private Beta usability implementation complete — Task 009A, 009B1,
+009B2A, bounded 009B2B MuScriptor inference, and 009B2C reconnect/mixer work
+are complete. Owner product acceptance is next.
 
 ## Objective
 
@@ -80,6 +79,52 @@ Cancellation, MusicXML, training, generic model-pack discovery, and new
 research datasets are outside this private Beta. The workflow does not select
 the rejected fusion route or move model compute onto the Mac/login node.
 
+## Task 009B2C: reconnect and multitrack mixer
+
+Implemented:
+
+- active private-Beta jobs are remembered independently of the most recently
+  edited project and reopen after an app restart;
+- the app reports Hyak connection state and distinguishes an expired SSH
+  login from a failed Slurm job;
+- `连接 Hyak` opens the existing local Terminal login script, then polls for
+  the authenticated ControlMaster and resumes the same job without duplicate
+  submission;
+- completed/failed jobs clear the active-job marker, while a completed project
+  does not block submission of a later song;
+- multitrack results default to `合奏`, with visible note counts and per-track
+  mute, solo, and MIDI volume controls;
+- `当前音轨` isolates the selected editor track, `全部启用` restores the full
+  arrangement, and mixer state survives app restart;
+- current audible mix export applies the same track selection and volume
+  controls; complete multitrack export remains unchanged.
+
+The mixer is a non-destructive MIDI audition surface. It does not claim the
+predicted instrument names are correct and does not change MuScriptor.
+
+Task 009B2C evidence:
+
+- real owner-uploaded Job `37735878` completed `0:0` in `00:24:50` on L40
+  node `g3096`; the production status command fetched it and the queue is
+  empty;
+- the new-song bundle retains 10,989 events across 7 predicted tracks:
+  `voice` 254, `acoustic_guitar` 6,066, `acoustic_piano` 28,
+  `clean_electric_guitar` 1,265, `drums` 2,115, `electric_bass` 1,231, and
+  `synth_pad` 30;
+- its convenience MIDI has 8 tracks including conductor, 10,989 note-ons, 6
+  program changes, 2,115 percussion note-ons, and a 349.85-second timeline;
+- production Swift selected-track/full-arrangement integration passes on this
+  fetched project;
+- normal Swift tests pass 21 cases with two expected environment-gated skips,
+  and the formal XCUITest passes the complete editor/restart flow;
+- the rebuilt ad-hoc-signed release app was launched with the prior 13-track
+  real result and visually verified to show the all-track mixer.
+- the single bounded Task 009B2C `/review` found no P0. It found one P1 in the
+  direct-upload path after SSH expiry; that path now enters the same explicit
+  relogin/resume state as background polling. No P2 expansion was performed.
+- final `make check` passes 247 Python tests and 21 Swift tests, with two
+  expected environment-gated Swift skips.
+
 ## Acceptance status
 
 - Existing projects open without inference: **passed for 009A**.
@@ -92,6 +137,10 @@ the rejected fusion route or move model compute onto the Mac/login node.
 - Real waveform and confidence queue behavior: **passed for 009B1**.
 - Formal XCUITest editor flow: **passed for 009B2A**.
 - Import/job failure behavior: **implemented; real Hyak E2E passed**.
+- Hyak login recovery and duplicate-submission prevention:
+  **covered by persisted-state and production-flow tests**.
+- All-track/current-track playback, mute/solo/volume, and mix export:
+  **implemented and tested for 009B2C**.
 
 ### Task 009B2B evidence
 

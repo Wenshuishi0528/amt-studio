@@ -152,7 +152,8 @@ public enum ProjectLoader {
         id: $0.trackID,
         label: $0.label,
         role: $0.role,
-        instrument: $0.instrument
+        instrument: $0.instrument,
+        eventCount: $0.eventCount
       )
     }
     return ProjectSnapshot(

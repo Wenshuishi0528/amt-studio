@@ -23,14 +23,25 @@ public struct ContentView: View {
     .frame(minWidth: 1_150, minHeight: 720)
     .toolbar {
       ToolbarItemGroup {
-        Button("连接 Hyak", systemImage: "network") {
-          model.openHyakLogin()
+        Button(hyakActionTitle, systemImage: hyakActionIcon) {
+          if model.hyakConnectionState == .connected {
+            model.checkHyakConnection()
+          } else {
+            model.openHyakLogin()
+          }
         }
+        .disabled(model.hyakConnectionState == .checking)
+        .help(hyakActionHelp)
         .accessibilityIdentifier("connect-hyak")
         Button("识别歌曲", systemImage: "waveform.badge.plus") {
           importAudioPanel()
         }
-        .disabled(model.isBetaBusy)
+        .disabled(model.isBetaBusy || model.hasActiveBetaJob)
+        .help(
+          model.hasActiveBetaJob
+            ? "当前已有任务，完成或失败前不会重复提交"
+            : "选择 MP3/WAV 并在 Hyak GPU 上识别"
+        )
         .accessibilityIdentifier("transcribe-song")
         if model.isBetaBusy {
           ProgressView()
@@ -51,8 +62,11 @@ public struct ContentView: View {
         .disabled(model.editor == nil)
         .accessibilityIdentifier("save-project")
         Menu("导出 MIDI", systemImage: "pianokeys") {
-          Button("当前音轨（主旋律）") {
+          Button("当前编辑音轨") {
             exportTrackPanel()
+          }
+          Button("当前混音（静音与音量生效）") {
+            exportMixPanel()
           }
           Button("完整多轨") {
             exportArrangementPanel()
@@ -107,14 +121,24 @@ public struct ContentView: View {
         }
       }
 
-      if let jobID = model.betaJobID {
-        Section("Hyak 识别任务") {
+      Section("Hyak") {
+        LabeledContent("连接", value: hyakConnectionLabel)
+        if let jobID = model.betaJobID {
           LabeledContent("Job ID", value: jobID)
           LabeledContent(
-            "状态",
+            "任务",
             value: model.betaSlurmState ?? "准备中"
           )
-          Text("模型在 Hyak GPU 上运行；Mac 只负责音频准备、上传、取回和编辑。")
+        }
+        if model.hyakConnectionState == .loginRequired {
+          Label(
+            "登录过期不会终止远端作业。重新登录后会自动查询并取回结果。",
+            systemImage: "exclamationmark.arrow.triangle.2.circlepath"
+          )
+          .font(.caption)
+          .foregroundStyle(.orange)
+        } else {
+          Text("模型只在 Hyak GPU 上运行；关闭 Mac 窗口不会终止已提交的 Slurm 作业。")
             .font(.caption)
             .foregroundStyle(.secondary)
         }
@@ -141,36 +165,127 @@ public struct ContentView: View {
       }
 
       if !model.trackChoices.isEmpty {
-        Section("原始多轨（乐器标签可能有误）") {
+        Section("音轨与合奏") {
+          Picker(
+            "试听",
+            selection: Binding(
+              get: { model.midiPlaybackMode },
+              set: { model.setMIDIPlaybackMode($0) }
+            )
+          ) {
+            ForEach(MIDIPlaybackMode.allCases) { mode in
+              Text(mode.label).tag(mode)
+            }
+          }
+          .pickerStyle(.segmented)
+          .accessibilityIdentifier("midi-playback-mode")
+
+          HStack {
+            Button("全部启用") {
+              model.enableAllTracks()
+            }
+            .accessibilityIdentifier("mixer-enable-all")
+            Button("仅听当前") {
+              model.listenToSelectedTrack()
+            }
+            .disabled(model.editor == nil)
+            .accessibilityIdentifier("mixer-current-track")
+            Spacer()
+            Text("\(model.audibleTrackCount) 轨可听")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          }
+
           ForEach(model.trackChoices) { track in
-            Button {
-              model.chooseTrack(track.id)
-            } label: {
-              HStack {
-                VStack(alignment: .leading, spacing: 3) {
-                  Text(track.label)
-                  Text(track.instrument ?? "未知乐器")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 5) {
+              HStack(spacing: 6) {
+                Button {
+                  model.chooseTrack(track.id)
+                } label: {
+                  HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                      Text(track.label)
+                        .lineLimit(1)
+                      Text(
+                        "\(track.instrument ?? "未知乐器") · \(track.eventCount) 音符"
+                      )
+                      .font(.caption2)
+                      .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    if model.editor?.selectedTrack.id == track.id {
+                      Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.tint)
+                    }
+                  }
+                  .contentShape(Rectangle())
                 }
-                Spacer()
-                if model.editor?.selectedTrack.id == track.id {
-                  Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.tint)
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("track-\(track.id)")
+
+                Button("M") {
+                  model.toggleMute(track.id)
                 }
+                .buttonStyle(.bordered)
+                .tint(
+                  model.isTrackMuted(track.id) ? .orange : .secondary
+                )
+                .controlSize(.small)
+                .accessibilityLabel("静音 \(track.label)")
+                .accessibilityIdentifier("mute-\(track.id)")
+
+                Button("S") {
+                  model.toggleSolo(track.id)
+                }
+                .buttonStyle(.bordered)
+                .tint(
+                  model.isTrackSoloed(track.id) ? .blue : .secondary
+                )
+                .controlSize(.small)
+                .accessibilityLabel("独奏 \(track.label)")
+                .accessibilityIdentifier("solo-\(track.id)")
+              }
+              HStack(spacing: 6) {
+                Image(
+                  systemName: model.isTrackMuted(track.id)
+                    ? "speaker.slash.fill"
+                    : "speaker.wave.2.fill"
+                )
+                .foregroundStyle(
+                  model.isTrackMuted(track.id) ? .orange : .secondary
+                )
+                Slider(
+                  value: Binding(
+                    get: { model.volume(for: track.id) },
+                    set: {
+                      model.setTrackVolume($0, trackID: track.id)
+                    }
+                  ),
+                  in: 0...1
+                )
+                .accessibilityLabel("\(track.label) 音量")
+                Text(
+                  model.volume(for: track.id).formatted(
+                    .percent.precision(.fractionLength(0))
+                  )
+                )
+                .font(.caption2.monospacedDigit())
+                .frame(width: 34, alignment: .trailing)
               }
             }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("track-\(track.id)")
+            .padding(.vertical, 3)
           }
+          Text("点名称编辑该轨；M 静音，S 独奏。乐器名称是模型预测，可能误分类。")
+            .font(.caption2)
+            .foregroundStyle(.secondary)
         }
       }
 
       if let editor = model.editor {
-        Section("当前修正版") {
-          LabeledContent("音轨", value: editor.selectedTrack.label)
+        Section("当前编辑音轨") {
+          LabeledContent("名称", value: editor.selectedTrack.label)
           LabeledContent("音符", value: "\(editor.notes.count)")
-          Text("所有修改写入独立操作历史；原始 JSONL 不会覆盖。")
+          Text("钢琴窗只编辑当前轨；合奏试听与完整多轨不会覆盖模型原始 JSONL。")
             .font(.caption)
             .foregroundStyle(.secondary)
         }
@@ -187,6 +302,41 @@ public struct ContentView: View {
     }
   }
 
+  private var hyakActionTitle: String {
+    switch model.hyakConnectionState {
+    case .connected: "检查 Hyak"
+    case .checking: "正在连接"
+    case .unknown, .loginRequired: "连接 Hyak"
+    }
+  }
+
+  private var hyakActionIcon: String {
+    switch model.hyakConnectionState {
+    case .connected: "network.badge.shield.half.filled"
+    case .checking: "arrow.triangle.2.circlepath"
+    case .unknown: "network"
+    case .loginRequired: "network.slash"
+    }
+  }
+
+  private var hyakActionHelp: String {
+    switch model.hyakConnectionState {
+    case .connected: "检查当前连接并恢复任务状态"
+    case .checking: "正在等待 Hyak 登录"
+    case .unknown: "打开 Terminal 登录 Hyak"
+    case .loginRequired: "重新登录；远端作业不会被重复提交"
+    }
+  }
+
+  private var hyakConnectionLabel: String {
+    switch model.hyakConnectionState {
+    case .unknown: "未检查"
+    case .checking: "检查中"
+    case .connected: "已连接"
+    case .loginRequired: "需要重新登录"
+    }
+  }
+
   @ViewBuilder
   private var detail: some View {
     if let editor = model.editor {
@@ -194,6 +344,12 @@ public struct ContentView: View {
         model: model,
         transport: model.transport,
         editor: editor
+      )
+    } else if model.hasActiveBetaJob {
+      EmptyStateView(
+        icon: "hourglass",
+        title: "Hyak 正在识别",
+        message: "Job \(model.betaJobID ?? "准备中") 会在远端继续运行；应用会自动刷新，完成后取回并打开完整多轨。"
       )
     } else if let snapshot = model.snapshot {
       EmptyStateView(
@@ -209,7 +365,7 @@ public struct ContentView: View {
       )
     } else {
       EmptyStateView(
-        icon: "waveform.and.music.note",
+        icon: "waveform",
         title: "AMT Studio",
         message: "先连接 Hyak，再点“识别歌曲”选择 MP3/WAV；完成后会自动打开 voice 主旋律和完整多轨。"
       )
@@ -261,6 +417,19 @@ public struct ContentView: View {
     }
     if panel.runModal() == .OK, let url = panel.url {
       model.exportArrangementMIDI(to: url)
+    }
+  }
+
+  private func exportMixPanel() {
+    let panel = NSSavePanel()
+    panel.title = "导出当前可听混音 MIDI"
+    panel.nameFieldStringValue =
+      "\(model.catalog?.manifest.projectID ?? "song").mix.mid"
+    if let midi = UTType(filenameExtension: "mid") {
+      panel.allowedContentTypes = [midi]
+    }
+    if panel.runModal() == .OK, let url = panel.url {
+      model.exportCurrentMixMIDI(to: url)
     }
   }
 }
@@ -361,7 +530,7 @@ private struct WorkspaceView: View {
         )
         .toggleStyle(.checkbox)
         Toggle(
-          "钢琴",
+          "MIDI",
           isOn: Binding(
             get: { transport.midiEnabled },
             set: { transport.setMIDIEnabled($0) }
@@ -369,6 +538,17 @@ private struct WorkspaceView: View {
         )
         .toggleStyle(.checkbox)
         .disabled(!transport.midiAvailable)
+
+        Label(
+          model.midiPlaybackMode == .mix
+            ? "合奏 \(model.audibleTrackCount) 轨"
+            : "当前音轨",
+          systemImage: model.midiPlaybackMode == .mix
+            ? "music.note.list"
+            : "music.note"
+        )
+        .font(.caption)
+        .foregroundStyle(.secondary)
       }
       ForEach(transport.errorMessages, id: \.self) { message in
         Label(message, systemImage: "exclamationmark.triangle.fill")
