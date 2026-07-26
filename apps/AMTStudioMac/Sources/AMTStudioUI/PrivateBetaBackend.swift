@@ -11,6 +11,7 @@ struct PrivateBetaResponse: Decodable, Sendable {
   let runID: String?
   let bundleID: String?
   let slurmState: String?
+  let pipelineStage: String?
   let host: String?
   let user: String?
   let controlPath: String?
@@ -26,6 +27,7 @@ struct PrivateBetaResponse: Decodable, Sendable {
     case runID = "run_id"
     case bundleID = "bundle_id"
     case slurmState = "slurm_state"
+    case pipelineStage = "pipeline_stage"
     case host
     case user
     case controlPath = "control_path"

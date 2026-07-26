@@ -44,6 +44,7 @@ public struct MelodyGap: Sendable, Equatable, Identifiable {
 enum MelodyTrackSelector {
   private static let variantPriority = [
     "voice_enhanced",
+    "voice_auto_enhanced",
     "voice_raw",
     "voice_gap_candidate",
   ]
@@ -93,6 +94,8 @@ enum MelodyTrackSelector {
     switch track.id {
     case "voice_enhanced":
       "增强主唱（原始 + 已审核补漏）"
+    case "voice_auto_enhanced":
+      "自动增强主旋律（Beta）"
     case "voice_raw":
       "原始 voice"
     case "voice_gap_candidate":
@@ -139,6 +142,7 @@ public final class AppModel: ObservableObject {
   @Published public var statusMessage = "请选择一个已有 AMT Studio 项目"
   @Published public private(set) var betaJobID: String?
   @Published public private(set) var betaSlurmState: String?
+  @Published public private(set) var betaPipelineStage: String?
   @Published public private(set) var betaProjectURL: URL?
   @Published public private(set) var isBetaBusy = false
   @Published public private(set) var hyakConnectionState: HyakConnectionState = .unknown
@@ -152,6 +156,7 @@ public final class AppModel: ObservableObject {
   @Published public private(set) var isRefreshingLibrary = false
   @Published public private(set) var isLoadingSelection = false
   @Published public private(set) var melodyGaps: [MelodyGap] = []
+  @Published public private(set) var showMelodyVersions = false
 
   public let transport = AudioTransport()
 
@@ -344,6 +349,13 @@ public final class AppModel: ObservableObject {
     snapshot?.tracks ?? []
   }
 
+  public var visibleTrackChoices: [EditorTrack] {
+    guard !showMelodyVersions else { return trackChoices }
+    return trackChoices.filter {
+      !["voice_raw", "voice_gap_candidate"].contains($0.id)
+    }
+  }
+
   public var audibleTrackIDs: Set<String> {
     guard let snapshot else { return [] }
     if midiPlaybackMode == .currentTrack {
@@ -514,7 +526,23 @@ public final class AppModel: ObservableObject {
   }
 
   public var hasEnhancedVoiceTrack: Bool {
-    snapshot?.tracks.contains(where: { $0.id == "voice_enhanced" }) == true
+    snapshot?.tracks.contains(where: {
+      ["voice_enhanced", "voice_auto_enhanced"].contains($0.id)
+    }) == true
+  }
+
+  public func setShowMelodyVersions(_ isVisible: Bool) {
+    showMelodyVersions = isVisible
+    guard !isVisible,
+      let editor,
+      ["voice_raw", "voice_gap_candidate"].contains(editor.selectedTrack.id),
+      let preferred = snapshot.flatMap({
+        MelodyTrackSelector.preferred(in: $0.tracks)
+      })
+    else {
+      return
+    }
+    chooseTrack(preferred.id)
   }
 
   public func seekToNextMelodyGap() {
@@ -826,10 +854,17 @@ public final class AppModel: ObservableObject {
       else {
         throw AMTProjectError.missingCanonicalBundle
       }
+      let allTrackIDs = Set(snapshot.tracks.map(\.id))
+      let includedTrackIDs = MelodyTrackSelector.resolveExclusiveVariant(
+        from: allTrackIDs,
+        tracks: snapshot.tracks,
+        selectedTrackID: MelodyTrackSelector.preferred(in: snapshot.tracks)?.id
+      )
       let report = try MIDIExporter.exportArrangement(
         snapshot: snapshot,
         bundleID: bundleID,
-        to: url
+        to: url,
+        includedTrackIDs: includedTrackIDs
       )
       statusMessage =
         "已导出 \(report.trackCount) 条音轨、\(report.noteCount) 个音符：\(url.lastPathComponent)"
@@ -923,6 +958,7 @@ public final class AppModel: ObservableObject {
       betaProjectURL = prepared.catalog.rootURL
       betaJobID = state.jobID
       betaSlurmState = state.slurmState
+      betaPipelineStage = state.pipelineStage
       if prepared.catalog.bundles.isEmpty
         || !["COMPLETED", "FAILED", "CANCELLED"].contains(
           state.slurmState ?? ""
@@ -1103,19 +1139,29 @@ public final class AppModel: ObservableObject {
     }
     betaJobID = response.jobID ?? betaJobID
     betaSlurmState = response.slurmState ?? betaSlurmState
+    betaPipelineStage = response.pipelineStage ?? betaPipelineStage
     switch response.status {
     case "succeeded":
       guard let betaProjectURL else { return }
       clearActiveBetaProject()
       openProject(betaProjectURL)
-      statusMessage = "Hyak 识别完成，完整多轨已取回；已打开 voice 主唱候选并检查时间覆盖"
+      statusMessage = "Hyak 识别流程完成，完整多轨与默认主旋律已取回"
     case "failed":
       clearActiveBetaProject()
       errorMessage = "Hyak 任务失败；项目日志已经保留，可据此定位问题。"
       statusMessage = "识别失败"
     case "running":
       rememberActiveBetaProject()
-      statusMessage = "Hyak GPU 正在识别整首歌（任务 \(betaJobID ?? "未知")）"
+      switch betaPipelineStage {
+      case "automatic_gap_recovery":
+        statusMessage = "Hyak 正在自动补漏主旋律（任务 \(betaJobID ?? "未知")）"
+      case "gap_planning":
+        statusMessage = "整曲多轨已生成，正在检查主旋律长缺口"
+      case "packaging":
+        statusMessage = "识别已完成，正在打包完整多轨"
+      default:
+        statusMessage = "Hyak GPU 正在识别整首歌（任务 \(betaJobID ?? "未知")）"
+      }
     default:
       rememberActiveBetaProject()
       statusMessage = "Hyak 任务已排队（\(betaSlurmState ?? "PENDING")）"
@@ -1287,10 +1333,12 @@ private struct MixerSettings: Codable {
 private struct PrivateBetaJobState: Decodable, Sendable {
   let jobID: String?
   let slurmState: String?
+  let pipelineStage: String?
 
   enum CodingKeys: String, CodingKey {
     case jobID = "job_id"
     case slurmState = "slurm_state"
+    case pipelineStage = "pipeline_stage"
   }
 }
 
@@ -1459,6 +1507,9 @@ private struct PreparedProject: Sendable {
   private static func projectStatus(editor: EditorProject) -> String {
     if editor.selectedTrack.id == "voice_enhanced" {
       return "已打开增强主唱；原始 voice 与补漏候选仍可单独切换"
+    }
+    if editor.selectedTrack.id == "voice_auto_enhanced" {
+      return "已打开自动增强主旋律（Beta）；原始与仅补漏版本保留在诊断详情"
     }
     if editor.selectedTrack.instrument?.lowercased() == "voice" {
       return "已打开 voice 主唱候选；长空缺会单独提示，不再把它冒充完整主旋律"

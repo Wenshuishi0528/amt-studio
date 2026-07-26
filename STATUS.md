@@ -1,13 +1,46 @@
 # Project status
 
-Current product milestone: Task 009B2F owner-approved enhanced voice is ready
-as a selectable, non-destructive product track
+Current product milestone: Task 009B2G single-upload automatic voice-gap
+recovery is implemented for future private-Beta jobs
 Research status: Gate 4 remains not passed for the rejected fusion routes; no
 new dataset, fusion, retuning, or training work is in the product critical path
-Current task: Task 009B2F implementation and real-project verification complete
-Next task: owner uses the rebuilt app normally and reports only genuine product
-blockers; do not expand to BS-Roformer, GAME, or training
+Current task: Task 009B2G implementation and existing-artifact verification
+complete
+Next task: submit one genuinely new song through the rebuilt app to validate
+the automatic continuation on Hyak; do not start another model route
 Current branch: `main`
+
+Implemented and verified for Task 009B2G:
+
+- one private-Beta Slurm job now runs full-song MuScriptor first, plans only
+  voice gaps of at least eight seconds, and conditionally runs bounded
+  same-model contextual clips without asking the user to upload again;
+- the automatic plan is capped at eight targets, splits spans above 80 seconds,
+  keeps four seconds of context, and combines nearby targets only when the
+  resulting clip stays within 90 seconds. These are fixed engineering bounds,
+  not benchmark-tuned accuracy thresholds;
+- recovery failure publishes a freshly rebuilt raw multitrack bundle instead
+  of failing an otherwise successful full-song result;
+- successful automatic output is self-contained and keeps
+  `voice_raw`, `voice_gap_candidate`, `voice_auto_enhanced`, and every original
+  accompaniment track. Every enhanced event retains its source event and
+  origin variant;
+- the app reports full transcription, gap planning, automatic recovery, and
+  packaging stages. Normal playback and standard multitrack export include
+  only one voice variant; raw and gap-only versions are hidden behind a
+  diagnostic toggle and remain available for comparison;
+- a read-only plan over the existing `STILL LOVE HER` raw result reproduced
+  four contextual windows covering the same five previously reviewed gaps;
+- reusing the already completed 184 candidates produced a private nine-track
+  dry-run bundle with 438 auto-enhanced voice events and all six accompaniment
+  tracks. The real Swift loader and selected-track MIDI export pass for
+  `voice_auto_enhanced`;
+- `make check` passes 256 Python and 25 Swift tests with three expected
+  environment-gated skips. Strict Swift formatting, shell syntax, and
+  `git diff --check` pass;
+- no Hyak job, new model inference, source separation, GAME, training, or
+  dataset work ran for this implementation. Automatic recovery remains a Beta
+  candidate and makes no accuracy claim.
 
 Implemented and verified for Task 009B2F:
 

@@ -221,6 +221,7 @@ def _validate_state(project_dir: Path, state: dict[str, Any]) -> dict[str, Any]:
         "slurm_state",
         "slurm_exit_code",
         "code_commit",
+        "pipeline_stage",
     }
     if set(state) - allowed:
         raise PrivateBetaError("任务状态文件包含未知字段")
@@ -259,6 +260,30 @@ def _validate_state(project_dir: Path, state: dict[str, Any]) -> dict[str, Any]:
     slurm_state = _require_state_string(state, "slurm_state")
     if re.fullmatch(r"[A-Z_]+", slurm_state) is None:
         raise PrivateBetaError("任务状态 slurm_state 无效")
+    pipeline_stage = state.get("pipeline_stage")
+    if pipeline_stage is None:
+        if status == "succeeded":
+            pipeline_stage = "complete"
+        elif status in {"failed", "cancelled"}:
+            pipeline_stage = "failed"
+        elif slurm_state == "RUNNING":
+            pipeline_stage = "starting"
+        else:
+            pipeline_stage = "queued"
+        state["pipeline_stage"] = pipeline_stage
+    if not isinstance(pipeline_stage, str):
+        raise PrivateBetaError("任务状态 pipeline_stage 无效")
+    if pipeline_stage not in {
+        "queued",
+        "starting",
+        "full_transcription",
+        "gap_planning",
+        "automatic_gap_recovery",
+        "packaging",
+        "complete",
+        "failed",
+    }:
+        raise PrivateBetaError("任务状态 pipeline_stage 无效")
 
     provenance = _require_state_string(state, "weight_provenance_path")
     provenance_path = PurePosixPath(provenance)
@@ -525,6 +550,7 @@ def start_job(
         "weight_provenance_path": provenance,
         "code_commit": code_commit,
         "slurm_state": "PENDING",
+        "pipeline_stage": "queued",
     }
     _write_state(project_dir, state)
     return state
@@ -555,6 +581,73 @@ def _fetch_results(
             ],
             timeout=1800,
         )
+    probe_id = f"{state['run_id']}-auto-gap"
+    for relative in (f"runs/{probe_id}", f"reports/{probe_id}"):
+        remote_path = f"{remote_project}/{relative}"
+        if connection.remote(
+            f"test -d {shlex.quote(remote_path)} && printf yes || true",
+            timeout=10,
+        ) != "yes":
+            continue
+        local_parent = project_dir / Path(relative).parent
+        local_parent.mkdir(parents=True, exist_ok=True)
+        _run(
+            [
+                "rsync",
+                "-az",
+                "--partial",
+                "-e",
+                connection.rsync_shell(),
+                f"{connection.host}:{remote_path}/",
+                f"{project_dir / relative}/",
+            ],
+            timeout=1800,
+        )
+
+
+def _pipeline_stage(
+    connection: HyakConnection,
+    state: dict[str, Any],
+) -> str:
+    remote_project = state["remote_project_dir"]
+    run_id = state["run_id"]
+    bundle_id = state["bundle_id"]
+    probe_id = f"{run_id}-auto-gap"
+    raw_bundle_id = f"{bundle_id}-raw"
+    checks = (
+        (
+            f"{remote_project}/exports/{bundle_id}/bundle_manifest.json",
+            "packaging",
+        ),
+        (
+            f"{remote_project}/runs/{probe_id}/run_manifest.json",
+            "automatic_gap_recovery",
+        ),
+        (
+            f"{remote_project}/reports/{probe_id}/plan.json",
+            "gap_planning",
+        ),
+        (
+            f"{remote_project}/exports/{raw_bundle_id}/bundle_manifest.json",
+            "gap_planning",
+        ),
+        (
+            f"{remote_project}/runs/{run_id}/run_manifest.json",
+            "full_transcription",
+        ),
+    )
+    command = " ".join(
+        (
+            "if "
+            if index == 0
+            else "elif "
+        )
+        + f"test -f {shlex.quote(path)}; then printf {shlex.quote(stage)};"
+        for index, (path, stage) in enumerate(checks)
+    )
+    command += " else printf starting; fi"
+    stage = connection.remote(command, timeout=15)
+    return stage if stage else "starting"
 
 
 def refresh_job(project_dir: Path) -> dict[str, Any]:
@@ -585,6 +678,7 @@ def refresh_job(project_dir: Path) -> dict[str, Any]:
     if slurm_state == "COMPLETED":
         _fetch_results(connection, project_dir, state)
         state["status"] = "succeeded"
+        state["pipeline_stage"] = "complete"
         state["completed_at"] = _utc_now()
     elif slurm_state in {
         "FAILED",
@@ -597,9 +691,15 @@ def refresh_job(project_dir: Path) -> dict[str, Any]:
         "DEADLINE",
     }:
         state["status"] = "failed"
+        state["pipeline_stage"] = "failed"
         state["completed_at"] = _utc_now()
     else:
         state["status"] = "running" if slurm_state == "RUNNING" else "submitted"
+        state["pipeline_stage"] = (
+            _pipeline_stage(connection, state)
+            if slurm_state == "RUNNING"
+            else "queued"
+        )
     _write_state(project_dir, state)
     return state
 

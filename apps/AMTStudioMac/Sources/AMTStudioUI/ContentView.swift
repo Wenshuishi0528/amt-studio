@@ -77,7 +77,7 @@ public struct ContentView: View {
           Button("当前混音（静音与音量生效）") {
             exportMixPanel()
           }
-          Button("完整多轨") {
+          Button("标准完整多轨（单一主旋律）") {
             exportArrangementPanel()
           }
         }
@@ -258,7 +258,7 @@ public struct ContentView: View {
               .foregroundStyle(.secondary)
           }
 
-          ForEach(model.trackChoices) { track in
+          ForEach(model.visibleTrackChoices) { track in
             VStack(alignment: .leading, spacing: 5) {
               HStack(spacing: 6) {
                 Button {
@@ -340,10 +340,18 @@ public struct ContentView: View {
           }
           if model.hasEnhancedVoiceTrack {
             Text(
-              "原始、补漏候选和增强主唱是同一旋律的三个版本；合奏时只播放当前选择的版本，不会重复叠音。"
+              "默认只显示一条增强主旋律；合奏与标准完整多轨不会叠加原始、补漏和增强三个版本。"
             )
             .font(.caption2)
             .foregroundStyle(.secondary)
+            Toggle(
+              "显示主旋律诊断版本",
+              isOn: Binding(
+                get: { model.showMelodyVersions },
+                set: { model.setShowMelodyVersions($0) }
+              )
+            )
+            .toggleStyle(.switch)
           }
           Text("点名称编辑该轨；M 静音，S 独奏。乐器名称是模型预测，可能误分类。")
             .font(.caption2)
@@ -380,7 +388,7 @@ public struct ContentView: View {
               .foregroundStyle(.secondary)
             }
           }
-          Text("原始 voice 不会被覆盖；增强主唱始终保留到原始音符与补漏候选的来源。")
+          Text("原始 voice 不会被覆盖；自动增强只是可追溯候选，不代表系统确认音符正确。")
             .font(.caption2)
             .foregroundStyle(.secondary)
         }
@@ -390,7 +398,7 @@ public struct ContentView: View {
         Section("当前编辑音轨") {
           LabeledContent("名称", value: editor.selectedTrack.label)
           LabeledContent("音符", value: "\(editor.notes.count)")
-          Text("钢琴窗只编辑当前轨；合奏试听与完整多轨不会覆盖模型原始 JSONL。")
+          Text("钢琴窗只编辑当前轨；合奏试听与标准完整多轨不会覆盖模型原始 JSONL。")
             .font(.caption)
             .foregroundStyle(.secondary)
         }
@@ -470,7 +478,7 @@ public struct ContentView: View {
       EmptyStateView(
         icon: "hourglass",
         title: "Hyak 正在识别",
-        message: "Job \(model.betaJobID ?? "准备中") 会在远端继续运行；应用会自动刷新，完成后取回并打开完整多轨。"
+        message: "Job \(model.betaJobID ?? "准备中") 会在远端依次完成整曲识别、条件式自动补漏和打包；应用会自动取回结果。"
       )
     } else if let snapshot = model.snapshot {
       EmptyStateView(
@@ -532,7 +540,7 @@ public struct ContentView: View {
 
   private func exportArrangementPanel() {
     let panel = NSSavePanel()
-    panel.title = "导出完整多轨修正版 MIDI"
+    panel.title = "导出标准完整多轨 MIDI（只含一条主旋律）"
     panel.nameFieldStringValue =
       "\(model.catalog?.manifest.projectID ?? "song").multitrack.mid"
     if let midi = UTType(filenameExtension: "mid") {

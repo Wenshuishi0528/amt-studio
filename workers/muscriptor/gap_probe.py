@@ -187,6 +187,34 @@ def load_spec(path: Path) -> ProbeSpec:
     )
 
 
+def spec_as_dict(spec: ProbeSpec) -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "probe_id": spec.probe_id,
+        "source_bundle_id": spec.source_bundle_id,
+        "source_voice_track_id": spec.source_voice_track_id,
+        "canonical_duration_sec": spec.canonical_duration_sec,
+        "context_sec": spec.context_sec,
+        "windows": [
+            {
+                "window_id": window.window_id,
+                "clip_start_sec": window.clip_start_sec,
+                "clip_end_sec": window.clip_end_sec,
+                "targets": [
+                    {
+                        "target_id": target.target_id,
+                        "start_sec": target.start_sec,
+                        "end_sec": target.end_sec,
+                        "expectation": target.expectation,
+                    }
+                    for target in window.targets
+                ],
+            }
+            for window in spec.windows
+        ],
+    }
+
+
 def _resolve_inside(root: Path, relative: str) -> Path:
     if not isinstance(relative, str) or not relative:
         raise GapProbeError("artifact path must be non-empty")
@@ -255,6 +283,179 @@ def validate_empty_source_gaps(
                 )
 
 
+def plan_automatic_probe(
+    project_dir: Path,
+    *,
+    probe_id: str,
+    source_bundle_id: str,
+    source_voice_track_id: str = "voice",
+    minimum_gap_duration_sec: float = 8.0,
+    context_sec: float = 4.0,
+    maximum_target_duration_sec: float = 80.0,
+    maximum_window_duration_sec: float = 90.0,
+    maximum_targets: int = 8,
+) -> ProbeSpec:
+    project_dir = project_dir.expanduser().resolve()
+    probe_id = _safe_identifier(probe_id, label="probe_id")
+    source_bundle_id = _safe_identifier(
+        source_bundle_id,
+        label="source_bundle_id",
+    )
+    source_voice_track_id = _safe_identifier(
+        source_voice_track_id,
+        label="source_voice_track_id",
+    )
+    for label, value in (
+        ("minimum_gap_duration_sec", minimum_gap_duration_sec),
+        ("context_sec", context_sec),
+        ("maximum_target_duration_sec", maximum_target_duration_sec),
+        ("maximum_window_duration_sec", maximum_window_duration_sec),
+    ):
+        if not math.isfinite(value) or value <= 0:
+            raise GapProbeError(f"{label} must be finite and positive")
+    if maximum_targets < 1:
+        raise GapProbeError("maximum_targets must be positive")
+
+    project = load_project(project_dir)
+    canonical_record = project.get("canonical_audio")
+    if not isinstance(canonical_record, dict):
+        raise GapProbeError("project has no canonical audio record")
+    metadata = canonical_record.get("metadata")
+    if not isinstance(metadata, dict):
+        raise GapProbeError("canonical audio metadata is unavailable")
+    duration = _finite_number(
+        metadata.get("duration_sec"),
+        label="canonical_audio.metadata.duration_sec",
+    )
+    if duration <= 0:
+        raise GapProbeError("canonical audio duration must be positive")
+
+    source_spec = ProbeSpec(
+        probe_id=probe_id,
+        source_bundle_id=source_bundle_id,
+        source_voice_track_id=source_voice_track_id,
+        canonical_duration_sec=duration,
+        context_sec=context_sec,
+        windows=(),
+    )
+    _project, _audio, source_voice_path, _canonical = _source_context(
+        project_dir,
+        source_spec,
+    )
+    source_events = read_jsonl(source_voice_path)
+    if not source_events:
+        return source_spec
+
+    occupied: list[tuple[float, float]] = []
+    for event in sorted(
+        source_events,
+        key=lambda item: (item.onset_sec, item.offset_sec, item.event_id),
+    ):
+        start = max(0.0, event.onset_sec)
+        end = min(duration, event.offset_sec)
+        if end <= start:
+            continue
+        if occupied and start <= occupied[-1][1]:
+            occupied[-1] = (occupied[-1][0], max(occupied[-1][1], end))
+        else:
+            occupied.append((start, end))
+    if not occupied:
+        return source_spec
+
+    gaps: list[tuple[float, float]] = []
+    cursor = 0.0
+    for start, end in occupied:
+        if start - cursor >= minimum_gap_duration_sec:
+            gaps.append((cursor, start))
+        cursor = max(cursor, end)
+    if duration - cursor >= minimum_gap_duration_sec:
+        gaps.append((cursor, duration))
+    if not gaps:
+        return source_spec
+
+    ranked_gaps = sorted(
+        gaps,
+        key=lambda interval: (
+            -(interval[1] - interval[0]),
+            interval[0],
+        ),
+    )
+    selected_targets: list[TargetInterval] = []
+    for gap_start, gap_end in ranked_gaps:
+        duration_sec = gap_end - gap_start
+        part_count = max(1, math.ceil(duration_sec / maximum_target_duration_sec))
+        part_duration = duration_sec / part_count
+        for part_index in range(part_count):
+            if len(selected_targets) >= maximum_targets:
+                break
+            start = gap_start + part_index * part_duration
+            end = (
+                gap_end
+                if part_index == part_count - 1
+                else gap_start + (part_index + 1) * part_duration
+            )
+            selected_targets.append(
+                TargetInterval(
+                    target_id="pending",
+                    start_sec=round(start, 6),
+                    end_sec=round(end, 6),
+                    expectation="automatic long voice-gap recovery candidate",
+                )
+            )
+        if len(selected_targets) >= maximum_targets:
+            break
+    selected_targets.sort(key=lambda item: (item.start_sec, item.end_sec))
+    selected_targets = [
+        TargetInterval(
+            target_id=f"gap-{index:02d}",
+            start_sec=target.start_sec,
+            end_sec=target.end_sec,
+            expectation=target.expectation,
+        )
+        for index, target in enumerate(selected_targets, start=1)
+    ]
+
+    grouped_targets: list[list[TargetInterval]] = []
+    for target in selected_targets:
+        if not grouped_targets:
+            grouped_targets.append([target])
+            continue
+        current = grouped_targets[-1]
+        combined_start = max(0.0, current[0].start_sec - context_sec)
+        combined_end = min(duration, target.end_sec + context_sec)
+        separation = target.start_sec - current[-1].end_sec
+        if (
+            separation <= context_sec * 2 + 8.0
+            and combined_end - combined_start <= maximum_window_duration_sec
+        ):
+            current.append(target)
+        else:
+            grouped_targets.append([target])
+    windows = tuple(
+        ProbeWindow(
+            window_id=f"window-{index:02d}",
+            clip_start_sec=round(
+                max(0.0, targets[0].start_sec - context_sec),
+                6,
+            ),
+            clip_end_sec=round(
+                min(duration, targets[-1].end_sec + context_sec),
+                6,
+            ),
+            targets=tuple(targets),
+        )
+        for index, targets in enumerate(grouped_targets, start=1)
+    )
+    return ProbeSpec(
+        probe_id=probe_id,
+        source_bundle_id=source_bundle_id,
+        source_voice_track_id=source_voice_track_id,
+        canonical_duration_sec=duration,
+        context_sec=context_sec,
+        windows=windows,
+    )
+
+
 def shift_voice_candidates(
     events: list[NoteEvent],
     *,
@@ -277,6 +478,10 @@ def shift_voice_candidates(
         if len(matching) != 1:
             raise GapProbeError(f"candidate overlaps multiple targets: {event.event_id}")
         target = matching[0]
+        clipped_onset = max(original_onset, target.start_sec)
+        clipped_offset = min(original_offset, target.end_sec)
+        if clipped_offset <= clipped_onset:
+            continue
         extra = dict(event.extra)
         extra["gap_probe"] = {
             "probe_id": probe_id,
@@ -293,8 +498,8 @@ def shift_voice_candidates(
                 event_id=f"{probe_id}:{window.window_id}:{event.event_id}",
                 track_id="muscriptor-gap:voice",
                 instrument="voice",
-                onset_sec=original_onset,
-                offset_sec=original_offset,
+                onset_sec=clipped_onset,
+                offset_sec=clipped_offset,
                 pitch_midi=event.pitch_midi,
                 quantized_pitch_midi=event.quantized_pitch_midi,
                 velocity=event.velocity,
@@ -445,6 +650,76 @@ def derive_owner_approved_voice(
     )
     if len({event.event_id for event in enhanced}) != len(enhanced):
         raise GapProbeError("owner-approved enhanced voice has duplicate event IDs")
+    return enhanced
+
+
+def derive_automatic_voice(
+    source_events: list[NoteEvent],
+    candidates: list[NoteEvent],
+    *,
+    probe_id: str,
+) -> list[NoteEvent]:
+    enhanced: list[NoteEvent] = []
+    for origin, events in (
+        ("voice_raw", source_events),
+        ("voice_gap_candidate", candidates),
+    ):
+        for event in events:
+            if (event.instrument or "").lower() != "voice":
+                raise GapProbeError(
+                    f"{origin} contains a non-voice event: {event.event_id}"
+                )
+            extra = dict(event.extra)
+            extra["automatic_voice_enhancement"] = {
+                "probe_id": probe_id,
+                "origin_track_id": origin,
+                "source_event_id": event.event_id,
+                "automatic_gap_recovery": True,
+                "automatic_model_promotion": False,
+                "owner_approved_derivation": False,
+            }
+            enhanced.append(
+                NoteEvent(
+                    event_id=(
+                        f"{probe_id}:voice-auto-enhanced:{origin}:{event.event_id}"
+                    ),
+                    track_id="derived:voice_auto_enhanced",
+                    instrument="voice",
+                    onset_sec=event.onset_sec,
+                    offset_sec=event.offset_sec,
+                    pitch_midi=event.pitch_midi,
+                    quantized_pitch_midi=event.quantized_pitch_midi,
+                    velocity=event.velocity,
+                    confidence=event.confidence,
+                    is_main_melody_candidate=True,
+                    source_run_id=probe_id,
+                    source_model=(
+                        "deterministic:voice_raw+voice_gap_candidate:auto"
+                    ),
+                    source_event_ids=sorted(
+                        {*event.source_event_ids, event.event_id}
+                    ),
+                    tags=sorted(
+                        {
+                            *event.tags,
+                            "automatic-gap-recovery",
+                            "voice-auto-enhanced",
+                            origin,
+                        }
+                    ),
+                    extra=extra,
+                )
+            )
+    enhanced.sort(
+        key=lambda event: (
+            event.onset_sec,
+            event.offset_sec,
+            event.pitch_midi,
+            event.event_id,
+        )
+    )
+    if len({event.event_id for event in enhanced}) != len(enhanced):
+        raise GapProbeError("automatic enhanced voice has duplicate event IDs")
     return enhanced
 
 
@@ -752,6 +1027,242 @@ def build_review_bundle(
     return bundle_manifest
 
 
+def build_automatic_bundle(
+    project_dir: Path,
+    *,
+    spec: ProbeSpec,
+    source_voice_path: Path,
+    source_canonical: dict[str, Any],
+    source_events: list[NoteEvent],
+    candidate_path: Path,
+    candidates: list[NoteEvent],
+    parent_manifest_path: Path,
+    output_dir: Path,
+) -> dict[str, Any]:
+    project_dir = project_dir.expanduser().resolve()
+    output_dir = output_dir.expanduser().resolve()
+    source_voice_path = source_voice_path.expanduser().resolve()
+    candidate_path = candidate_path.expanduser().resolve()
+    parent_manifest_path = parent_manifest_path.expanduser().resolve()
+    if output_dir.exists() or output_dir.is_symlink():
+        raise GapProbeError(f"automatic bundle already exists: {output_dir}")
+    source_tracks = source_canonical.get("tracks")
+    if not isinstance(source_tracks, list):
+        raise GapProbeError("source canonical project has no tracks")
+    source_voice_tracks = [
+        track
+        for track in source_tracks
+        if isinstance(track, dict)
+        and track.get("track_id") == spec.source_voice_track_id
+    ]
+    if len(source_voice_tracks) != 1:
+        raise GapProbeError("source voice track is missing or ambiguous")
+    reserved = {"voice_raw", "voice_gap_candidate", "voice_auto_enhanced"}
+    accompaniment = [
+        track
+        for track in source_tracks
+        if isinstance(track, dict)
+        and track.get("track_id") != spec.source_voice_track_id
+    ]
+    if any(track.get("track_id") in reserved for track in accompaniment):
+        raise GapProbeError("source accompaniment collides with a voice variant")
+
+    project = load_project(project_dir)
+    canonical = project["canonical_audio"]
+    tempo, meter = _rhythm_points(source_canonical)
+    enhanced = derive_automatic_voice(
+        source_events,
+        candidates,
+        probe_id=spec.probe_id,
+    )
+    parent_hash = sha256_file(parent_manifest_path)
+    output_dir.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(
+        prefix=f".{output_dir.name}.",
+        dir=output_dir.parent,
+    ) as temporary_name:
+        temporary = Path(temporary_name)
+        tracks_dir = temporary / "tracks"
+        tracks_dir.mkdir()
+
+        raw_path = tracks_dir / "voice_raw.jsonl"
+        shutil.copy2(source_voice_path, raw_path)
+        copied_candidate_path = tracks_dir / "voice_gap_candidate.jsonl"
+        shutil.copy2(candidate_path, copied_candidate_path)
+        enhanced_path = tracks_dir / "voice_auto_enhanced.jsonl"
+        write_jsonl(enhanced_path, enhanced)
+
+        source_voice_track = source_voice_tracks[0]
+        track_records: list[dict[str, Any]] = [
+            {
+                "track_id": "voice_auto_enhanced",
+                "label": "自动增强主旋律（Beta）",
+                "role": "automatic_candidate",
+                "instrument": "voice",
+                "event_count": len(enhanced),
+                "source_events_path": str(
+                    (output_dir / "tracks" / enhanced_path.name).relative_to(
+                        project_dir
+                    )
+                ),
+                "provenance": {
+                    "source_run_id": spec.probe_id,
+                    "source_model": (
+                        "deterministic:voice_raw+voice_gap_candidate:auto"
+                    ),
+                    "run_manifest_sha256": parent_hash,
+                    "normalized_artifact_sha256": sha256_file(enhanced_path),
+                },
+            },
+            {
+                "track_id": "voice_raw",
+                "label": "原始主唱候选",
+                "role": "diagnostic_candidate",
+                "instrument": "voice",
+                "event_count": len(source_events),
+                "source_events_path": str(
+                    (output_dir / "tracks" / raw_path.name).relative_to(
+                        project_dir
+                    )
+                ),
+                "provenance": source_voice_track["provenance"],
+            },
+            {
+                "track_id": "voice_gap_candidate",
+                "label": "自动补漏候选",
+                "role": "diagnostic_candidate",
+                "instrument": "voice",
+                "event_count": len(candidates),
+                "source_events_path": str(
+                    (
+                        output_dir / "tracks" / copied_candidate_path.name
+                    ).relative_to(project_dir)
+                ),
+                "provenance": {
+                    "source_run_id": spec.probe_id,
+                    "source_model": (
+                        candidates[0].source_model
+                        if candidates
+                        else source_voice_track["provenance"]["source_model"]
+                    ),
+                    "run_manifest_sha256": parent_hash,
+                    "normalized_artifact_sha256": sha256_file(
+                        copied_candidate_path
+                    ),
+                },
+            },
+        ]
+        midi_tracks: dict[str, list[NoteEvent]] = {
+            "voice_auto_enhanced": enhanced,
+        }
+        for index, track in enumerate(accompaniment, start=1):
+            track_id = _safe_identifier(
+                track.get("track_id"),
+                label=f"source accompaniment track {index}",
+            )
+            source_path = _resolve_inside(
+                project_dir,
+                track.get("source_events_path"),
+            )
+            expected_hash = track.get("provenance", {}).get(
+                "normalized_artifact_sha256"
+            )
+            if sha256_file(source_path) != expected_hash:
+                raise GapProbeError(
+                    f"source accompaniment hash does not match: {track_id}"
+                )
+            copied_path = tracks_dir / f"{track_id}.jsonl"
+            shutil.copy2(source_path, copied_path)
+            copied_track = dict(track)
+            copied_track["source_events_path"] = str(
+                (output_dir / "tracks" / copied_path.name).relative_to(
+                    project_dir
+                )
+            )
+            track_records.append(copied_track)
+            midi_tracks[track_id] = read_jsonl(copied_path)
+
+        melodic_track_count = sum(track_id != "drums" for track_id in midi_tracks)
+        if melodic_track_count <= 15:
+            midi_report = export_performance_midi(
+                temporary / "performance.mid",
+                midi_tracks,
+                tempo,
+                meter,
+            )
+        else:
+            midi_report = {
+                "status": "unavailable",
+                "reason": (
+                    "The automatic result has more than the 15 melodic "
+                    "channels available in one General MIDI port."
+                ),
+                "track_count": len(midi_tracks),
+                "note_count": sum(len(events) for events in midi_tracks.values()),
+            }
+        canonical_project = {
+            "schema_version": 1,
+            "artifact_type": "amt-canonical-project",
+            "project_id": project["project_id"],
+            "timeline_basis": "original_canonical_mix_seconds",
+            "canonical_audio": canonical,
+            "worker_results": source_canonical.get("worker_results", []),
+            "tracks": track_records,
+            "main_melody_track_id": "voice_auto_enhanced",
+            "rhythm": source_canonical["rhythm"],
+            "exports": {
+                "performance_midi": {
+                    "path": (
+                        "performance.mid"
+                        if midi_report.get("status") != "unavailable"
+                        else None
+                    ),
+                    "representation": "performance",
+                    "report": midi_report,
+                }
+            },
+            "claims": {
+                "all_muscriptor_instruments_preserved": True,
+                "automatic_gap_recovery_performed": bool(spec.windows),
+                "automatic_merge_performed": bool(candidates),
+                "preferred_candidate_selected": True,
+                "accuracy_claimed": False,
+                "owner_approved_derivation_performed": False,
+                "automatic_model_promotion": False,
+            },
+        }
+        atomic_write_json(temporary / "canonical_project.json", canonical_project)
+        outputs = [
+            {
+                "path": str(path.relative_to(temporary)),
+                "sha256": sha256_file(path),
+                "size_bytes": path.stat().st_size,
+            }
+            for path in sorted(temporary.rglob("*"))
+            if path.is_file()
+        ]
+        bundle_manifest = {
+            "schema_version": 1,
+            "artifact_type": "amt-canonical-bundle",
+            "status": "succeeded",
+            "project_id": project["project_id"],
+            "canonical_audio_sha256": canonical["sha256"],
+            "bundle_id": output_dir.name,
+            "tracks": [track["track_id"] for track in track_records],
+            "outputs": outputs,
+            "claims": canonical_project["claims"],
+            "limitations": [
+                "Automatic long-gap detection cannot prove that singing is present.",
+                "voice_gap_candidate is a same-model recovery candidate, not a verified correction.",
+                "voice_auto_enhanced is preferred for convenience but makes no accuracy claim.",
+                "The original voice and every MuScriptor accompaniment track remain preserved.",
+            ],
+        }
+        atomic_write_json(temporary / "bundle_manifest.json", bundle_manifest)
+        temporary.replace(output_dir)
+    return bundle_manifest
+
+
 def run_probe(
     project_dir: Path,
     config_path: Path,
@@ -759,6 +1270,8 @@ def run_probe(
     worker_env: Path,
     weight_provenance: Path,
     ffmpeg: str,
+    output_dir: Path | None = None,
+    automatic_enhanced: bool = False,
 ) -> dict[str, Any]:
     if not os.environ.get("SLURM_JOB_ID"):
         raise GapProbeError("gap probe requires an active Slurm allocation")
@@ -777,7 +1290,15 @@ def run_probe(
     source_events = read_jsonl(source_voice_path)
     validate_empty_source_gaps(source_events, spec)
     run_dir = project_dir / "runs" / spec.probe_id
-    review_bundle = project_dir / "exports" / f"{spec.probe_id}-review"
+    review_bundle = (
+        output_dir.expanduser().resolve()
+        if output_dir is not None
+        else project_dir / "exports" / f"{spec.probe_id}-review"
+    )
+    try:
+        review_bundle.relative_to(project_dir)
+    except ValueError as exc:
+        raise GapProbeError("output bundle must be inside the project") from exc
     if run_dir.exists() or run_dir.is_symlink():
         raise GapProbeError(f"probe run already exists: {run_dir}")
     if review_bundle.exists() or review_bundle.is_symlink():
@@ -838,11 +1359,19 @@ def run_probe(
                     "sha256": sha256_file(Path(run_baseline.__file__).resolve()),
                 },
                 {
-                    "path": "slurm/41_muscriptor_gap_probe.slurm",
+                    "path": (
+                        "slurm/40_private_beta_muscriptor.slurm"
+                        if automatic_enhanced
+                        else "slurm/41_muscriptor_gap_probe.slurm"
+                    ),
                     "sha256": sha256_file(
                         run_baseline.REPO_ROOT
                         / "slurm"
-                        / "41_muscriptor_gap_probe.slurm"
+                        / (
+                            "40_private_beta_muscriptor.slurm"
+                            if automatic_enhanced
+                            else "41_muscriptor_gap_probe.slurm"
+                        )
                     ),
                 },
             ],
@@ -932,7 +1461,12 @@ def run_probe(
     if manifest["status"] != "succeeded":
         return manifest
     try:
-        build_review_bundle(
+        bundle_builder = (
+            build_automatic_bundle
+            if automatic_enhanced
+            else build_review_bundle
+        )
+        bundle_builder(
             project_dir,
             spec=spec,
             source_voice_path=source_voice_path,
@@ -954,12 +1488,168 @@ def run_probe(
     return manifest
 
 
+def run_automatic_probe(
+    project_dir: Path,
+    *,
+    probe_id: str,
+    source_bundle_id: str,
+    output_bundle_id: str,
+    worker_env: Path,
+    weight_provenance: Path,
+    ffmpeg: str,
+    source_voice_track_id: str = "voice",
+) -> dict[str, Any]:
+    if not os.environ.get("SLURM_JOB_ID"):
+        raise GapProbeError("automatic gap recovery requires a Slurm allocation")
+    hostname = platform.node()
+    if "login" in hostname:
+        raise GapProbeError("refusing automatic gap recovery on a login node")
+    project_dir = project_dir.expanduser().resolve()
+    probe_id = _safe_identifier(probe_id, label="probe_id")
+    source_bundle_id = _safe_identifier(
+        source_bundle_id,
+        label="source_bundle_id",
+    )
+    output_bundle_id = _safe_identifier(
+        output_bundle_id,
+        label="output_bundle_id",
+    )
+    if source_bundle_id == output_bundle_id:
+        raise GapProbeError("automatic output bundle must differ from source bundle")
+    output_dir = project_dir / "exports" / output_bundle_id
+    report_dir = project_dir / "reports" / probe_id
+    if report_dir.exists() or report_dir.is_symlink():
+        raise GapProbeError(f"automatic recovery report already exists: {report_dir}")
+    report_dir.mkdir(parents=True)
+
+    try:
+        spec = plan_automatic_probe(
+            project_dir,
+            probe_id=probe_id,
+            source_bundle_id=source_bundle_id,
+            source_voice_track_id=source_voice_track_id,
+        )
+        plan_path = report_dir / "plan.json"
+        atomic_write_json(plan_path, spec_as_dict(spec))
+        if spec.windows:
+            manifest = run_probe(
+                project_dir,
+                plan_path,
+                worker_env=worker_env,
+                weight_provenance=weight_provenance,
+                ffmpeg=ffmpeg,
+                output_dir=output_dir,
+                automatic_enhanced=True,
+            )
+            decision = (
+                "automatic_gap_recovery_completed"
+                if manifest["status"] == "succeeded"
+                else "publish_raw_multitrack_fallback"
+            )
+        else:
+            project, _audio, source_voice_path, source_canonical = _source_context(
+                project_dir,
+                spec,
+            )
+            source_events = read_jsonl(source_voice_path)
+            run_dir = project_dir / "runs" / probe_id
+            if run_dir.exists() or run_dir.is_symlink():
+                raise GapProbeError(f"automatic recovery run already exists: {run_dir}")
+            normalized_dir = run_dir / "normalized"
+            normalized_dir.mkdir(parents=True)
+            candidate_path = normalized_dir / "voice_gap_candidate.jsonl"
+            write_jsonl(candidate_path, [])
+            atomic_write_json(
+                normalized_dir / "gap_report.json",
+                {
+                    "schema_version": 1,
+                    "artifact_type": "amt-muscriptor-gap-probe-report",
+                    "probe_id": probe_id,
+                    "candidate_track_id": "voice_gap_candidate",
+                    "source_track_id": source_voice_track_id,
+                    "automatic_merge_performed": False,
+                    "accuracy_claimed": False,
+                    "candidate_note_count": 0,
+                    "targets": [],
+                    "decision": "no_eligible_long_voice_gaps",
+                },
+            )
+            manifest = {
+                "schema_version": 1,
+                "artifact_type": "amt-muscriptor-gap-probe-run",
+                "probe_id": probe_id,
+                "project_id": project["project_id"],
+                "status": "succeeded",
+                "started_at": _utc_now(),
+                "ended_at": _utc_now(),
+                "hostname": hostname,
+                "slurm_job_id": os.environ["SLURM_JOB_ID"],
+                "request_sha256": sha256_file(plan_path),
+                "child_runs": [],
+                "outputs": _artifact_records(run_dir),
+                "code": run_baseline.git_state(run_baseline.REPO_ROOT),
+                "decision": "no_eligible_long_voice_gaps",
+                "error": None,
+            }
+            atomic_write_json(run_dir / "run_manifest.json", manifest)
+            build_automatic_bundle(
+                project_dir,
+                spec=spec,
+                source_voice_path=source_voice_path,
+                source_canonical=source_canonical,
+                source_events=source_events,
+                candidate_path=candidate_path,
+                candidates=[],
+                parent_manifest_path=run_dir / "run_manifest.json",
+                output_dir=output_dir,
+            )
+            decision = "no_eligible_long_voice_gaps"
+        report = {
+            "schema_version": 1,
+            "artifact_type": "amt-automatic-voice-gap-recovery",
+            "probe_id": probe_id,
+            "source_bundle_id": source_bundle_id,
+            "output_bundle_id": output_bundle_id,
+            "status": manifest["status"],
+            "decision": decision,
+            "window_count": len(spec.windows),
+            "accuracy_claimed": False,
+            "source_separation_used": False,
+            "second_melody_model_used": False,
+            "fallback_required": manifest["status"] != "succeeded",
+        }
+        atomic_write_json(report_dir / "automatic_recovery.json", report)
+        return manifest
+    except (GapProbeError, OSError, RuntimeError, ValueError) as exc:
+        atomic_write_json(
+            report_dir / "automatic_recovery.json",
+            {
+                "schema_version": 1,
+                "artifact_type": "amt-automatic-voice-gap-recovery",
+                "probe_id": probe_id,
+                "source_bundle_id": source_bundle_id,
+                "output_bundle_id": output_bundle_id,
+                "status": "failed",
+                "decision": "publish_raw_multitrack_fallback",
+                "accuracy_claimed": False,
+                "fallback_required": True,
+                "error": {"type": type(exc).__name__, "message": str(exc)},
+            },
+        )
+        raise
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Run same-model MuScriptor probes only over frozen voice gaps."
     )
     parser.add_argument("--project", type=Path, required=True)
-    parser.add_argument("--config", type=Path, required=True)
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--config", type=Path)
+    source.add_argument("--auto-source-bundle")
+    parser.add_argument("--probe-id")
+    parser.add_argument("--output-bundle")
+    parser.add_argument("--source-voice-track", default="voice")
     parser.add_argument("--worker-env", type=Path, required=True)
     parser.add_argument("--weight-provenance", type=Path, required=True)
     parser.add_argument("--ffmpeg", default=shutil.which("ffmpeg") or "ffmpeg")
@@ -969,13 +1659,29 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        manifest = run_probe(
-            args.project,
-            args.config,
-            worker_env=args.worker_env,
-            weight_provenance=args.weight_provenance,
-            ffmpeg=args.ffmpeg,
-        )
+        if args.auto_source_bundle is not None:
+            if not args.probe_id or not args.output_bundle:
+                raise GapProbeError(
+                    "automatic recovery requires --probe-id and --output-bundle"
+                )
+            manifest = run_automatic_probe(
+                args.project,
+                probe_id=args.probe_id,
+                source_bundle_id=args.auto_source_bundle,
+                output_bundle_id=args.output_bundle,
+                worker_env=args.worker_env,
+                weight_provenance=args.weight_provenance,
+                ffmpeg=args.ffmpeg,
+                source_voice_track_id=args.source_voice_track,
+            )
+        else:
+            manifest = run_probe(
+                args.project,
+                args.config,
+                worker_env=args.worker_env,
+                weight_provenance=args.weight_provenance,
+                ffmpeg=args.ffmpeg,
+            )
     except GapProbeError as exc:
         print(json.dumps({"status": "failed", "error": str(exc)}, sort_keys=True))
         return 1

@@ -4,6 +4,47 @@ This project records changes by numbered research task until formal semantic
 versions and releases begin. Dates and commit identifiers refer to the local
 Git history.
 
+## Task 009B2G — Automatic same-model voice-gap recovery — 2026-07-26
+
+Commit: this task's final commit
+
+### Added
+
+- Added deterministic long-gap planning over the immutable full-song `voice`
+  track, with fixed clip, context, target-count, and duration bounds.
+- Added a single-job private-Beta continuation that runs contextual
+  MuScriptor recovery after the full-song pass without another upload.
+- Added `voice_auto_enhanced` with note-level raw/candidate provenance and a
+  self-contained product bundle that also retains every accompaniment track.
+- Added private-Beta pipeline stages for full transcription, gap planning,
+  automatic recovery, packaging, and completion.
+
+### Changed
+
+- Automatic-recovery failure now falls back to a newly built raw multitrack
+  bundle instead of discarding a successful full-song transcription.
+- Normal mixer display hides raw and gap-only voice diagnostics by default.
+  Playback and standard multitrack export include at most one voice variant;
+  users can still reveal the preserved alternatives.
+- Reconnecting after SSH expiry continues to resume the same remote job and
+  now also resumes its current pipeline-stage display.
+
+### Verified
+
+- The automatic planner reproduced four contextual windows over the existing
+  `STILL LOVE HER` raw result, covering the same five previously reviewed
+  empty targets without new inference.
+- Existing immutable candidates produced a private nine-track dry-run bundle:
+  438 auto-enhanced voice events, 254 raw voice events, 184 gap candidates,
+  and all six original accompaniment tracks. The real Swift project loader
+  and selected-track MIDI export pass.
+- `make check` passes 256 Python and 25 Swift tests with three expected skips.
+  Strict Swift formatting, shell syntax, and `git diff --check` pass.
+- The focused P0/P1 review fixed hidden diagnostic-track playback after the
+  advanced section is collapsed and found no remaining blocker.
+- No Hyak job, model inference, source separation, GAME, training, retuning,
+  or new dataset work ran.
+
 ## Task 009B2F — Owner-approved enhanced voice — 2026-07-26
 
 Commit: this task's final commit

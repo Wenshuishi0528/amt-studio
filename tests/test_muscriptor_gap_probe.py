@@ -13,10 +13,13 @@ from workers.muscriptor.gap_probe import (
     GapProbeError,
     ProbeWindow,
     TargetInterval,
+    build_automatic_bundle,
     build_coverage_report,
     build_review_bundle,
+    derive_automatic_voice,
     derive_owner_approved_voice,
     load_spec,
+    plan_automatic_probe,
     run_probe,
     shift_voice_candidates,
     validate_empty_source_gaps,
@@ -195,6 +198,36 @@ class MuScriptorGapProbeTests(unittest.TestCase):
             )
         )
 
+    def test_automatic_voice_is_traceable_without_owner_approval_claim(self) -> None:
+        raw = _event("raw-note", instrument="voice", onset=10, offset=11)
+        candidate = _event("gap-note", instrument="voice", onset=20, offset=21)
+        enhanced = derive_automatic_voice(
+            [raw],
+            [candidate],
+            probe_id="automatic-gap-v1",
+        )
+
+        self.assertEqual([event.onset_sec for event in enhanced], [10, 20])
+        self.assertTrue(
+            all(event.track_id == "derived:voice_auto_enhanced" for event in enhanced)
+        )
+        self.assertTrue(
+            all(
+                event.extra["automatic_voice_enhancement"][
+                    "automatic_gap_recovery"
+                ]
+                for event in enhanced
+            )
+        )
+        self.assertTrue(
+            all(
+                not event.extra["automatic_voice_enhancement"][
+                    "owner_approved_derivation"
+                ]
+                for event in enhanced
+            )
+        )
+
     def test_report_leaves_correct_and_false_positive_counts_for_owner(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             spec = load_spec(_spec_path(Path(temporary)))
@@ -226,6 +259,7 @@ class MuScriptorGapProbeTests(unittest.TestCase):
                     "canonical_audio": {
                         "path": "audio/canonical/mix.flac",
                         "sha256": sha256_file(canonical_audio),
+                        "metadata": {"duration_sec": 120},
                     },
                 },
             )
@@ -234,6 +268,18 @@ class MuScriptorGapProbeTests(unittest.TestCase):
                 _event("source", instrument="voice", onset=20, offset=21)
             ]
             write_jsonl(source_voice, source_events)
+            source_piano = (
+                project / "exports" / "source-bundle" / "piano.jsonl"
+            )
+            piano_events = [
+                _event(
+                    "piano-source",
+                    instrument="acoustic_piano",
+                    onset=30,
+                    offset=31,
+                )
+            ]
+            write_jsonl(source_piano, piano_events)
             source_manifest = project / "runs" / "source-run.json"
             source_manifest.write_text("{}", encoding="utf-8")
             source_canonical = {
@@ -259,7 +305,21 @@ class MuScriptorGapProbeTests(unittest.TestCase):
                             "run_manifest_sha256": sha256_file(source_manifest),
                             "normalized_artifact_sha256": sha256_file(source_voice),
                         },
-                    }
+                    },
+                    {
+                        "track_id": "acoustic_piano",
+                        "label": "acoustic piano",
+                        "role": "candidate",
+                        "instrument": "acoustic_piano",
+                        "event_count": 1,
+                        "source_events_path": str(source_piano.relative_to(project)),
+                        "provenance": {
+                            "source_run_id": "source-run",
+                            "source_model": "MuScriptor/source",
+                            "run_manifest_sha256": sha256_file(source_manifest),
+                            "normalized_artifact_sha256": sha256_file(source_piano),
+                        },
+                    },
                 ],
                 "rhythm": {
                     "tempo_map": [
@@ -277,6 +337,26 @@ class MuScriptorGapProbeTests(unittest.TestCase):
                     ],
                 },
             }
+            atomic_write_json(
+                project
+                / "exports"
+                / "source-bundle"
+                / "canonical_project.json",
+                source_canonical,
+            )
+            automatic_spec = plan_automatic_probe(
+                project,
+                probe_id="automatic-gap-v1",
+                source_bundle_id="source-bundle",
+            )
+            self.assertGreaterEqual(len(automatic_spec.windows), 2)
+            self.assertTrue(
+                all(
+                    target.duration_sec <= 80
+                    for window in automatic_spec.windows
+                    for target in window.targets
+                )
+            )
             spec = load_spec(_spec_path(project))
             candidate_path = (
                 project
@@ -350,6 +430,51 @@ class MuScriptorGapProbeTests(unittest.TestCase):
                 [record["path"] for record in enhanced_bundle["outputs"]],
             )
 
+            automatic_output = project / "exports" / "automatic-gap-v1-product"
+            automatic_bundle = build_automatic_bundle(
+                project,
+                spec=spec,
+                source_voice_path=source_voice,
+                source_canonical=source_canonical,
+                source_events=source_events,
+                candidate_path=candidate_path,
+                candidates=candidates,
+                parent_manifest_path=parent_manifest,
+                output_dir=automatic_output,
+            )
+            automatic_canonical = json.loads(
+                (automatic_output / "canonical_project.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(
+                [track["track_id"] for track in automatic_canonical["tracks"]],
+                [
+                    "voice_auto_enhanced",
+                    "voice_raw",
+                    "voice_gap_candidate",
+                    "acoustic_piano",
+                ],
+            )
+            self.assertEqual(
+                automatic_canonical["main_melody_track_id"],
+                "voice_auto_enhanced",
+            )
+            self.assertFalse(
+                automatic_canonical["claims"][
+                    "owner_approved_derivation_performed"
+                ]
+            )
+            self.assertFalse(automatic_canonical["claims"]["accuracy_claimed"])
+            self.assertIn(
+                "tracks/acoustic_piano.jsonl",
+                [record["path"] for record in automatic_bundle["outputs"]],
+            )
+            for track in automatic_canonical["tracks"]:
+                self.assertTrue(
+                    (project / track["source_events_path"]).is_file()
+                )
+
     def test_run_requires_slurm_before_touching_project(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -374,6 +499,15 @@ class MuScriptorGapProbeTests(unittest.TestCase):
         self.assertIn('--ffmpeg "$FFMPEG"', script)
         self.assertNotIn("GAME", script)
         self.assertNotIn("separator", script)
+
+        production = (
+            REPO_ROOT / "slurm" / "40_private_beta_muscriptor.slurm"
+        ).read_text(encoding="utf-8")
+        self.assertIn("--auto-source-bundle", production)
+        self.assertIn("--output-bundle", production)
+        self.assertIn("publishing raw multitrack fallback", production)
+        self.assertNotIn("GAME", production)
+        self.assertNotIn("separator", production)
 
         direct = subprocess.run(
             [

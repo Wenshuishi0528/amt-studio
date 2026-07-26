@@ -4,7 +4,8 @@ Status: private Beta usability implementation complete — Task 009A, 009B1,
 009B2A, bounded 009B2B MuScriptor inference, 009B2C reconnect/mixer, and
 009B2D responsiveness/library/voice-coverage work are complete. Task 009B2E
 same-model directed gap recovery and Task 009B2F owner-approved enhanced voice
-productization are complete.
+productization are complete. Task 009B2G single-upload automatic same-model
+gap recovery is complete for future private-Beta jobs.
 
 ## Objective
 
@@ -264,6 +265,67 @@ Evidence:
   environment-gated skips. Strict Swift formatting and `git diff --check`
   pass. The focused P0/P1 review found and fixed variant mute/solo semantics;
   no blocker remains.
+
+## Task 009B2G: single-upload automatic voice-gap recovery
+
+Objective:
+
+- require only one user upload and one private-Beta Slurm job;
+- preserve the immutable full-song MuScriptor run and every accompaniment
+  track before attempting recovery;
+- automatically plan bounded contextual reruns only for long empty spans in a
+  non-empty `voice` track;
+- keep raw, gap-only, and automatic-enhanced voice variants separately
+  traceable while presenting one default main-melody track to ordinary users;
+- publish the raw multitrack result if automatic planning, inference, or
+  packaging fails;
+- stop without source separation, GAME, training, new datasets, or an
+  accuracy claim.
+
+Implemented:
+
+- `slurm/40_private_beta_muscriptor.slurm` now builds a raw source bundle,
+  invokes the same pinned MuScriptor worker for conditional gap recovery
+  inside the existing allocation, and rebuilds the raw final bundle on any
+  recovery failure;
+- the automatic planner uses a fixed eight-second minimum gap, four seconds
+  of context, an 80-second target maximum, a 90-second window maximum, and an
+  eight-target cap. These are bounded engineering defaults, not fitted quality
+  thresholds;
+- target events are clipped to source-empty intervals. `voice_auto_enhanced`
+  uses new event IDs and records the source event, raw/candidate origin,
+  automatic recovery status, absence of owner approval, and absence of model
+  promotion;
+- the self-contained final bundle contains auto-enhanced, raw, gap-only, and
+  all original accompaniment tracks. Its convenience MIDI and the app's
+  standard multitrack export contain only one voice representation;
+- the private-Beta state remains backward compatible and reports
+  `queued`/`full_transcription`/`gap_planning`/
+  `automatic_gap_recovery`/`packaging`/terminal stages;
+- the app prefers `voice_auto_enhanced`, hides raw and gap-only variants until
+  the diagnostic toggle is enabled, and switches back to the preferred voice
+  before hiding a selected diagnostic track.
+
+Evidence:
+
+- read-only planning on the fetched `STILL LOVE HER` raw bundle produced four
+  clips and five targets matching the already reviewed manual probe shape:
+  intro, the two middle gaps in one clip, and two bounded tail clips;
+- no new model job ran. Reusing the completed 184 candidates produced ignored
+  private bundle `task009b2g-automatic-product-dryrun` with nine tracks:
+  `voice_auto_enhanced` 438, `voice_raw` 254,
+  `voice_gap_candidate` 184, plus all six original accompaniment tracks;
+- the real private-project Swift loader and selected-track MIDI export pass
+  with `voice_auto_enhanced`;
+- focused regression tests cover automatic derivation/provenance, bounded
+  planning, accompaniment retention, self-contained paths, raw-state
+  migration, phase detection, automatic-track preference, and mutually
+  exclusive voice playback;
+- final `make check` passes 256 Python and 25 Swift tests with three expected
+  environment-gated skips. Strict Swift formatting, Slurm shell syntax, and
+  `git diff --check` pass;
+- the single focused P0/P1 review fixed one hidden-diagnostic playback issue
+  and one failed-recovery status label. No blocker remains.
 
 Task 009B2C evidence:
 

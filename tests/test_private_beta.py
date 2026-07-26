@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -9,6 +10,7 @@ from amt_core.private_beta import (
     PrivateBetaError,
     _load_hyak_configuration,
     _load_state,
+    _pipeline_stage,
     _unique_project_dir,
 )
 from amt_core.utils import atomic_write_json, slugify
@@ -76,7 +78,15 @@ class PrivateBetaTests(unittest.TestCase):
             }
             state_path = project / "app" / "private_beta_job.json"
             atomic_write_json(state_path, state)
-            self.assertEqual(_load_state(project)["run_id"], "safe-run")
+            loaded = _load_state(project)
+            self.assertEqual(loaded["run_id"], "safe-run")
+            self.assertEqual(loaded["pipeline_stage"], "queued")
+
+            state["pipeline_stage"] = "invented-stage"
+            atomic_write_json(state_path, state)
+            with self.assertRaisesRegex(PrivateBetaError, "pipeline_stage"):
+                _load_state(project)
+            state.pop("pipeline_stage")
 
             state["run_id"] = "../../escaped"
             atomic_write_json(state_path, state)
@@ -116,6 +126,62 @@ class PrivateBetaTests(unittest.TestCase):
                 run_baseline.git_state(root),
                 {"commit": "a" * 40, "dirty": False},
             )
+
+    def test_pipeline_stage_reports_the_current_single_job_phase(self) -> None:
+        class LocalConnection:
+            def remote(self, command: str, *, timeout: float | None = None) -> str:
+                del timeout
+                result = subprocess.run(
+                    ["bash", "-c", command],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                )
+                return result.stdout.strip()
+
+        with tempfile.TemporaryDirectory() as temporary:
+            project = Path(temporary) / "remote project"
+            state = {
+                "remote_project_dir": str(project),
+                "run_id": "full-run",
+                "bundle_id": "full-run-multitrack",
+            }
+            connection = LocalConnection()
+            self.assertEqual(_pipeline_stage(connection, state), "starting")
+
+            run_manifest = project / "runs/full-run/run_manifest.json"
+            run_manifest.parent.mkdir(parents=True)
+            run_manifest.write_text("{}", encoding="utf-8")
+            self.assertEqual(
+                _pipeline_stage(connection, state),
+                "full_transcription",
+            )
+
+            raw_bundle = (
+                project
+                / "exports/full-run-multitrack-raw/bundle_manifest.json"
+            )
+            raw_bundle.parent.mkdir(parents=True)
+            raw_bundle.write_text("{}", encoding="utf-8")
+            self.assertEqual(_pipeline_stage(connection, state), "gap_planning")
+
+            gap_manifest = (
+                project / "runs/full-run-auto-gap/run_manifest.json"
+            )
+            gap_manifest.parent.mkdir(parents=True)
+            gap_manifest.write_text("{}", encoding="utf-8")
+            self.assertEqual(
+                _pipeline_stage(connection, state),
+                "automatic_gap_recovery",
+            )
+
+            final_bundle = (
+                project / "exports/full-run-multitrack/bundle_manifest.json"
+            )
+            final_bundle.parent.mkdir(parents=True)
+            final_bundle.write_text("{}", encoding="utf-8")
+            self.assertEqual(_pipeline_stage(connection, state), "packaging")
 
 
 if __name__ == "__main__":

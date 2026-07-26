@@ -251,6 +251,13 @@ final class AppModelTests: XCTestCase {
         eventCount: 14
       ),
       EditorTrack(
+        id: "voice_auto_enhanced",
+        label: "automatic enhanced",
+        role: "automatic_candidate",
+        instrument: "voice",
+        eventCount: 13
+      ),
+      EditorTrack(
         id: "piano",
         label: "piano",
         role: "candidate",
@@ -270,6 +277,19 @@ final class AppModelTests: XCTestCase {
         selectedTrackID: "voice_enhanced"
       ),
       Set(["voice_enhanced", "piano"])
+    )
+    let automaticTracks = tracks.filter { $0.id != "voice_enhanced" }
+    XCTAssertEqual(
+      MelodyTrackSelector.preferred(in: automaticTracks)?.id,
+      "voice_auto_enhanced"
+    )
+    XCTAssertEqual(
+      MelodyTrackSelector.resolveExclusiveVariant(
+        from: Set(automaticTracks.map(\.id)),
+        tracks: automaticTracks,
+        selectedTrackID: "voice_auto_enhanced"
+      ),
+      Set(["voice_auto_enhanced", "piano"])
     )
     XCTAssertEqual(
       MelodyTrackSelector.resolveExclusiveVariant(
