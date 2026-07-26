@@ -15,6 +15,7 @@ from workers.muscriptor.gap_probe import (
     TargetInterval,
     build_coverage_report,
     build_review_bundle,
+    derive_owner_approved_voice,
     load_spec,
     run_probe,
     shift_voice_candidates,
@@ -146,6 +147,54 @@ class MuScriptorGapProbeTests(unittest.TestCase):
             shifted[0].extra["gap_probe"]["automatic_merge_performed"]
         )
 
+    def test_owner_approved_voice_is_derived_without_changing_sources(self) -> None:
+        raw = _event(
+            "raw-note",
+            instrument="voice",
+            onset=10,
+            offset=11,
+        )
+        candidate = _event(
+            "gap-note",
+            instrument="voice",
+            onset=20,
+            offset=21,
+        )
+        enhanced = derive_owner_approved_voice(
+            [raw],
+            [candidate],
+            probe_id="gap-probe-v1",
+        )
+
+        self.assertEqual([event.onset_sec for event in enhanced], [10, 20])
+        self.assertEqual(raw.event_id, "raw-note")
+        self.assertEqual(candidate.event_id, "gap-note")
+        self.assertEqual(
+            {
+                event.extra["owner_approved_voice_enhancement"][
+                    "origin_track_id"
+                ]
+                for event in enhanced
+            },
+            {"voice_raw", "voice_gap_candidate"},
+        )
+        self.assertTrue(
+            all(
+                event.track_id == "derived:voice_enhanced"
+                for event in enhanced
+            )
+        )
+        self.assertTrue(
+            all(
+                source.event_id in derived.source_event_ids
+                for source, derived in zip(
+                    [raw, candidate],
+                    enhanced,
+                    strict=True,
+                )
+            )
+        )
+
     def test_report_leaves_correct_and_false_positive_counts_for_owner(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             spec = load_spec(_spec_path(Path(temporary)))
@@ -264,6 +313,42 @@ class MuScriptorGapProbeTests(unittest.TestCase):
             self.assertFalse(canonical["claims"]["automatic_merge_performed"])
             self.assertTrue(bundle["limitations"])
             self.assertEqual(bundle["status"], "succeeded")
+
+            enhanced_output = project / "exports" / "gap-probe-v1-enhanced"
+            enhanced_bundle = build_review_bundle(
+                project,
+                spec=spec,
+                source_voice_path=source_voice,
+                source_canonical=source_canonical,
+                source_events=source_events,
+                candidate_path=candidate_path,
+                candidates=candidates,
+                parent_manifest_path=parent_manifest,
+                output_dir=enhanced_output,
+                owner_approved_enhanced=True,
+            )
+            enhanced_canonical = json.loads(
+                (enhanced_output / "canonical_project.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(
+                [track["track_id"] for track in enhanced_canonical["tracks"]],
+                ["voice_raw", "voice_gap_candidate", "voice_enhanced"],
+            )
+            self.assertEqual(enhanced_canonical["tracks"][2]["event_count"], 2)
+            self.assertTrue(
+                enhanced_canonical["claims"][
+                    "owner_approved_derivation_performed"
+                ]
+            )
+            self.assertTrue(
+                enhanced_canonical["claims"]["preferred_candidate_selected"]
+            )
+            self.assertIn(
+                "tracks/voice_enhanced.jsonl",
+                [record["path"] for record in enhanced_bundle["outputs"]],
+            )
 
     def test_run_requires_slurm_before_touching_project(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

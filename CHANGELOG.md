@@ -4,6 +4,40 @@ This project records changes by numbered research task until formal semantic
 versions and releases begin. Dates and commit identifiers refer to the local
 Git history.
 
+## Task 009B2F — Owner-approved enhanced voice — 2026-07-26
+
+Commit: this task's final commit
+
+### Added
+
+- Added an immutable `voice_enhanced` derivation from `voice_raw` plus the
+  separately preserved, owner-reviewed `voice_gap_candidate`.
+- Added provenance on every enhanced event, including its source variant and
+  source event ID.
+- Added app preference and display language for the enhanced main-vocal track.
+
+### Changed
+
+- Made raw, gap-only, and enhanced voice variants mutually exclusive during
+  mix playback so comparison tracks never stack duplicate notes.
+- Updated melody-gap reporting to describe the currently selected voice
+  variant rather than an arbitrary first `voice` track.
+
+### Verified
+
+- The owner subjectively estimates that the gap pass recovered more than 95%
+  of previously missing notes, with a few omissions remaining. This is
+  recorded as single-song listening feedback, not a formal accuracy metric.
+- The enhanced bundle contains 254 raw, 184 gap-candidate, and 438 enhanced
+  events. Raw SHA-256 remains
+  `25725cff2b738bee8d66514dc5fbde51e04cf1a6b5e74c490e52025de4b4d48c`.
+- The real project loads and exports selected-track and arrangement MIDI with
+  `voice_enhanced`; all 25 Swift tests pass with three expected skips.
+- No model job, source separation, GAME, training, or automatic model
+  promotion ran.
+- Final `make check` passes 254 Python and 25 Swift tests. The focused P0/P1
+  review fixed variant mute/solo semantics and found no remaining blocker.
+
 ## Task 009B2E — Same-model directed voice-gap probe — 2026-07-26
 
 Commit: implementation `918544b`; compatibility/evidence in this task's final

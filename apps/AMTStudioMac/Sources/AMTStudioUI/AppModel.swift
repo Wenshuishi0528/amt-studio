@@ -41,6 +41,70 @@ public struct MelodyGap: Sendable, Equatable, Identifiable {
   }
 }
 
+enum MelodyTrackSelector {
+  private static let variantPriority = [
+    "voice_enhanced",
+    "voice_raw",
+    "voice_gap_candidate",
+  ]
+
+  static func preferred(in tracks: [EditorTrack]) -> EditorTrack? {
+    for id in variantPriority {
+      if let track = tracks.first(where: { $0.id == id }) {
+        return track
+      }
+    }
+    return tracks.first {
+      $0.instrument?.lowercased() == "voice"
+    }
+  }
+
+  static func resolveExclusiveVariant(
+    from trackIDs: Set<String>,
+    tracks: [EditorTrack],
+    selectedTrackID: String?
+  ) -> Set<String> {
+    let availableVariants = Set(
+      tracks.lazy.map(\.id).filter(variantPriority.contains)
+    )
+    let includedVariants = trackIDs.intersection(availableVariants)
+    let selectedVariant = selectedTrackID.flatMap {
+      availableVariants.contains($0) ? $0 : nil
+    }
+    if let selectedVariant {
+      var resolved = trackIDs.subtracting(availableVariants)
+      if includedVariants.contains(selectedVariant) {
+        resolved.insert(selectedVariant)
+      }
+      return resolved
+    }
+    guard includedVariants.count > 1 else { return trackIDs }
+
+    let chosen =
+      variantPriority.first(where: includedVariants.contains)
+    var resolved = trackIDs.subtracting(availableVariants)
+    if let chosen {
+      resolved.insert(chosen)
+    }
+    return resolved
+  }
+
+  static func displayLabel(for track: EditorTrack) -> String {
+    switch track.id {
+    case "voice_enhanced":
+      "增强主唱（原始 + 已审核补漏）"
+    case "voice_raw":
+      "原始 voice"
+    case "voice_gap_candidate":
+      "补漏候选"
+    default:
+      track.instrument?.lowercased() == "voice"
+        ? "voice 主唱候选"
+        : track.label
+    }
+  }
+}
+
 public struct LocalProjectItem: Sendable, Equatable, Identifiable {
   public let projectID: String
   public let title: String
@@ -289,9 +353,20 @@ public final class AppModel: ObservableObject {
     let available = Set(snapshot.tracks.map(\.id))
     let solos = soloTrackIDs.intersection(available)
     if !solos.isEmpty {
-      return solos
+      let selectedSoloTrackID = editor.map(\.selectedTrack.id).flatMap {
+        solos.contains($0) ? $0 : nil
+      }
+      return MelodyTrackSelector.resolveExclusiveVariant(
+        from: solos,
+        tracks: snapshot.tracks,
+        selectedTrackID: selectedSoloTrackID
+      )
     }
-    return available.subtracting(mutedTrackIDs)
+    return MelodyTrackSelector.resolveExclusiveVariant(
+      from: available.subtracting(mutedTrackIDs),
+      tracks: snapshot.tracks,
+      selectedTrackID: editor?.selectedTrack.id
+    )
   }
 
   public var audibleTrackCount: Int {
@@ -393,10 +468,18 @@ public final class AppModel: ObservableObject {
   }
 
   private func updateMelodyCoverage() {
-    guard let snapshot,
-      let voiceTrack = snapshot.tracks.first(where: {
-        $0.instrument?.lowercased() == "voice"
-      })
+    guard let snapshot else {
+      melodyGaps = []
+      return
+    }
+    let selectedVoiceTrack =
+      editor?.selectedTrack.instrument?.lowercased() == "voice"
+      ? editor?.selectedTrack
+      : nil
+    guard
+      let voiceTrack =
+        selectedVoiceTrack
+        ?? MelodyTrackSelector.preferred(in: snapshot.tracks)
     else {
       melodyGaps = []
       return
@@ -419,6 +502,19 @@ public final class AppModel: ObservableObject {
 
   public var melodyGapDuration: Double {
     melodyGaps.reduce(0) { $0 + $1.duration }
+  }
+
+  public var melodyCoverageTrackLabel: String {
+    guard let snapshot else { return "主唱候选" }
+    let track =
+      editor?.selectedTrack.instrument?.lowercased() == "voice"
+      ? editor?.selectedTrack
+      : MelodyTrackSelector.preferred(in: snapshot.tracks)
+    return track.map(MelodyTrackSelector.displayLabel) ?? "主唱候选"
+  }
+
+  public var hasEnhancedVoiceTrack: Bool {
+    snapshot?.tracks.contains(where: { $0.id == "voice_enhanced" }) == true
   }
 
   public func seekToNextMelodyGap() {
@@ -509,11 +605,10 @@ public final class AppModel: ObservableObject {
     updateMelodyCoverage()
     statusMessage = "已验证多轨结果 \(id)；请选择一条音轨"
     errorMessage = nil
-    if let voice = snapshot.tracks.first(where: {
-      $0.instrument?.lowercased() == "voice"
-    }) {
+    if let voice = MelodyTrackSelector.preferred(in: snapshot.tracks) {
       try selectTrack(voice.id)
-      statusMessage = "已默认打开 voice 主唱候选；其余原始多轨仍完整保留"
+      statusMessage =
+        "已默认打开 \(MelodyTrackSelector.displayLabel(for: voice))；其余原始音轨仍完整保留"
     } else if snapshot.tracks.count == 1 {
       try selectTrack(snapshot.tracks[0].id)
     }
@@ -1210,9 +1305,7 @@ private struct PreparedSelection: Sendable {
   ) throws -> PreparedSelection {
     let snapshot = try ProjectLoader.open(catalog, bundleID: bundleID)
     let preferredTrack =
-      snapshot.tracks.first(where: {
-        $0.instrument?.lowercased() == "voice"
-      })
+      MelodyTrackSelector.preferred(in: snapshot.tracks)
       ?? (snapshot.tracks.count == 1 ? snapshot.tracks[0] : nil)
     guard let preferredTrack else {
       return PreparedSelection(
@@ -1239,10 +1332,7 @@ private struct PreparedSelection: Sendable {
       selectedTrackID: trackID
     )
     try? editor.saveWorkspaceSelection()
-    let label =
-      editor.selectedTrack.instrument?.lowercased() == "voice"
-      ? "voice 主唱候选"
-      : editor.selectedTrack.label
+    let label = MelodyTrackSelector.displayLabel(for: editor.selectedTrack)
     return PreparedSelection(
       snapshot: snapshot,
       editor: editor,
@@ -1341,9 +1431,7 @@ private struct PreparedProject: Sendable {
     let bundle = catalog.bundles[0]
     let snapshot = try ProjectLoader.open(catalog, bundleID: bundle.id)
     let preferredTrack =
-      snapshot.tracks.first(where: {
-        $0.instrument?.lowercased() == "voice"
-      })
+      MelodyTrackSelector.preferred(in: snapshot.tracks)
       ?? (snapshot.tracks.count == 1 ? snapshot.tracks[0] : nil)
     let editor: EditorProject?
     if let preferredTrack {
@@ -1369,6 +1457,9 @@ private struct PreparedProject: Sendable {
   }
 
   private static func projectStatus(editor: EditorProject) -> String {
+    if editor.selectedTrack.id == "voice_enhanced" {
+      return "已打开增强主唱；原始 voice 与补漏候选仍可单独切换"
+    }
     if editor.selectedTrack.instrument?.lowercased() == "voice" {
       return "已打开 voice 主唱候选；长空缺会单独提示，不再把它冒充完整主旋律"
     }

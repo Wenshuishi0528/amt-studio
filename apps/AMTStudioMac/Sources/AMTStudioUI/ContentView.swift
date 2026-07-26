@@ -338,6 +338,13 @@ public struct ContentView: View {
             }
             .padding(.vertical, 3)
           }
+          if model.hasEnhancedVoiceTrack {
+            Text(
+              "原始、补漏候选和增强主唱是同一旋律的三个版本；合奏时只播放当前选择的版本，不会重复叠音。"
+            )
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+          }
           Text("点名称编辑该轨；M 静音，S 独奏。乐器名称是模型预测，可能误分类。")
             .font(.caption2)
             .foregroundStyle(.secondary)
@@ -347,7 +354,7 @@ public struct ContentView: View {
       if !model.melodyGaps.isEmpty {
         Section("主旋律覆盖") {
           Label(
-            "voice 有 \(model.melodyGaps.count) 段 ≥3 秒的疑似空缺",
+            "\(model.melodyCoverageTrackLabel) 有 \(model.melodyGaps.count) 段 ≥3 秒的疑似空缺",
             systemImage: "waveform.path.badge.minus"
           )
           .foregroundStyle(.orange)
@@ -373,7 +380,7 @@ public struct ContentView: View {
               .foregroundStyle(.secondary)
             }
           }
-          Text("原始 voice 不会被自动覆盖；伴奏候选与已确认主唱旋律保持分离。")
+          Text("原始 voice 不会被覆盖；增强主唱始终保留到原始音符与补漏候选的来源。")
             .font(.caption2)
             .foregroundStyle(.secondary)
         }

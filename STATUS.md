@@ -1,14 +1,33 @@
 # Project status
 
-Current product milestone: Task 009B2E same-model directed voice-gap candidate
-is ready for owner listening beside the immutable Task 002-derived `voice_raw`
+Current product milestone: Task 009B2F owner-approved enhanced voice is ready
+as a selectable, non-destructive product track
 Research status: Gate 4 remains not passed for the rejected fusion routes; no
 new dataset, fusion, retuning, or training work is in the product critical path
-Current task: Task 009B2E inference and non-merging review bundle complete;
-correct-recovery and false-positive counts await owner listening
-Next task: owner compares `voice_raw` with `voice_gap_candidate` over the five
-frozen spans; only then decide whether same-model recovery is sufficient
+Current task: Task 009B2F implementation and real-project verification complete
+Next task: owner uses the rebuilt app normally and reports only genuine product
+blockers; do not expand to BS-Roformer, GAME, or training
 Current branch: `main`
+
+Implemented and verified for Task 009B2F:
+
+- the owner accepted the same-model gap recovery after listening, estimating
+  that it recovered more than 95% of the previously missing notes while a few
+  notes remain absent. This is explicitly stored as subjective single-song
+  feedback, not formal accuracy;
+- `voice_enhanced` deterministically combines 254 immutable raw notes and 184
+  separately preserved gap candidates into 438 provenance-bearing events;
+- the app prefers the enhanced track when present and makes
+  `voice_raw`/`voice_gap_candidate`/`voice_enhanced` mutually exclusive during
+  mix playback, so selecting a comparison variant does not create doubled
+  notes;
+- the new private bundle passes all hash/count checks and real-project Swift
+  loading plus selected-track and arrangement MIDI export;
+- all 25 Swift tests pass with three expected environment-gated skips. No new
+  Hyak job, separator, GAME run, training, or automatic model promotion was
+  performed;
+- final `make check` passes 254 Python and 25 Swift tests. Strict Swift
+  formatting passes, and the focused P0/P1 review has no remaining blocker.
 
 Implemented and measured for Task 009B2E:
 
@@ -33,8 +52,9 @@ Implemented and measured for Task 009B2E:
   tracks, declares no fusion/automatic merge/accuracy claim, and passes the
   real-project Swift loader with `voice_gap_candidate` selected;
 - source separation, GAME, training, retuning, and automatic candidate merging
-  remain unstarted. The result is awaiting owner listening, so correct-note and
-  false-positive counts remain `null`;
+  remain unstarted. The later owner review accepted the result for a derived
+  enhanced track, but exact correct-note and false-positive counts remain
+  `null`;
 - final `make check` passes 253 Python and 24 Swift tests with three expected
   environment-gated skips. The focused P0/P1 review found no blocker.
 

@@ -381,6 +381,73 @@ def build_coverage_report(
     }
 
 
+def derive_owner_approved_voice(
+    source_events: list[NoteEvent],
+    candidates: list[NoteEvent],
+    *,
+    probe_id: str,
+) -> list[NoteEvent]:
+    enhanced: list[NoteEvent] = []
+    for origin, events in (
+        ("voice_raw", source_events),
+        ("voice_gap_candidate", candidates),
+    ):
+        for event in events:
+            if (event.instrument or "").lower() != "voice":
+                raise GapProbeError(
+                    f"{origin} contains a non-voice event: {event.event_id}"
+                )
+            extra = dict(event.extra)
+            extra["owner_approved_voice_enhancement"] = {
+                "probe_id": probe_id,
+                "origin_track_id": origin,
+                "source_event_id": event.event_id,
+                "automatic_model_promotion": False,
+                "owner_approved_derivation": True,
+            }
+            enhanced.append(
+                NoteEvent(
+                    event_id=(
+                        f"{probe_id}:voice-enhanced:{origin}:{event.event_id}"
+                    ),
+                    track_id="derived:voice_enhanced",
+                    instrument="voice",
+                    onset_sec=event.onset_sec,
+                    offset_sec=event.offset_sec,
+                    pitch_midi=event.pitch_midi,
+                    quantized_pitch_midi=event.quantized_pitch_midi,
+                    velocity=event.velocity,
+                    confidence=event.confidence,
+                    is_main_melody_candidate=True,
+                    source_run_id=probe_id,
+                    source_model="deterministic:voice_raw+voice_gap_candidate",
+                    source_event_ids=sorted(
+                        {*event.source_event_ids, event.event_id}
+                    ),
+                    tags=sorted(
+                        {
+                            *event.tags,
+                            "owner-approved",
+                            "voice-enhanced",
+                            origin,
+                        }
+                    ),
+                    extra=extra,
+                )
+            )
+    enhanced.sort(
+        key=lambda event: (
+            event.onset_sec,
+            event.offset_sec,
+            event.pitch_midi,
+            event.event_id,
+        )
+    )
+    if len({event.event_id for event in enhanced}) != len(enhanced):
+        raise GapProbeError("owner-approved enhanced voice has duplicate event IDs")
+    return enhanced
+
+
 def _artifact_records(root: Path) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     for path in sorted(root.rglob("*")):
@@ -524,6 +591,7 @@ def build_review_bundle(
     candidates: list[NoteEvent],
     parent_manifest_path: Path,
     output_dir: Path,
+    owner_approved_enhanced: bool = False,
 ) -> dict[str, Any]:
     if output_dir.exists() or output_dir.is_symlink():
         raise GapProbeError(f"review bundle already exists: {output_dir}")
@@ -535,12 +603,24 @@ def build_review_bundle(
     project = load_project(project_dir)
     canonical = project["canonical_audio"]
     tempo, meter = _rhythm_points(source_canonical)
+    enhanced = (
+        derive_owner_approved_voice(
+            source_events,
+            candidates,
+            probe_id=spec.probe_id,
+        )
+        if owner_approved_enhanced
+        else []
+    )
     output_dir.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(
         prefix=f".{output_dir.name}.",
         dir=output_dir.parent,
     ) as temporary_name:
         temporary = Path(temporary_name)
+        enhanced_path = temporary / "tracks" / "voice_enhanced.jsonl"
+        if enhanced:
+            write_jsonl(enhanced_path, enhanced)
         midi_report = export_performance_midi(
             temporary / "performance.mid",
             {
@@ -552,39 +632,74 @@ def build_review_bundle(
         )
         parent_hash = sha256_file(parent_manifest_path)
         candidate_hash = sha256_file(candidate_path)
+        tracks = [
+            {
+                "track_id": "voice_raw",
+                "label": "voice raw（原始，不修改）",
+                "role": "candidate",
+                "instrument": "voice",
+                "event_count": len(source_events),
+                "source_events_path": _relative(source_voice_path, project_dir),
+                "provenance": source_track["provenance"],
+            },
+            {
+                "track_id": "voice_gap_candidate",
+                "label": "voice gap candidate（仅补漏候选）",
+                "role": "candidate",
+                "instrument": "voice",
+                "event_count": len(candidates),
+                "source_events_path": _relative(candidate_path, project_dir),
+                "provenance": {
+                    "source_run_id": spec.probe_id,
+                    "source_model": candidates[0].source_model
+                    if candidates
+                    else source_track["provenance"]["source_model"],
+                    "run_manifest_sha256": parent_hash,
+                    "normalized_artifact_sha256": candidate_hash,
+                },
+            },
+        ]
+        if enhanced:
+            final_enhanced_path = (
+                output_dir / "tracks" / "voice_enhanced.jsonl"
+            ).resolve(strict=False)
+            try:
+                enhanced_relative = str(
+                    final_enhanced_path.relative_to(
+                        project_dir.resolve(strict=True)
+                    )
+                )
+            except ValueError as exc:
+                raise GapProbeError(
+                    f"enhanced review track is outside project: {final_enhanced_path}"
+                ) from exc
+            tracks.append(
+                {
+                    "track_id": "voice_enhanced",
+                    "label": "增强主唱（原始 + 已审核补漏）",
+                    "role": "owner_approved_candidate",
+                    "instrument": "voice",
+                    "event_count": len(enhanced),
+                    "source_events_path": enhanced_relative,
+                    "provenance": {
+                        "source_run_id": spec.probe_id,
+                        "source_model": (
+                            "deterministic:voice_raw+voice_gap_candidate"
+                        ),
+                        "run_manifest_sha256": parent_hash,
+                        "normalized_artifact_sha256": sha256_file(
+                            enhanced_path
+                        ),
+                    },
+                }
+            )
         canonical_project = {
             "schema_version": 1,
             "artifact_type": "amt-canonical-project",
             "project_id": project["project_id"],
             "timeline_basis": "original_canonical_mix_seconds",
             "canonical_audio": canonical,
-            "tracks": [
-                {
-                    "track_id": "voice_raw",
-                    "label": "voice raw（原始，不修改）",
-                    "role": "candidate",
-                    "instrument": "voice",
-                    "event_count": len(source_events),
-                    "source_events_path": _relative(source_voice_path, project_dir),
-                    "provenance": source_track["provenance"],
-                },
-                {
-                    "track_id": "voice_gap_candidate",
-                    "label": "voice gap candidate（仅补漏候选）",
-                    "role": "candidate",
-                    "instrument": "voice",
-                    "event_count": len(candidates),
-                    "source_events_path": _relative(candidate_path, project_dir),
-                    "provenance": {
-                        "source_run_id": spec.probe_id,
-                        "source_model": candidates[0].source_model
-                        if candidates
-                        else source_track["provenance"]["source_model"],
-                        "run_manifest_sha256": parent_hash,
-                        "normalized_artifact_sha256": candidate_hash,
-                    },
-                },
-            ],
+            "tracks": tracks,
             "rhythm": source_canonical["rhythm"],
             "exports": {
                 "performance_midi": {
@@ -596,18 +711,19 @@ def build_review_bundle(
             "claims": {
                 "candidate_fusion_performed": False,
                 "automatic_merge_performed": False,
-                "preferred_candidate_selected": False,
+                "preferred_candidate_selected": bool(enhanced),
                 "accuracy_claimed": False,
+                "owner_approved_derivation_performed": bool(enhanced),
             },
         }
         atomic_write_json(temporary / "canonical_project.json", canonical_project)
         outputs = [
             {
-                "path": path.name,
+                "path": str(path.relative_to(temporary)),
                 "sha256": sha256_file(path),
                 "size_bytes": path.stat().st_size,
             }
-            for path in sorted(temporary.iterdir())
+            for path in sorted(temporary.rglob("*"))
             if path.is_file()
         ]
         bundle_manifest = {
@@ -617,14 +733,18 @@ def build_review_bundle(
             "project_id": project["project_id"],
             "canonical_audio_sha256": canonical["sha256"],
             "bundle_id": output_dir.name,
-            "tracks": ["voice_raw", "voice_gap_candidate"],
+            "tracks": [track["track_id"] for track in tracks],
             "outputs": outputs,
             "claims": canonical_project["claims"],
             "limitations": [
                 "voice_gap_candidate is a same-model recovery probe, not a verified correction.",
                 "The original voice_raw track remains separate and unchanged.",
                 "No candidate fusion, automatic merge, or accuracy claim was performed.",
-                "Owner listening is required before accepting any recovered note.",
+                (
+                    "voice_enhanced is a deterministic owner-approved derivation."
+                    if enhanced
+                    else "Owner listening is required before accepting any recovered note."
+                ),
             ],
         }
         atomic_write_json(temporary / "bundle_manifest.json", bundle_manifest)

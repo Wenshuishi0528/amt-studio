@@ -29,6 +29,11 @@ final class AppModelTests: XCTestCase {
     XCTAssertEqual(model.catalog?.rootURL.path, projectPath)
     XCTAssertNotNil(model.snapshot)
     XCTAssertNotNil(model.editor)
+    if let expectedTrack = ProcessInfo.processInfo.environment[
+      "AMT_STUDIO_REAL_TRACK"
+    ] {
+      XCTAssertEqual(model.editor?.selectedTrack.id, expectedTrack)
+    }
   }
 
   func testConfiguredBetaProjectAutomaticallyRefreshesJobState() async throws {
@@ -220,6 +225,76 @@ final class AppModelTests: XCTestCase {
     )
     XCTAssertEqual(gaps.map(\.otherTrackCount), [1, 1, 1])
     XCTAssertEqual(gaps.map(\.otherNoteCount), [1, 1, 1])
+  }
+
+  func testEnhancedVoiceIsPreferredAndVariantsNeverStack() throws {
+    let tracks = [
+      EditorTrack(
+        id: "voice_raw",
+        label: "raw",
+        role: "candidate",
+        instrument: "voice",
+        eventCount: 10
+      ),
+      EditorTrack(
+        id: "voice_gap_candidate",
+        label: "gap",
+        role: "candidate",
+        instrument: "voice",
+        eventCount: 4
+      ),
+      EditorTrack(
+        id: "voice_enhanced",
+        label: "enhanced",
+        role: "owner_approved_candidate",
+        instrument: "voice",
+        eventCount: 14
+      ),
+      EditorTrack(
+        id: "piano",
+        label: "piano",
+        role: "candidate",
+        instrument: "acoustic_piano",
+        eventCount: 20
+      ),
+    ]
+
+    XCTAssertEqual(
+      MelodyTrackSelector.preferred(in: tracks)?.id,
+      "voice_enhanced"
+    )
+    XCTAssertEqual(
+      MelodyTrackSelector.resolveExclusiveVariant(
+        from: Set(tracks.map(\.id)),
+        tracks: tracks,
+        selectedTrackID: "voice_enhanced"
+      ),
+      Set(["voice_enhanced", "piano"])
+    )
+    XCTAssertEqual(
+      MelodyTrackSelector.resolveExclusiveVariant(
+        from: Set(tracks.map(\.id)),
+        tracks: tracks,
+        selectedTrackID: "voice_raw"
+      ),
+      Set(["voice_raw", "piano"])
+    )
+    XCTAssertEqual(
+      MelodyTrackSelector.resolveExclusiveVariant(
+        from: Set(["voice_raw", "voice_gap_candidate", "piano"]),
+        tracks: tracks,
+        selectedTrackID: "voice_enhanced"
+      ),
+      Set(["piano"])
+    )
+    XCTAssertEqual(
+      MelodyTrackSelector.resolveExclusiveVariant(
+        from: Set(["voice_raw"]),
+        tracks: tracks,
+        selectedTrackID: nil
+      ),
+      Set(["voice_raw"])
+    )
   }
 
   func testLocalProjectLibraryFindsPreviousSongsWithoutOpeningThem() throws {

@@ -3,7 +3,8 @@
 Status: private Beta usability implementation complete — Task 009A, 009B1,
 009B2A, bounded 009B2B MuScriptor inference, 009B2C reconnect/mixer, and
 009B2D responsiveness/library/voice-coverage work are complete. Task 009B2E
-same-model directed gap recovery is complete and awaits owner listening.
+same-model directed gap recovery and Task 009B2F owner-approved enhanced voice
+productization are complete.
 
 ## Objective
 
@@ -217,6 +218,52 @@ Task 009B2E evidence:
 - final `make check` passes 253 Python and 24 Swift tests with three expected
   environment-gated skips. The single focused P0/P1 review found no remaining
   blocker.
+
+## Task 009B2F: owner-approved enhanced voice
+
+Objective:
+
+- record the owner's listening decision without turning a subjective estimate
+  into a formal accuracy metric;
+- derive `voice_enhanced` from the immutable 254-note `voice_raw` plus the
+  separately preserved 184-note `voice_gap_candidate`;
+- expose raw, gap-only, and enhanced variants while preventing those three
+  representations from sounding simultaneously in the mixer;
+- prefer the owner-approved enhanced variant when its bundle is opened;
+- stop without a separator, GAME, another model run, training, or hidden
+  replacement of source events.
+
+Evidence:
+
+- the owner reports that the gap candidate subjectively recovers more than 95%
+  of the previously missing notes, with a few notes still absent, and judges
+  the overall recovery useful. This is an owner listening estimate on one
+  song, not formal note recall or accuracy;
+- ignored private evidence is stored in
+  `reports/task009b2e-muscriptor-gap-v2/owner_review.json`;
+- `task009b2f-owner-approved-enhanced` contains three explicit variants:
+  `voice_raw` 254 notes, `voice_gap_candidate` 184 notes, and
+  `voice_enhanced` 438 notes;
+- every enhanced event has a new stable ID, retains the source event ID,
+  identifies whether it came from raw or gap candidate, and records
+  `owner_approved_derivation=true` plus
+  `automatic_model_promotion=false`;
+- the source `voice_raw` SHA-256 remains
+  `25725cff2b738bee8d66514dc5fbde51e04cf1a6b5e74c490e52025de4b4d48c`.
+  The enhanced JSONL SHA-256 is
+  `db58e8c845e3cce0094899253001cfe1f64bbd8058f051a2c6e5d52e1ffda59b`;
+- the app prefers `voice_enhanced` and treats the three voice variants as
+  mutually exclusive during mix playback. Selecting raw or gap-only switches
+  the audible variant instead of stacking duplicates;
+- the real private-project loader and selected-track/arrangement MIDI export
+  pass with `voice_enhanced`. All 25 Swift tests pass with three expected
+  environment-gated skips;
+- no Hyak job or model inference was submitted. BS-Roformer, GAME, training,
+  and automatic model promotion remain unstarted;
+- final `make check` passes 254 Python and 25 Swift tests with three expected
+  environment-gated skips. Strict Swift formatting and `git diff --check`
+  pass. The focused P0/P1 review found and fixed variant mute/solo semantics;
+  no blocker remains.
 
 Task 009B2C evidence:
 
