@@ -3,7 +3,7 @@
 Status: private Beta usability implementation complete — Task 009A, 009B1,
 009B2A, bounded 009B2B MuScriptor inference, 009B2C reconnect/mixer, and
 009B2D responsiveness/library/voice-coverage work are complete. Task 009B2E
-same-model directed gap recovery is now the only active product experiment.
+same-model directed gap recovery is complete and awaits owner listening.
 
 ## Objective
 
@@ -182,6 +182,41 @@ Acceptance:
   tracks and explicitly records `automatic_merge_performed=false`;
 - correct-recovery and false-positive counts remain `null` until the owner
   reviews the target spans.
+
+Task 009B2E evidence:
+
+- startup Jobs `37739953`, `37739955`, and `37740294` stopped before inference
+  while fixing direct-script imports, the Hyak ffmpeg module, and Lmod
+  `nounset` compatibility. They did not alter the source bundle;
+- Job `37740313` ran for `00:18:49` on L40 node `g3115`. Its four child
+  MuScriptor runs all succeeded with the frozen model and decoding settings:
+  intro control 823 total events, middle gaps 2,686, tail A 4,039, and tail B
+  2,582;
+- the child results yielded 184 target-overlapping `voice_gap_candidate`
+  notes: `0`, `52`, `52`, `80`, and `0` across the five ordered targets.
+  Candidate union coverage is respectively `0`, `18.70`, `20.25`, `21.28`,
+  and `0` seconds;
+- total candidate coverage is 60.23 of 208.043719 seconds (28.95%) across the
+  four non-control targets. This measures presence of candidate notes, not
+  whether those notes are musically correct;
+- Job `37740313` itself ended `FAILED 1:0` after successful inference because
+  review MIDI generation tried to parse the older private-Beta minimal rhythm
+  map as a fully provenanced canonical tempo/meter map. The compatibility fix
+  enriched only the in-memory MIDI serialization points. It reused the
+  fetched candidate JSONL on the Mac and did not repeat inference;
+- `task009b2e-muscriptor-gap-v2-review` was then generated successfully and
+  passed the real-project Swift loader with `voice_gap_candidate` explicitly
+  selected. It exposes `voice_raw` and `voice_gap_candidate` separately and
+  records `automatic_merge_performed=false`;
+- the original `voice_raw` remains 254 events with SHA-256
+  `25725cff2b738bee8d66514dc5fbde51e04cf1a6b5e74c490e52025de4b4d48c`;
+- correct-recovery and false-positive counts are still `null`. Owner listening
+  is the next and only decision point before considering BS-Roformer. GAME,
+  source separation, training, fusion, retuning, and automatic merge were not
+  run;
+- final `make check` passes 253 Python and 24 Swift tests with three expected
+  environment-gated skips. The single focused P0/P1 review found no remaining
+  blocker.
 
 Task 009B2C evidence:
 

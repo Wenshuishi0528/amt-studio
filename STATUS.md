@@ -1,14 +1,42 @@
 # Project status
 
-Current product milestone: Task 009B2D responsive private Beta, using the useful
-Task 002 MuScriptor full-song multitrack baseline selected by the project owner
+Current product milestone: Task 009B2E same-model directed voice-gap candidate
+is ready for owner listening beside the immutable Task 002-derived `voice_raw`
 Research status: Gate 4 remains not passed for the rejected fusion routes; no
 new dataset, fusion, retuning, or training work is in the product critical path
-Current task: Task 009B2D responsiveness, prior-project library, permission
-flow, and voice-coverage diagnostics complete
-Next task: owner acceptance of the rebuilt app; only genuine product blockers
-after that, without restarting Task 007 experiments or Task 010
+Current task: Task 009B2E inference and non-merging review bundle complete;
+correct-recovery and false-positive counts await owner listening
+Next task: owner compares `voice_raw` with `voice_gap_candidate` over the five
+frozen spans; only then decide whether same-model recovery is sufficient
 Current branch: `main`
+
+Implemented and measured for Task 009B2E:
+
+- the original 254-note `voice_raw` file is unchanged at SHA-256
+  `25725cff2b738bee8d66514dc5fbde51e04cf1a6b5e74c490e52025de4b4d48c`;
+- Hyak Job `37740313` ran four contextual clips sequentially on L40 node
+  `g3115`. All four MuScriptor child manifests succeeded with the same large
+  model, beam size 4, and prelude forcing as the full-song run;
+- the probe produced 184 separate `voice_gap_candidate` notes. The two middle
+  targets contain 52 notes each and cover 18.70/27.14 and 20.25/26.89 seconds.
+  The first tail target contains 80 notes covering 21.28/77.36 seconds. The
+  possible-instrumental intro negative control and final 76.653719-second
+  target contain zero candidates;
+- across the four non-control targets, candidates cover 60.23 of 208.043719
+  seconds (28.95%). This is recall-oriented time coverage, not correctness or
+  transcription accuracy;
+- the Slurm parent exited `1:0` only after all inference completed because the
+  old private-Beta rhythm map lacked newer MIDI provenance fields. The
+  compatibility fix reused those completed artifacts on the Mac and generated
+  `task009b2e-muscriptor-gap-v2-review`; no model inference was repeated;
+- the review bundle exposes `voice_raw` and `voice_gap_candidate` as two
+  tracks, declares no fusion/automatic merge/accuracy claim, and passes the
+  real-project Swift loader with `voice_gap_candidate` selected;
+- source separation, GAME, training, retuning, and automatic candidate merging
+  remain unstarted. The result is awaiting owner listening, so correct-note and
+  false-positive counts remain `null`;
+- final `make check` passes 253 Python and 24 Swift tests with three expected
+  environment-gated skips. The focused P0/P1 review found no blocker.
 
 Implemented for Task 009B2D responsiveness and melody coverage:
 

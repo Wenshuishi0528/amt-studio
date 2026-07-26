@@ -463,16 +463,31 @@ def _rhythm_points(
     rhythm = source_canonical.get("rhythm")
     if not isinstance(rhythm, dict):
         raise GapProbeError("source canonical project has no rhythm map")
-    tempo = [
-        TempoPoint.from_dict(row)
-        for row in rhythm.get("tempo_map", [])
-        if isinstance(row, dict)
-    ]
-    meter = [
-        MeterPoint.from_dict(row)
-        for row in rhythm.get("meter_map", [])
-        if isinstance(row, dict)
-    ]
+    tempo = []
+    for index, row in enumerate(rhythm.get("tempo_map", [])):
+        if not isinstance(row, dict):
+            continue
+        enriched = dict(row)
+        enriched.setdefault("confidence", None)
+        enriched.setdefault("uncertainty_bpm", None)
+        enriched.setdefault(
+            "source_event_ids",
+            [f"source-canonical-tempo-{index}"],
+        )
+        enriched.setdefault("method", "source_canonical_legacy")
+        tempo.append(TempoPoint.from_dict(enriched))
+    meter = []
+    for index, row in enumerate(rhythm.get("meter_map", [])):
+        if not isinstance(row, dict):
+            continue
+        enriched = dict(row)
+        enriched.setdefault("confidence", None)
+        enriched.setdefault(
+            "source_event_ids",
+            [f"source-canonical-meter-{index}"],
+        )
+        enriched.setdefault("status", "defaulted")
+        meter.append(MeterPoint.from_dict(enriched))
     if not tempo:
         tempo = [
             TempoPoint(
@@ -605,6 +620,12 @@ def build_review_bundle(
             "tracks": ["voice_raw", "voice_gap_candidate"],
             "outputs": outputs,
             "claims": canonical_project["claims"],
+            "limitations": [
+                "voice_gap_candidate is a same-model recovery probe, not a verified correction.",
+                "The original voice_raw track remains separate and unchanged.",
+                "No candidate fusion, automatic merge, or accuracy claim was performed.",
+                "Owner listening is required before accepting any recovered note.",
+            ],
         }
         atomic_write_json(temporary / "bundle_manifest.json", bundle_manifest)
         temporary.replace(output_dir)

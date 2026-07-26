@@ -4,6 +4,46 @@ This project records changes by numbered research task until formal semantic
 versions and releases begin. Dates and commit identifiers refer to the local
 Git history.
 
+## Task 009B2E — Same-model directed voice-gap probe — 2026-07-26
+
+Commit: implementation `918544b`; compatibility/evidence in this task's final
+commit
+
+### Added
+
+- Added a compute-only MuScriptor gap probe over four frozen contextual clips,
+  covering five source-`voice`-empty targets without rerunning the full song.
+- Added an immutable `voice_gap_candidate` artifact, per-target coverage
+  report, and a two-track review bundle that keeps `voice_raw` separate.
+- Added legacy rhythm-map compatibility for review MIDI generation.
+
+### Measured
+
+- Hyak Job `37740313` completed all four L40 MuScriptor child runs and produced
+  184 candidates: 52 in each middle target, 80 in the first tail target, and
+  none in the intro negative control or final tail target.
+- Candidate union time is 60.23 seconds across 208.043719 seconds of
+  non-control targets (28.95%). This is coverage only; correctness and
+  false-positive counts remain unset pending owner listening.
+- The original 254-note `voice_raw` remains unchanged at SHA-256
+  `25725cff2b738bee8d66514dc5fbde51e04cf1a6b5e74c490e52025de4b4d48c`.
+
+### Fixed and verified
+
+- The parent Slurm job reached review packaging after successful inference but
+  exited `1:0` because the older private-Beta rhythm map omitted provenance
+  fields required by current MIDI validation. Existing inference artifacts
+  were reused; no model run was repeated.
+- The recovered review bundle declares no merge, fusion, preferred candidate,
+  or accuracy claim and passes the real private-project Swift loader.
+- Startup Jobs `37739953`, `37739955`, and `37740294` failed before inference
+  while resolving direct imports, the ffmpeg module, and Lmod nounset
+  compatibility. They changed no source result and remain diagnostic evidence.
+- Source separation, GAME, training, retuning, and automatic merging were not
+  started.
+- Final `make check` passes 253 Python and 24 Swift tests with three expected
+  environment-gated skips; the focused P0/P1 review found no blocker.
+
 ## Task 009B2D — Responsive library and voice coverage — 2026-07-26
 
 Commit: this task's final commit

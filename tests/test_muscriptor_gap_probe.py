@@ -217,10 +217,6 @@ class MuScriptorGapProbeTests(unittest.TestCase):
                         {
                             "time_sec": 0,
                             "bpm": 120,
-                            "confidence": None,
-                            "uncertainty_bpm": None,
-                            "source_event_ids": ["tempo-fixture"],
-                            "method": "fixture",
                         }
                     ],
                     "meter_map": [
@@ -228,9 +224,6 @@ class MuScriptorGapProbeTests(unittest.TestCase):
                             "time_sec": 0,
                             "numerator": 4,
                             "denominator": 4,
-                            "confidence": None,
-                            "source_event_ids": ["meter-fixture"],
-                            "status": "defaulted",
                         }
                     ],
                 },
@@ -269,6 +262,7 @@ class MuScriptorGapProbeTests(unittest.TestCase):
                 ["voice_raw", "voice_gap_candidate"],
             )
             self.assertFalse(canonical["claims"]["automatic_merge_performed"])
+            self.assertTrue(bundle["limitations"])
             self.assertEqual(bundle["status"], "succeeded")
 
     def test_run_requires_slurm_before_touching_project(self) -> None:
