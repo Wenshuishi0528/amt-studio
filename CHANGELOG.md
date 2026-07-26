@@ -4,6 +4,53 @@ This project records changes by numbered research task until formal semantic
 versions and releases begin. Dates and commit identifiers refer to the local
 Git history.
 
+## Task 009A — Gated native existing-project editor — 2026-07-25
+
+Commit: this task's final commit (`feat: add gated native editor task 009a`)
+
+### Added
+
+- Added a Swift 6/macOS 14 package with model-free `AMTStudioCore`, SwiftUI
+  `AMTStudioUI`, and a foreground `AMT Studio.app` packaging script.
+- Added explicit canonical bundle and candidate-track selection with
+  project-root-relative path, file size, SHA-256, schema, event count,
+  duplicate-ID, and symlink checks.
+- Added original/MIDI transport, live piano-roll cursor, short-note-safe mouse
+  move and left/right resize gestures, source toggles, and actionable preview
+  errors.
+- Added non-destructive create/update/delete/split operations, undo/redo,
+  atomic operation-log/current-state/session writes, restart restoration, and
+  selected-track performance MIDI export without changing base JSONL.
+- Added ADR 0008 and separated Task 009A editor work from the still-gated
+  Task 009B import/background-job/model-pack boundary.
+
+### Verified
+
+- The signed app bundle launched as a foreground application with a visible
+  window. The real private project required an explicit one of three bundles
+  and one of four unranked tracks; all 2,223 events and referenced hashes
+  validated.
+- Selecting GAME loaded 391 notes on a 4:25 timeline. Accessibility-driven
+  playback advanced the transport from 0 to 6.512789 seconds and paused.
+- The real export is standard MIDI format 1, 960 PPQ, two tracks, and 391
+  note-ons; Mido parsed it, GarageBand imported it, and Logic Pro opened it.
+  Its SHA-256 is
+  `5c16d7323b55d8d6f59172e5b3eaab30405e6660b633921bcb24f16c296295ce`.
+- Normal Swift tests pass 16 tests with one expected private-integration skip;
+  the explicit real-project integration run passes. Repository-level
+  `make check` passes 216 Python tests plus the Swift suite. Swift format
+  lint, plist, ad-hoc signature, and diff checks pass.
+- Focused review found no P0. All implementation-safety P1 launch, contract,
+  observation, hit-target, error-display, path-safety, atomicity,
+  duplicate-track, and MIDI-overflow findings were fixed with regression
+  coverage. Formal XCUITest remains an explicit Task 009B gap.
+
+### Limitations
+
+- This does not pass Gate 4 or select a production transcription model.
+- Audio import, waveform, progress/cancellation, confidence review, model
+  packs, formal XCUITest, and MusicXML remain Task 009B or later work.
+
 ## Task 008 — Hyak batch experiment system — 2026-07-25
 
 Commit: this task's final commit (`feat: complete Hyak batch task 008`)

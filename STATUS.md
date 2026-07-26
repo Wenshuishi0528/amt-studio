@@ -1,9 +1,38 @@
 # Project status
 
 Current gate: Gate 4 not passed; deterministic fusion v1 was rejected
-Current task: `tasks/008_HYAK_BATCH.md` complete
-Next task: `tasks/009_MAC_APP_SHELL.md` remains blocked by stable backend gates
+Current task: `tasks/009_MAC_APP_SHELL.md` in progress; Task 009A editor shell
+verified
+Next task: Task 009B backend/import integration remains blocked by Gate 4
 Current branch: `main`
+
+Verified for Task 009A:
+
+- Hyak was reconnected for a lightweight queue check; no job was running or
+  queued and no model task was submitted;
+- the ad-hoc-signed `AMT Studio.app` launches as a foreground macOS app with a
+  visible SwiftUI window;
+- the real private project opens without inference, requires an explicit one
+  of three canonical bundles and one of four unranked candidate tracks, and
+  validates all referenced hashes, sizes, and project-root-relative paths;
+- the selected GAME track contains 391 notes on a 4:25 timeline; original
+  audio and MIDI preview playback advanced the observed cursor from 0 to
+  6.512789 seconds before pausing;
+- note move and left/right resize projection, short-note hit targets,
+  undo/redo, atomic restart persistence, symlink-safe output paths, and
+  actionable audio/MIDI errors have regression coverage;
+- the real selected-track export is standard MIDI format 1 with 960 PPQ, two
+  MIDI tracks, 391 note-ons, and SHA-256
+  `5c16d7323b55d8d6f59172e5b3eaab30405e6660b633921bcb24f16c296295ce`;
+  Mido parsed the full file, GarageBand imported it, and Logic Pro opened it;
+- `swift test` passes 16 tests in the normal run with the private integration
+  test intentionally skipped; that private test passes when explicit
+  project/bundle/track variables are supplied;
+- repository-level `make check` passes all 216 Python tests and the Swift
+  suite;
+- the focused review found no P0; all implementation-safety P1 findings were
+  fixed, while formal XCUITest remains an explicit 009B gap. Swift format lint,
+  app plist/signature checks, and `git diff --check` pass.
 
 Verified on the user's Mac:
 
@@ -126,7 +155,8 @@ Not yet verified:
 - any note, instrument, melody, or score accuracy against human reference;
 - beat/downbeat accuracy against human reference;
 - GAME or Basic Pitch repeatability across independent inference runs;
-- candidate fusion, formal score quantization/MusicXML, training, or SwiftUI.
+- accepted candidate fusion, formal score quantization/MusicXML, training, or
+  Task 009B import/background-job/model-pack integration.
 
 Task 006 implementation now includes a dependency-light reference-note model,
 benchmark freeze policy, human-reference seal, note/octave/instrument and
@@ -405,4 +435,5 @@ not expanded into additional infrastructure work.
 Smoke v7 remains the authoritative Hyak scheduler, resume, cache, finalizer,
 and retention evidence and predates this final P1 hardening. No additional
 Hyak smoke was run. The final local `make check` passes 216 tests. Task 009 has
-not started.
+now started only as the gated Task 009A editor shell; Task 009B inference
+integration remains blocked.

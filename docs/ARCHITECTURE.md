@@ -77,6 +77,12 @@ may live in scrubbed storage.
 
 SwiftUI/AVFoundation front end. During research it invokes the Python backend as a local subprocess or service. Once the algorithms stabilize, selected workers can be converted to CoreML/ONNX or bundled separately. Do not force early model conversion at the expense of accuracy.
 
+The gated Task 009A shell is narrower: it opens, validates, plays, edits, and
+exports already existing canonical projects with no subprocess or network
+dependency. `AMTStudioCore` owns the model-free contracts; SwiftUI and
+AVFoundation are adapters. Task 009B may add the versioned job API only after
+the backend gate passes.
+
 ## Project directory contract
 
 ```text
@@ -88,7 +94,9 @@ projects/private/<project-id>/
 │   └── stems/             worker-specific stem sets
 ├── annotations/
 │   ├── references/        human-confirmed notes
-│   └── corrections/       editor changes and audit history
+│   └── corrections/       editor changes and atomic audit history
+├── app/
+│   └── workspace.json     selected bundle/track and restart state
 ├── runs/
 │   └── <run-id>/
 │       ├── request.json

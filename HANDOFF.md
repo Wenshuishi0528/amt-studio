@@ -4,15 +4,17 @@
 
 ## 一句话状态
 
-Task 001–008 已完成。两套专业标注 benchmark 与新的 singer-disjoint Task 007
+Task 001–008 已完成，Task 009A 的原生 Mac 既有项目编辑器已完成。两套专业标注
+benchmark 与新的 singer-disjoint Task 007
 开发/盲测集均已按先冻结、后评分的顺序完成。GAME 仍是主旋律最强基线；
 deterministic fusion v1 因 onset+pitch 明显回退而拒绝，不进入默认路线。ADR 0005
 允许以明确命名的 assisted workflow 开展融合研究，但 direct owner edit time
 仍不可用；Gate 4 没有通过。Task 008 的 Hyak 批处理、续跑、缓存、索引和持久化
-同步已经验证，但不改变模型质量结论。
+同步已经验证，但不改变模型质量结论。Task 009A 只负责打开、试听、修改和导出
+现有 canonical 项目，不含导入或模型推理；Task 009B 仍受 Gate 4 阻塞。
 
-Task 008 是当前最终任务提交（用 `git log -1 --oneline` 查看）。当前开发分支是
-`main`。
+Task 009A 是当前最终任务提交（用 `git log -1 --oneline` 查看）。当前开发分支
+是 `main`。
 
 ## 项目目标与硬边界
 
@@ -51,6 +53,36 @@ ssh "$UW_NETID@klone.hyak.uw.edu"
 
 Duo 必须由项目所有者在手机上确认。密码、token 和 Duo 信息不得写进仓库、
 脚本、日志或本交接文件。SSH 会话会过期，因此“上次登录成功”不等于以后持续在线。
+
+## Task 009A Mac 编辑器
+
+源码与启动方式：
+
+```bash
+make mac-app
+open -n "apps/AMTStudioMac/dist/AMT Studio.app"
+```
+
+当前编辑器会：
+
+- 打开并校验已有 `manifest.json` 和 canonical bundle，不运行模型；
+- 对多个 bundle 和候选轨要求明确选择，不使用隐式 `latest`；
+- 同步播放原曲和当前候选轨钢琴 MIDI；
+- 用鼠标拖动音符、拖左右把手调整长度，并支持撤销/重做；
+- 将选择写入 `app/workspace.json`，将非破坏性编辑历史写入
+  `annotations/corrections/`，不覆盖原始 candidate JSONL；
+- 导出当前修正版的 performance MIDI。
+
+真实 `glass-kiss` 项目的三个 bundle、四条轨和 2,223 个音符均通过路径、大小和
+SHA-256 校验。选择 GAME 后是 391 个音符、4:25 时间线；播放游标已实际推进。
+导出的 391-note MIDI 已被 Mido 完整解析，并分别在 GarageBand 与 Logic Pro
+中打开。普通 `swift test` 通过 16 项测试，其中私有集成测试按设计跳过；提供
+明确私有项目/bundle/track 环境变量后该集成测试也通过。仓库级 `make check`
+通过 216 项 Python 测试及整套 Swift 测试。
+
+Task 009A 的音符密度条明确不是 waveform。音频导入、真正 waveform、后台任务
+progress/cancel、confidence queue、model pack 和正式 XCUITest 属于 009B，
+不要为了补齐 UI 而在 Mac 上启动研究模型或默认采用被拒绝的 fusion。
 
 ## 当前已验证结果
 
@@ -401,7 +433,8 @@ Vocadito 双标注者音符 benchmark：
 - Beat This 的 minimal post-processor 可产生不规则局部 beat/downbeat
   间隔；已保留原始 logits 和不确定性，尚未以参考标注评估。
 - deterministic fusion 已实现但被 blind 结果拒绝；尚未实现正式 score
-  quantization/MusicXML、训练或 SwiftUI 应用。
+  quantization/MusicXML、训练或 Task 009B 的导入/后台推理/model-pack 集成。
+  Task 009A 的既有项目 SwiftUI 编辑器已经可用。
 - Task004 的试听 MIDI 只是审听材料；Task005 的 `performance.mid` 是四条
   未排序候选轨，`score-grid-experiment.jsonl` 也不是正式乐谱。
 
@@ -439,8 +472,8 @@ Vocadito 双标注者音符 benchmark：
   才允许清理 completed cache，且预算无法安全满足时会在任何删除前失败。
   array job ID 会在提交 finalizer 之前先落盘。Mac 可用
   `verify_source=False` 离线读取同步回来的冻结 manifest。
-- 当前 Hyak 队列已清空。Task 009 仍因 Gate 4 和 stable backend gate 阻塞；
-  Task 008 完成不代表应该立即开发正式 SwiftUI 产品壳。
+- 当前 Hyak 队列已清空。Task 009A 已作为不含推理的独立编辑器完成；Task 009B
+  的导入、后台任务和模型集成仍因 Gate 4 与 stable backend gate 阻塞。
 - 最终只运行了一次 `/review`：它报告两个 P1 和一个 P2。两个 P1 已通过
   `amt-batch-execution/v2` 修复：stage 只读取 cache 内不可变的
   input/config/model/code snapshot，不再继承任意 shell/Slurm 环境；显式

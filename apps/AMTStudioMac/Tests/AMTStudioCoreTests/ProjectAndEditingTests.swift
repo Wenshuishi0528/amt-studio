@@ -1,0 +1,612 @@
+import Foundation
+import XCTest
+
+@testable import AMTStudioCore
+
+final class ProjectAndEditingTests: XCTestCase {
+  func testOptionalEventFieldsDefaultAndFutureSchemaIsRejected() throws {
+    let minimal: [String: Any] = [
+      "schema_version": 1,
+      "event_id": "minimal-note",
+      "track_id": "minimal-track",
+      "onset_sec": 0.0,
+      "offset_sec": 0.5,
+      "pitch_midi": 60.0,
+      "source_run_id": "minimal-run",
+      "source_model": "minimal-model",
+    ]
+    let record = try JSONDecoder().decode(
+      NoteEventRecord.self,
+      from: JSONSerialization.data(
+        withJSONObject: minimal,
+        options: [.sortedKeys]
+      )
+    )
+    XCTAssertFalse(record.isMainMelodyCandidate)
+    XCTAssertEqual(record.sourceEventIDs, [])
+    XCTAssertEqual(record.tags, [])
+    XCTAssertEqual(record.extra, [:])
+
+    var future = minimal
+    future["schema_version"] = 2
+    XCTAssertThrowsError(
+      try JSONDecoder().decode(
+        NoteEventRecord.self,
+        from: JSONSerialization.data(
+          withJSONObject: future,
+          options: [.sortedKeys]
+        )
+      )
+    )
+  }
+
+  func testConfiguredRealProjectOpensWithExplicitSelection() throws {
+    let environment = ProcessInfo.processInfo.environment
+    guard let projectPath = environment["AMT_STUDIO_REAL_PROJECT"],
+      let bundleID = environment["AMT_STUDIO_REAL_BUNDLE"],
+      let trackID = environment["AMT_STUDIO_REAL_TRACK"]
+    else {
+      throw XCTSkip(
+        "Set AMT_STUDIO_REAL_PROJECT/BUNDLE/TRACK for private integration."
+      )
+    }
+
+    let catalog = try ProjectLoader.inspect(
+      URL(fileURLWithPath: projectPath)
+    )
+    XCTAssertGreaterThan(catalog.bundles.count, 1)
+    XCTAssertThrowsError(try ProjectLoader.open(catalog))
+    let snapshot = try ProjectLoader.open(catalog, bundleID: bundleID)
+    let selectedTrack = try XCTUnwrap(
+      snapshot.tracks.first(where: { $0.id == trackID })
+    )
+    let expectedCount = snapshot.notes.filter {
+      $0.trackID == selectedTrack.id
+    }.count
+    XCTAssertGreaterThan(expectedCount, 0)
+
+    let editor = try EditorProject(
+      snapshot: snapshot,
+      bundleID: bundleID,
+      selectedTrackID: trackID
+    )
+    XCTAssertEqual(editor.notes.count, expectedCount)
+    let configuredOutput = environment["AMT_STUDIO_REAL_MIDI_OUTPUT"]
+    let output =
+      configuredOutput.map(URL.init(fileURLWithPath:))
+      ?? FileManager.default.temporaryDirectory.appendingPathComponent(
+        "AMTStudio-real-\(UUID().uuidString).mid"
+      )
+    defer {
+      if configuredOutput == nil {
+        try? FileManager.default.removeItem(at: output)
+      }
+    }
+    let report = try MIDIExporter.export(project: editor, to: output)
+    XCTAssertEqual(report.noteCount, expectedCount)
+    XCTAssertEqual(
+      String(
+        data: try Data(contentsOf: output).prefix(4),
+        encoding: .ascii
+      ),
+      "MThd"
+    )
+  }
+
+  func testUnicodeProjectOpensWithoutChoosingModelsOrRunningInference() throws {
+    let fixture = try FixtureProject()
+    defer { fixture.remove() }
+
+    let catalog = try ProjectLoader.inspect(fixture.root)
+    XCTAssertEqual(catalog.manifest.projectID, "项目-unicode")
+    XCTAssertEqual(catalog.bundles.map(\.id), ["bundle-a"])
+
+    let snapshot = try ProjectLoader.open(catalog)
+    XCTAssertEqual(snapshot.tracks.map(\.id), ["candidate-a"])
+    XCTAssertEqual(snapshot.notes.count, 2)
+    XCTAssertEqual(snapshot.notes[0].sourceTrackID, "native:voice")
+    XCTAssertEqual(
+      snapshot.notes[0].extra["nested"],
+      .object(["kept": .bool(true)])
+    )
+  }
+
+  func testMultipleBundlesRequireExplicitSelection() throws {
+    let fixture = try FixtureProject(bundleIDs: ["bundle-a", "bundle-b"])
+    defer { fixture.remove() }
+
+    let catalog = try ProjectLoader.inspect(fixture.root)
+    XCTAssertEqual(catalog.bundles.count, 2)
+    XCTAssertThrowsError(try ProjectLoader.open(catalog)) { error in
+      XCTAssertEqual(
+        error as? AMTProjectError,
+        .ambiguousCanonicalBundles
+      )
+    }
+    let snapshot = try ProjectLoader.open(catalog, bundleID: "bundle-b")
+    XCTAssertEqual(snapshot.canonicalProject.projectID, "项目-unicode")
+  }
+
+  func testDuplicateCanonicalTrackIDsAreRejectedBeforeMixingNotes() throws {
+    let fixture = try FixtureProject()
+    defer { fixture.remove() }
+    var canonical = try jsonObject(fixture.canonicalURL)
+    var tracks = canonical["tracks"] as! [[String: Any]]
+    tracks.append(tracks[0])
+    canonical["tracks"] = tracks
+    try writeJSON(canonical, to: fixture.canonicalURL)
+    try fixture.refreshBundleManifest()
+
+    XCTAssertThrowsError(
+      try ProjectLoader.open(
+        ProjectLoader.inspect(fixture.root),
+        bundleID: "bundle-a"
+      )
+    ) { error in
+      guard case .malformedManifest = error as? AMTProjectError else {
+        return XCTFail("Expected malformedManifest, got \(error)")
+      }
+    }
+  }
+
+  func testTamperedEventAndEscapingPathAreRejected() throws {
+    let fixture = try FixtureProject()
+    defer { fixture.remove() }
+    try Data("tampered\n".utf8).write(to: fixture.eventsURL)
+    XCTAssertThrowsError(
+      try ProjectLoader.open(
+        ProjectLoader.inspect(fixture.root),
+        bundleID: "bundle-a"
+      )
+    )
+
+    let unsafe = try FixtureProject()
+    defer { unsafe.remove() }
+    var canonical = try jsonObject(unsafe.canonicalURL)
+    var tracks = canonical["tracks"] as! [[String: Any]]
+    tracks[0]["source_events_path"] = "../escape.jsonl"
+    canonical["tracks"] = tracks
+    try writeJSON(canonical, to: unsafe.canonicalURL)
+    try unsafe.refreshBundleManifest()
+    XCTAssertThrowsError(
+      try ProjectLoader.open(
+        ProjectLoader.inspect(unsafe.root),
+        bundleID: "bundle-a"
+      )
+    ) { error in
+      XCTAssertEqual(
+        error as? AMTProjectError,
+        .unsafePath("../escape.jsonl")
+      )
+    }
+  }
+
+  func testEditUndoRedoAndRestartPreserveBaseJSONL() throws {
+    let fixture = try FixtureProject()
+    defer { fixture.remove() }
+    let originalEvents = try Data(contentsOf: fixture.eventsURL)
+    let snapshot = try ProjectLoader.open(projectURL: fixture.root)
+    var editor = try EditorProject(
+      snapshot: snapshot,
+      bundleID: "bundle-a",
+      selectedTrackID: "candidate-a"
+    )
+    let original = try XCTUnwrap(editor.notes.first)
+
+    try editor.move(
+      noteID: original.id,
+      onsetSec: original.onsetSec + 0.25,
+      pitchMIDI: original.pitchMIDI + 2
+    )
+    try editor.resize(
+      noteID: original.id,
+      offsetSec: original.offsetSec + 0.5
+    )
+    XCTAssertEqual(editor.notes.first?.pitchMIDI, original.pitchMIDI + 2)
+    XCTAssertEqual(editor.operations.count, 2)
+
+    try editor.undo()
+    XCTAssertEqual(
+      editor.notes.first?.offsetSec,
+      original.offsetSec + 0.25
+    )
+    try editor.redo()
+    XCTAssertEqual(
+      try XCTUnwrap(editor.notes.first?.offsetSec),
+      original.offsetSec + 0.5,
+      accuracy: 0.000_001
+    )
+    try editor.save()
+    XCTAssertEqual(try Data(contentsOf: fixture.eventsURL), originalEvents)
+
+    let reopenedSnapshot = try ProjectLoader.open(projectURL: fixture.root)
+    let reopened = try EditorProject(
+      snapshot: reopenedSnapshot,
+      bundleID: "bundle-a",
+      selectedTrackID: "candidate-a"
+    )
+    XCTAssertEqual(reopened.operations.count, 2)
+    XCTAssertEqual(reopened.notes, editor.notes)
+    XCTAssertTrue(
+      FileManager.default.fileExists(
+        atPath: fixture.root
+          .appendingPathComponent("app/workspace.json").path
+      )
+    )
+
+    let operationsURL = reopened.sessionDirectoryURL
+      .appendingPathComponent("operations.jsonl")
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    let operationLines = try String(
+      contentsOf: operationsURL,
+      encoding: .utf8
+    ).split(whereSeparator: \.isNewline)
+    XCTAssertEqual(operationLines.count, reopened.operations.count)
+    for line in operationLines {
+      _ = try decoder.decode(
+        EditOperation.self,
+        from: Data(line.utf8)
+      )
+    }
+  }
+
+  func testEditorRefusesSymlinkedWriteDirectories() throws {
+    let fixture = try FixtureProject()
+    defer { fixture.remove() }
+    let outside = FileManager.default.temporaryDirectory
+      .appendingPathComponent("AMT-outside-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(
+      at: outside,
+      withIntermediateDirectories: true
+    )
+    defer { try? FileManager.default.removeItem(at: outside) }
+    try FileManager.default.createSymbolicLink(
+      at: fixture.root.appendingPathComponent("annotations"),
+      withDestinationURL: outside
+    )
+    let snapshot = try ProjectLoader.open(projectURL: fixture.root)
+
+    XCTAssertThrowsError(
+      try EditorProject(
+        snapshot: snapshot,
+        bundleID: "bundle-a",
+        selectedTrackID: "candidate-a"
+      )
+    ) { error in
+      guard case .unsafePath = error as? AMTProjectError else {
+        return XCTFail("Expected unsafePath, got \(error)")
+      }
+    }
+    XCTAssertEqual(
+      try FileManager.default.contentsOfDirectory(atPath: outside.path),
+      []
+    )
+  }
+
+  func testPerformanceMIDIExportHasConductorAndSelectedTrack() throws {
+    let fixture = try FixtureProject()
+    defer { fixture.remove() }
+    let snapshot = try ProjectLoader.open(projectURL: fixture.root)
+    let editor = try EditorProject(
+      snapshot: snapshot,
+      bundleID: "bundle-a",
+      selectedTrackID: "candidate-a"
+    )
+    let output = fixture.root.appendingPathComponent(
+      "exports/app-selected.performance.mid"
+    )
+    let report = try MIDIExporter.export(project: editor, to: output)
+    let data = try Data(contentsOf: output)
+
+    XCTAssertEqual(report.noteCount, 2)
+    XCTAssertEqual(report.trackCount, 1)
+    XCTAssertEqual(String(data: data.prefix(4), encoding: .ascii), "MThd")
+    XCTAssertEqual(readUInt16(data, at: 8), 1)
+    XCTAssertEqual(readUInt16(data, at: 10), 2)
+    XCTAssertEqual(readUInt16(data, at: 12), 960)
+    XCTAssertEqual(countOccurrences(of: Data("MTrk".utf8), in: data), 2)
+  }
+
+  func testMIDIExportRejectsHugeTimesWithoutIntegerTrap() throws {
+    let fixture = try FixtureProject()
+    defer { fixture.remove() }
+    let snapshot = try ProjectLoader.open(projectURL: fixture.root)
+    var editor = try EditorProject(
+      snapshot: snapshot,
+      bundleID: "bundle-a",
+      selectedTrackID: "candidate-a"
+    )
+    var note = try XCTUnwrap(editor.notes.first)
+    note.onsetSec = 1_000_000_000
+    note.offsetSec = 1_000_000_001
+    try editor.update(note)
+
+    XCTAssertThrowsError(
+      try MIDIExporter.export(
+        project: editor,
+        to: fixture.root.appendingPathComponent("huge.mid")
+      )
+    ) { error in
+      guard case .malformedManifest = error as? AMTProjectError else {
+        return XCTFail("Expected malformedManifest, got \(error)")
+      }
+    }
+  }
+
+  func testMIDIExportRejectsUnrepresentableTempoWithoutIntegerTrap() throws {
+    let fixture = try FixtureProject()
+    defer { fixture.remove() }
+    var canonical = try jsonObject(fixture.canonicalURL)
+    var rhythm = canonical["rhythm"] as! [String: Any]
+    rhythm["tempo_map"] = [["time_sec": 0.0, "bpm": 1e-300]]
+    canonical["rhythm"] = rhythm
+    try writeJSON(canonical, to: fixture.canonicalURL)
+    try fixture.refreshBundleManifest()
+    let snapshot = try ProjectLoader.open(projectURL: fixture.root)
+    let editor = try EditorProject(
+      snapshot: snapshot,
+      bundleID: "bundle-a",
+      selectedTrackID: "candidate-a"
+    )
+
+    XCTAssertThrowsError(
+      try MIDIExporter.export(
+        project: editor,
+        to: fixture.root.appendingPathComponent("bad-tempo.mid")
+      )
+    ) { error in
+      guard case .malformedManifest = error as? AMTProjectError else {
+        return XCTFail("Expected malformedManifest, got \(error)")
+      }
+    }
+  }
+
+  func testCreateDeleteAndSplitAreLosslessAndUndoable() throws {
+    let fixture = try FixtureProject()
+    defer { fixture.remove() }
+    let snapshot = try ProjectLoader.open(projectURL: fixture.root)
+    var editor = try EditorProject(
+      snapshot: snapshot,
+      bundleID: "bundle-a",
+      selectedTrackID: "candidate-a"
+    )
+    let original = try XCTUnwrap(editor.notes.first)
+    try editor.split(
+      noteID: original.id,
+      at: (original.onsetSec + original.offsetSec) / 2
+    )
+    XCTAssertEqual(editor.notes.count, 3)
+    try editor.undo()
+    XCTAssertEqual(editor.notes.count, 2)
+    try editor.delete(noteID: original.id)
+    XCTAssertEqual(editor.notes.count, 1)
+    try editor.undo()
+    XCTAssertEqual(editor.notes.count, 2)
+
+    var wrongTrack = original
+    wrongTrack.trackID = "another-track"
+    XCTAssertThrowsError(try editor.create(wrongTrack))
+  }
+}
+
+private func countOccurrences(of needle: Data, in haystack: Data) -> Int {
+  guard !needle.isEmpty, haystack.count >= needle.count else { return 0 }
+  return (0...haystack.count - needle.count).reduce(into: 0) {
+    count, offset in
+    if haystack[offset..<offset + needle.count] == needle[...] {
+      count += 1
+    }
+  }
+}
+
+private final class FixtureProject {
+  let root: URL
+  let eventsURL: URL
+  let canonicalURL: URL
+  private let bundleIDs: [String]
+
+  init(bundleIDs: [String] = ["bundle-a"]) throws {
+    self.bundleIDs = bundleIDs
+    root = FileManager.default.temporaryDirectory
+      .appendingPathComponent("AMT Studio 测试 \(UUID().uuidString)")
+    eventsURL = root.appendingPathComponent(
+      "runs/run-a/normalized/events.jsonl"
+    )
+    canonicalURL = root.appendingPathComponent(
+      "exports/\(bundleIDs[0])/canonical_project.json"
+    )
+    try FileManager.default.createDirectory(
+      at: eventsURL.deletingLastPathComponent(),
+      withIntermediateDirectories: true
+    )
+    try FileManager.default.createDirectory(
+      at: root.appendingPathComponent("audio/canonical"),
+      withIntermediateDirectories: true
+    )
+    let audioURL = root.appendingPathComponent("audio/canonical/mix.flac")
+    try Data("fixture-audio".utf8).write(to: audioURL)
+    let audioHash = try ProjectLoader.sha256(audioURL)
+    try writeJSON(
+      [
+        "schema_version": 1,
+        "project_id": "项目-unicode",
+        "title": "测试 歌曲",
+        "canonical_audio": [
+          "path": "audio/canonical/mix.flac",
+          "sha256": audioHash,
+        ],
+      ],
+      to: root.appendingPathComponent("manifest.json")
+    )
+
+    let events = [
+      noteJSON(
+        id: "note-1",
+        onset: 0.25,
+        offset: 0.75,
+        pitch: 60.25
+      ),
+      noteJSON(
+        id: "note-2",
+        onset: 1.0,
+        offset: 1.5,
+        pitch: 64
+      ),
+    ]
+    let eventData =
+      try events
+      .map { try JSONSerialization.data(withJSONObject: $0, options: [.sortedKeys]) }
+      .map { $0 + Data([0x0A]) }
+      .reduce(into: Data()) { $0.append($1) }
+    try eventData.write(to: eventsURL)
+    let eventHash = try ProjectLoader.sha256(eventsURL)
+    let canonical: [String: Any] = [
+      "schema_version": 1,
+      "artifact_type": "amt-canonical-project",
+      "project_id": "项目-unicode",
+      "timeline_basis": "original_canonical_mix_seconds",
+      "canonical_audio": [
+        "path": "audio/canonical/mix.flac",
+        "sha256": audioHash,
+      ],
+      "worker_results": [],
+      "tracks": [
+        [
+          "track_id": "candidate-a",
+          "label": "候选 A",
+          "role": "candidate",
+          "instrument": "voice",
+          "event_count": 2,
+          "source_events_path": "runs/run-a/normalized/events.jsonl",
+          "provenance": [
+            "source_run_id": "run-a",
+            "source_model": "fixture/model",
+            "run_manifest_sha256": String(repeating: "1", count: 64),
+            "normalized_artifact_sha256": eventHash,
+          ],
+        ]
+      ],
+      "rhythm": [
+        "tempo_map": [
+          ["time_sec": 0.0, "bpm": 120.0]
+        ],
+        "meter_map": [
+          [
+            "time_sec": 0.0,
+            "numerator": 4,
+            "denominator": 4,
+          ]
+        ],
+      ],
+      "exports": [:],
+      "claims": [
+        "preferred_candidate_selected": false
+      ],
+    ]
+    for bundleID in bundleIDs {
+      let bundleDirectory = root.appendingPathComponent(
+        "exports/\(bundleID)"
+      )
+      try FileManager.default.createDirectory(
+        at: bundleDirectory,
+        withIntermediateDirectories: true
+      )
+      try writeJSON(
+        canonical,
+        to: bundleDirectory.appendingPathComponent(
+          "canonical_project.json"
+        )
+      )
+      try refreshBundleManifest(bundleID: bundleID)
+    }
+  }
+
+  func refreshBundleManifest(bundleID: String? = nil) throws {
+    for id in bundleID.map({ [$0] }) ?? bundleIDs {
+      let directory = root.appendingPathComponent("exports/\(id)")
+      let canonical = directory.appendingPathComponent(
+        "canonical_project.json"
+      )
+      let audioHash = try ProjectLoader.sha256(
+        root.appendingPathComponent("audio/canonical/mix.flac")
+      )
+      let size = try canonical.resourceValues(
+        forKeys: [.fileSizeKey]
+      ).fileSize!
+      try writeJSON(
+        [
+          "schema_version": 1,
+          "artifact_type": "amt-canonical-bundle",
+          "project_id": "项目-unicode",
+          "canonical_audio_sha256": audioHash,
+          "status": "succeeded",
+          "outputs": [
+            [
+              "path": "canonical_project.json",
+              "sha256": try ProjectLoader.sha256(canonical),
+              "size_bytes": size,
+            ]
+          ],
+          "limitations": ["fixture"],
+        ],
+        to: directory.appendingPathComponent(
+          "bundle_manifest.json"
+        )
+      )
+    }
+  }
+
+  func remove() {
+    try? FileManager.default.removeItem(at: root)
+  }
+}
+
+private func noteJSON(
+  id: String,
+  onset: Double,
+  offset: Double,
+  pitch: Double
+) -> [String: Any] {
+  [
+    "schema_version": 1,
+    "event_id": id,
+    "track_id": "native:voice",
+    "instrument": "voice",
+    "onset_sec": onset,
+    "offset_sec": offset,
+    "pitch_midi": pitch,
+    "quantized_pitch_midi": Int(pitch.rounded()),
+    "velocity": 64,
+    "confidence": NSNull(),
+    "is_main_melody_candidate": true,
+    "source_run_id": "run-a",
+    "source_model": "fixture/model",
+    "source_event_ids": ["source-\(id)"],
+    "tags": ["candidate"],
+    "extra": [
+      "nested": ["kept": true]
+    ],
+  ]
+}
+
+private func writeJSON(_ value: [String: Any], to url: URL) throws {
+  try FileManager.default.createDirectory(
+    at: url.deletingLastPathComponent(),
+    withIntermediateDirectories: true
+  )
+  try JSONSerialization.data(
+    withJSONObject: value,
+    options: [.prettyPrinted, .sortedKeys]
+  ).write(to: url, options: [.atomic])
+}
+
+private func jsonObject(_ url: URL) throws -> [String: Any] {
+  try JSONSerialization.jsonObject(
+    with: Data(contentsOf: url)
+  ) as! [String: Any]
+}
+
+private func readUInt16(_ data: Data, at offset: Int) -> UInt16 {
+  UInt16(data[offset]) << 8 | UInt16(data[offset + 1])
+}

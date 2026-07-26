@@ -6,6 +6,24 @@ Use SwiftUI for the native interface and AVFoundation for media playback. Keep t
 
 During research, the app launches `amt` or a local Python service. Later, a model pack can use CoreML, ONNX Runtime, MPS-backed Python, or a bundled executable. The project file format must not depend on the deployment mechanism.
 
+## Current gated implementation
+
+Task 009A implements only the model-independent existing-project editor in
+`apps/AMTStudioMac`. It opens verified canonical bundles without a subprocess,
+requires an explicit bundle and candidate track, plays original audio with a
+selected-track MIDI preview, stores non-destructive edits, restores after
+restart, and exports performance MIDI.
+
+Task 009A contains no import or inference command and never contacts Hyak.
+The future local job API, waveform, confidence queue, progress/cancellation,
+model-pack discovery, and formal XCUITest suite belong to Task 009B and remain
+gated by backend quality. Build the development app with:
+
+```bash
+make mac-app
+open -n "apps/AMTStudioMac/dist/AMT Studio.app"
+```
+
 ## Main windows
 
 ### Project browser
@@ -46,6 +64,10 @@ Store edits as operations over a base event set:
 - mark ambiguity.
 
 Support undo/redo and keep an audit trail. Exports are regenerated from the current project state.
+
+Task 009A stores the selected bundle/track in `app/workspace.json` and keeps
+the operation log plus current materialization under
+`annotations/corrections/`. Base candidate JSONL is never overwritten.
 
 ## Backend API concept
 

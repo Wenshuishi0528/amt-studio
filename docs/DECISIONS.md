@@ -80,3 +80,12 @@ incomplete caches are removable only after evidence persistence, and the
 retention budget covers the shared cache root.
 See
 `docs/adr/0007-content-addressed-hyak-batches.md`.
+
+## D-015: Gate the native editor separately from inference
+
+The existing-project SwiftUI editor may proceed against stable canonical file
+contracts while Gate 4 remains open. It must not import or run models, choose
+an implicit latest bundle, rank candidate tracks as accurate, or depend on
+Hyak. Import, background job progress/cancellation, and model packs remain a
+separate Task 009B boundary. See
+`docs/adr/0008-gated-native-editor-shell.md`.

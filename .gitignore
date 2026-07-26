@@ -58,5 +58,6 @@ slurm-*.err
 # Swift/Xcode generated
 DerivedData/
 .build/
+/apps/AMTStudioMac/dist/
 *.xcuserstate
 xcuserdata/
