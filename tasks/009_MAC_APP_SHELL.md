@@ -1,7 +1,7 @@
 # Task 009: Native macOS application shell
 
-Status: in progress — Task 009A editor shell verified; Task 009B backend
-integration remains blocked by Gate 4
+Status: in progress — Task 009A editor shell and Task 009B1 model-independent
+review surfaces verified; backend integration remains blocked by Gate 4
 
 ## Objective
 
@@ -26,7 +26,22 @@ The overview is explicitly labeled as note density, not an audio waveform.
 Candidate tracks remain unranked and are never described as a final accurate
 melody.
 
-## Task 009B: gated backend work
+## Task 009B1: model-independent review surfaces
+
+Implemented:
+
+- a fixed-size peak envelope decoded from the verified canonical audio on a
+  cancellable utility task;
+- an original-audio waveform synchronized with the transport cursor;
+- a selected-track confidence threshold and previous/next review navigation;
+- explicit exclusion and counting of events whose source model did not
+  provide confidence;
+- source-model confidence labels that forbid cross-model comparison.
+
+This slice reads existing project artifacts only. It does not import audio,
+launch a worker, contact Hyak, or promote a transcription route.
+
+## Task 009B2: gated backend work
 
 Not started:
 
@@ -34,7 +49,6 @@ Not started:
 - a versioned local job API;
 - background inference progress and cancellation;
 - model-pack/worker discovery and failure states;
-- audio waveform and confidence review queue;
 - formal XCUITest coverage;
 - MusicXML after notation tests.
 
@@ -50,8 +64,8 @@ compute onto the Mac. Research inference remains on Hyak compute nodes.
 - Exported MIDI opens in two external applications: **passed**.
 - Model/application unit tests cover failure, move/resize projection,
   edit/undo/redo, restart, and export: **passed**.
-- Formal XCUITest, import/job failure, waveform, and confidence queue:
-  **pending in 009B**.
+- Real waveform and confidence queue behavior: **passed for 009B1**.
+- Formal XCUITest and import/job failure: **pending in 009B2**.
 
 ## Evidence
 
@@ -92,3 +106,27 @@ compute onto the Mac. Research inference remains on Hyak compute nodes.
   suite.
 - `xcrun swift-format lint --strict`, `codesign --verify --deep --strict`,
   `plutil -lint`, and `git diff --check` pass.
+
+### Task 009B1 evidence
+
+- The real private project's 4:25 canonical FLAC decoded into a visible,
+  non-empty waveform without blocking playback or launching a subprocess.
+  Accessibility exposed the label `原曲真实音频波形`; visual inspection showed
+  the full-song envelope and synchronized red cursor.
+- The selected GAME track exposed `0 / 0` review items and explicitly reported
+  all 391 events as missing confidence. Direct artifact inspection confirmed
+  that all four current canonical tracks contain zero non-null confidence
+  values (`391/486/590/756` events respectively), so the app did not invent
+  uncertainty or mix unknown values into the queue.
+- A PCM fixture verifies peak placement. Queue regression coverage verifies
+  threshold filtering, uncertainty-first ordering, time ordering for ties,
+  exclusion of missing confidence, non-ASCII audio paths, and audio/timeline
+  alignment when an edited note extends past the recording.
+- Hyak was live on a login node with an empty queue during the lightweight
+  status check. No Slurm job, model inference, or login-node compute ran.
+- The single focused `/review` found no P0/P1 and four P2 issues. All four
+  were fixed: audio-timeline scaling, generic login-node evidence, distinct
+  confidence-order coverage, and non-ASCII waveform-path coverage.
+- Final `make check` passes all 216 Python tests plus 17 Swift tests, with the
+  one private integration test skipped by design. Strict Swift formatting,
+  app packaging, plist/signature validation, and `git diff --check` pass.

@@ -85,6 +85,45 @@ final class AppModelTests: XCTestCase {
     XCTAssertEqual(resized.offsetSec, 1.6, accuracy: 0.000_001)
   }
 
+  func testWaveformReadsPCMAndConfidenceQueueExcludesUnknownValues() async throws {
+    let waveformURL = FileManager.default.temporaryDirectory
+      .appendingPathComponent("AMT Studio 波形 \(UUID().uuidString).wav")
+    defer { try? FileManager.default.removeItem(at: waveformURL) }
+    try pcmWAV(samples: [0, 0, 0, 0, .max, .min, 0, 0])
+      .write(to: waveformURL)
+    let waveform = try await AudioWaveformLoader.load(
+      url: waveformURL,
+      binCount: 4
+    )
+    XCTAssertEqual(waveform.count, 4)
+    XCTAssertEqual(waveform[0], 0, accuracy: 0.000_001)
+    XCTAssertGreaterThan(waveform[2], 0.99)
+
+    let queue = ConfidenceReviewQueue.notes(
+      from: [
+        reviewNote(id: "unknown", onset: 0, confidence: nil),
+        reviewNote(id: "lowest", onset: 8, confidence: 0.1),
+        reviewNote(id: "tie-later", onset: 4, confidence: 0.2),
+        reviewNote(id: "tie-earlier", onset: 2, confidence: 0.2),
+        reviewNote(id: "high", onset: 1, confidence: 0.9),
+      ],
+      threshold: 0.5
+    )
+    XCTAssertEqual(
+      queue.map(\.id),
+      ["lowest", "tie-earlier", "tie-later"]
+    )
+    XCTAssertEqual(
+      WaveformLayout.audioWidth(
+        viewWidth: 1_000,
+        audioDuration: 100,
+        timelineDuration: 125
+      ),
+      800,
+      accuracy: 0.000_001
+    )
+  }
+
   func testOpenEditUndoRedoExportAndRestart() throws {
     let fixture = try AppFixtureProject()
     defer { fixture.remove() }
@@ -284,8 +323,14 @@ private func writeFixtureJSON(_ object: Any, to url: URL) throws {
 }
 
 private func silentWAV() -> Data {
-  let sampleRate: UInt32 = 44_100
-  let frameCount: UInt32 = 4_410
+  pcmWAV(samples: Array(repeating: 0, count: 4_410))
+}
+
+private func pcmWAV(
+  samples: [Int16],
+  sampleRate: UInt32 = 44_100
+) -> Data {
+  let frameCount = UInt32(samples.count)
   let dataSize = frameCount * 2
   var data = Data("RIFF".utf8)
   appendLE(36 + dataSize, to: &data)
@@ -299,8 +344,34 @@ private func silentWAV() -> Data {
   appendLE(UInt16(16), to: &data)
   data.append(Data("data".utf8))
   appendLE(dataSize, to: &data)
-  data.append(Data(repeating: 0, count: Int(dataSize)))
+  for sample in samples {
+    appendLE(sample, to: &data)
+  }
   return data
+}
+
+private func reviewNote(
+  id: String,
+  onset: Double,
+  confidence: Double?
+) -> EditorNote {
+  EditorNote(
+    id: id,
+    trackID: "candidate",
+    sourceTrackID: "source",
+    instrument: "voice",
+    onsetSec: onset,
+    offsetSec: onset + 0.5,
+    pitchMIDI: 60,
+    velocity: 80,
+    confidence: confidence,
+    isMainMelodyCandidate: true,
+    sourceRunID: "run",
+    sourceModel: "model",
+    sourceEventIDs: [],
+    tags: [],
+    extra: [:]
+  )
 }
 
 private func appendLE<T: FixedWidthInteger>(_ value: T, to data: inout Data) {

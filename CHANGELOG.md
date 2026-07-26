@@ -4,6 +4,37 @@ This project records changes by numbered research task until formal semantic
 versions and releases begin. Dates and commit identifiers refer to the local
 Git history.
 
+## Task 009B1 — Existing-project waveform and review queue — 2026-07-25
+
+Commit: this slice's final commit
+
+### Added
+
+- Replaced the note-density placeholder with a cancellable 2,048-bin peak
+  envelope decoded from verified canonical audio.
+- Added selected-track confidence thresholding, uncertainty-first navigation,
+  transport seek, and explicit missing-confidence accounting.
+- Added ADR 0009 to permit model-independent review surfaces while keeping
+  import, workers, inference, and model packs behind Gate 4.
+
+### Verified
+
+- The real 4:25 private-project waveform rendered in the foreground app.
+- All four current canonical tracks contain zero non-null confidence values;
+  GAME therefore correctly reports `0 / 0` review items and 391 unknowns.
+- Swift tests cover PCM peak placement, threshold/order behavior, and unknown
+  exclusion, including non-ASCII paths and audio/timeline alignment.
+- The single focused review found no P0/P1. Its four P2 findings were fixed,
+  and final `make check` passes 216 Python plus 17 Swift tests with one
+  expected private-integration skip. No Hyak or local model job ran.
+
+### Limitations
+
+- Source-model confidence is not calibrated across tracks and is never labeled
+  as accuracy.
+- Audio import, background job progress/cancellation, worker/model-pack
+  discovery, formal XCUITest, and production inference remain blocked.
+
 ## Task 009A — Gated native existing-project editor — 2026-07-25
 
 Commit: this task's final commit (`feat: add gated native editor task 009a`)

@@ -30,6 +30,11 @@ When a project contains more than one canonical bundle or candidate track,
 the user must choose the exact version and track. There is no implicit
 `latest`, no automatic accuracy ranking, and no inference subprocess.
 
-Audio import, background inference progress/cancellation, confidence review,
-and model-pack integration belong to Task 009B. They remain gated and are not
-embedded in this package.
+Task 009B1 adds a real waveform decoded from the existing canonical audio and
+a review queue for confidence values already provided by the selected track.
+Missing confidence stays explicitly unknown and is not treated as low
+confidence. These features do not run inference or contact Hyak.
+
+Audio import, background inference progress/cancellation, worker/model-pack
+integration, and formal XCUITest remain gated and are not embedded in this
+package.

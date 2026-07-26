@@ -1,10 +1,31 @@
 # Project status
 
 Current gate: Gate 4 not passed; deterministic fusion v1 was rejected
-Current task: `tasks/009_MAC_APP_SHELL.md` in progress; Task 009A editor shell
-verified
-Next task: Task 009B backend/import integration remains blocked by Gate 4
+Current task: `tasks/009_MAC_APP_SHELL.md` in progress; Task 009A and the
+model-independent Task 009B1 review surfaces are verified
+Next task: Task 009B2 backend/import integration remains blocked by Gate 4
 Current branch: `main`
+
+Verified for Task 009B1:
+
+- Hyak remained live on a login node; the queue was empty and no Slurm job,
+  inference, or login-node compute ran;
+- the note-density placeholder was replaced by a real 2,048-bin peak envelope
+  decoded from the existing canonical audio on a cancellable utility task;
+- the real 4:25 private-project waveform rendered in the foreground app with
+  the synchronized transport cursor;
+- the selected-track review queue filters only numeric source confidence,
+  sorts the lowest values first, navigates and seeks to notes, and explicitly
+  excludes unknown values;
+- all four current canonical tracks provide zero confidence values, so GAME
+  correctly shows `0 / 0` and reports 391 unknown-confidence events rather
+  than inventing a score;
+- Swift coverage verifies real PCM peak placement, threshold/order behavior,
+  missing-confidence exclusion, non-ASCII paths, and audio/timeline scaling.
+  The single focused review found no P0/P1; all four P2 findings were fixed.
+  Final `make check` passes 216 Python and 17 Swift tests, with one expected
+  private-integration skip. This slice adds no import, worker, inference
+  route, model pack, or Hyak dependency.
 
 Verified for Task 009A:
 
@@ -434,6 +455,6 @@ not expanded into additional infrastructure work.
 
 Smoke v7 remains the authoritative Hyak scheduler, resume, cache, finalizer,
 and retention evidence and predates this final P1 hardening. No additional
-Hyak smoke was run. The final local `make check` passes 216 tests. Task 009 has
-now started only as the gated Task 009A editor shell; Task 009B inference
-integration remains blocked.
+Hyak smoke was run. Task 009A and the model-independent waveform/review
+surfaces in Task 009B1 are implemented; Task 009B2 inference integration
+remains blocked.

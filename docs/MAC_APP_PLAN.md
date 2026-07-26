@@ -15,9 +15,13 @@ selected-track MIDI preview, stores non-destructive edits, restores after
 restart, and exports performance MIDI.
 
 Task 009A contains no import or inference command and never contacts Hyak.
-The future local job API, waveform, confidence queue, progress/cancellation,
-model-pack discovery, and formal XCUITest suite belong to Task 009B and remain
-gated by backend quality. Build the development app with:
+Task 009B1 now replaces the note-density placeholder with a cancellable,
+fixed-size waveform decoded from the existing canonical audio and adds a
+selected-track confidence review queue. Missing confidence is excluded and
+uncalibrated source-model values are not compared across tracks. The future
+local job API, audio import, progress/cancellation, model-pack discovery, and
+formal XCUITest suite remain gated by backend quality. Build the development
+app with:
 
 ```bash
 make mac-app

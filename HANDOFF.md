@@ -4,17 +4,19 @@
 
 ## 一句话状态
 
-Task 001–008 已完成，Task 009A 的原生 Mac 既有项目编辑器已完成。两套专业标注
+Task 001–008 已完成，Task 009A 原生既有项目编辑器与 Task 009B1 的真实波形、
+置信度待复核界面已完成。两套专业标注
 benchmark 与新的 singer-disjoint Task 007
 开发/盲测集均已按先冻结、后评分的顺序完成。GAME 仍是主旋律最强基线；
 deterministic fusion v1 因 onset+pitch 明显回退而拒绝，不进入默认路线。ADR 0005
 允许以明确命名的 assisted workflow 开展融合研究，但 direct owner edit time
 仍不可用；Gate 4 没有通过。Task 008 的 Hyak 批处理、续跑、缓存、索引和持久化
 同步已经验证，但不改变模型质量结论。Task 009A 只负责打开、试听、修改和导出
-现有 canonical 项目，不含导入或模型推理；Task 009B 仍受 Gate 4 阻塞。
+现有 canonical 项目，不含导入或模型推理；Task 009B1 也只读取已有 canonical
+音频和音符。Task 009B2 的后台/模型集成仍受 Gate 4 阻塞。
 
-Task 009A 是当前最终任务提交（用 `git log -1 --oneline` 查看）。当前开发分支
-是 `main`。
+Task 009B1 是当前最终任务提交（用 `git log -1 --oneline` 查看）。当前开发
+分支是 `main`。
 
 ## 项目目标与硬边界
 
@@ -54,7 +56,7 @@ ssh "$UW_NETID@klone.hyak.uw.edu"
 Duo 必须由项目所有者在手机上确认。密码、token 和 Duo 信息不得写进仓库、
 脚本、日志或本交接文件。SSH 会话会过期，因此“上次登录成功”不等于以后持续在线。
 
-## Task 009A Mac 编辑器
+## Task 009 Mac 编辑器
 
 源码与启动方式：
 
@@ -72,6 +74,9 @@ open -n "apps/AMTStudioMac/dist/AMT Studio.app"
 - 将选择写入 `app/workspace.json`，将非破坏性编辑历史写入
   `annotations/corrections/`，不覆盖原始 candidate JSONL；
 - 导出当前修正版的 performance MIDI。
+- 从已校验 canonical 音频异步生成真实波形，不再用音符密度冒充波形；
+- 按当前候选轨提供的原始置信度筛选并逐个定位待复核音符；没有置信度的音符
+  保持未知，不会误判为低置信度。
 
 真实 `glass-kiss` 项目的三个 bundle、四条轨和 2,223 个音符均通过路径、大小和
 SHA-256 校验。选择 GAME 后是 391 个音符、4:25 时间线；播放游标已实际推进。
@@ -80,9 +85,11 @@ SHA-256 校验。选择 GAME 后是 391 个音符、4:25 时间线；播放游�
 明确私有项目/bundle/track 环境变量后该集成测试也通过。仓库级 `make check`
 通过 216 项 Python 测试及整套 Swift 测试。
 
-Task 009A 的音符密度条明确不是 waveform。音频导入、真正 waveform、后台任务
-progress/cancel、confidence queue、model pack 和正式 XCUITest 属于 009B，
-不要为了补齐 UI 而在 Mac 上启动研究模型或默认采用被拒绝的 fusion。
+真实项目的四条 current canonical 轨均没有提供非空 confidence；因此 GAME
+显示 `0 / 0` 并明确列出 391 个未知项，这是正确的缺失状态，不是“没有低置信度
+错误”的质量结论。音频导入、后台任务 progress/cancel、worker/model pack 和
+正式 XCUITest 仍属于 009B2；不要为了补齐 UI 而在 Mac 上启动研究模型或默认
+采用被拒绝的 fusion。
 
 ## 当前已验证结果
 
@@ -472,8 +479,9 @@ Vocadito 双标注者音符 benchmark：
   才允许清理 completed cache，且预算无法安全满足时会在任何删除前失败。
   array job ID 会在提交 finalizer 之前先落盘。Mac 可用
   `verify_source=False` 离线读取同步回来的冻结 manifest。
-- 当前 Hyak 队列已清空。Task 009A 已作为不含推理的独立编辑器完成；Task 009B
-  的导入、后台任务和模型集成仍因 Gate 4 与 stable backend gate 阻塞。
+- 当前 Hyak 队列已清空。Task 009A 与不含推理的 Task 009B1 波形/待复核界面
+  已完成；Task 009B2 的导入、后台任务和模型集成仍因 Gate 4 与 stable
+  backend gate 阻塞。
 - 最终只运行了一次 `/review`：它报告两个 P1 和一个 P2。两个 P1 已通过
   `amt-batch-execution/v2` 修复：stage 只读取 cache 内不可变的
   input/config/model/code snapshot，不再继承任意 shell/Slurm 环境；显式

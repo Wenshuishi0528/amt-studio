@@ -12,15 +12,22 @@ public final class AudioTransport: ObservableObject {
   @Published public private(set) var midiEnabled = true
   @Published public private(set) var audioErrorMessage: String?
   @Published public private(set) var midiErrorMessage: String?
+  @Published public private(set) var waveformSamples: [Float] = []
+  @Published public private(set) var waveformLoading = false
+  @Published public private(set) var waveformErrorMessage: String?
 
   private var audioPlayer: AVAudioPlayer?
   private var midiPlayer: AVMIDIPlayer?
   private var timer: Timer?
+  private var waveformTask: Task<Void, Never>?
+  private var waveformGeneration = UUID()
 
   public init() {}
 
   public var errorMessages: [String] {
-    [audioErrorMessage, midiErrorMessage].compactMap { $0 }
+    [audioErrorMessage, midiErrorMessage, waveformErrorMessage].compactMap {
+      $0
+    }
   }
 
   public func load(audioURL: URL) {
@@ -32,6 +39,7 @@ public final class AudioTransport: ObservableObject {
       self.audioURL = audioURL
       duration = player.duration
       audioErrorMessage = nil
+      loadWaveform(audioURL: audioURL)
     } catch {
       audioErrorMessage = "原曲无法加载：\(error.localizedDescription)"
     }
@@ -110,15 +118,22 @@ public final class AudioTransport: ObservableObject {
 
   public func stop() {
     pause()
+    waveformTask?.cancel()
+    waveformTask = nil
+    waveformGeneration = UUID()
     audioPlayer?.stop()
     midiPlayer?.stop()
     audioPlayer = nil
     midiPlayer = nil
+    audioURL = nil
     midiAvailable = false
     currentTime = 0
     duration = 0
     audioErrorMessage = nil
     midiErrorMessage = nil
+    waveformSamples = []
+    waveformLoading = false
+    waveformErrorMessage = nil
   }
 
   public func seek(to value: Double) {
@@ -153,6 +168,34 @@ public final class AudioTransport: ObservableObject {
             self.pause()
           }
         }
+      }
+    }
+  }
+
+  private func loadWaveform(audioURL: URL) {
+    waveformTask?.cancel()
+    waveformSamples = []
+    waveformLoading = true
+    waveformErrorMessage = nil
+    let generation = UUID()
+    waveformGeneration = generation
+    waveformTask = Task { [weak self] in
+      do {
+        let samples = try await AudioWaveformLoader.load(url: audioURL)
+        guard let self, self.waveformGeneration == generation else {
+          return
+        }
+        self.waveformSamples = samples
+        self.waveformLoading = false
+      } catch is CancellationError {
+        return
+      } catch {
+        guard let self, self.waveformGeneration == generation else {
+          return
+        }
+        self.waveformLoading = false
+        self.waveformErrorMessage =
+          "原曲波形无法生成：\(error.localizedDescription)"
       }
     }
   }

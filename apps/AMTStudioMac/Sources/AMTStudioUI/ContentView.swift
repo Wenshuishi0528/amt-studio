@@ -226,12 +226,15 @@ private struct WorkspaceView: View {
       VStack(spacing: 0) {
         transportControls
         Divider()
-        NoteOverview(
-          notes: editor.notes,
+        AudioWaveformView(
+          samples: transport.waveformSamples,
+          isLoading: transport.waveformLoading,
+          errorMessage: transport.waveformErrorMessage,
           currentTime: transport.currentTime,
-          duration: timelineDuration
+          audioDuration: transport.duration,
+          timelineDuration: timelineDuration
         )
-        .frame(height: 70)
+        .frame(height: 90)
         Divider()
         PianoRollView(
           notes: editor.notes,
@@ -314,52 +317,75 @@ private struct WorkspaceView: View {
 
   @ViewBuilder
   private var inspector: some View {
-    if let note = model.selectedNote {
-      NoteInspector(
-        note: note,
-        onCommit: model.commit,
-        onDelete: model.deleteSelectedNote
-      )
-      .id("\(note.id)-\(note.onsetSec)-\(note.offsetSec)-\(note.pitchMIDI)")
-    } else {
-      EmptyStateView(
-        icon: "cursorarrow.click",
-        title: "选择音符",
-        message: "拖动音符可同时改变时间与音高；拖左右把手可调整长度。"
-      )
+    VStack(spacing: 0) {
+      ConfidenceReviewPanel(model: model)
+      Divider()
+      if let note = model.selectedNote {
+        NoteInspector(
+          note: note,
+          onCommit: model.commit,
+          onDelete: model.deleteSelectedNote
+        )
+        .id("\(note.id)-\(note.onsetSec)-\(note.offsetSec)-\(note.pitchMIDI)")
+      } else {
+        EmptyStateView(
+          icon: "cursorarrow.click",
+          title: "选择音符",
+          message: "拖动音符可同时改变时间与音高；拖左右把手可调整长度。"
+        )
+      }
     }
   }
 }
 
-private struct NoteOverview: View {
-  let notes: [EditorNote]
+private struct AudioWaveformView: View {
+  let samples: [Float]
+  let isLoading: Bool
+  let errorMessage: String?
   let currentTime: Double
-  let duration: Double
+  let audioDuration: Double
+  let timelineDuration: Double
 
   var body: some View {
-    GeometryReader { geometry in
+    GeometryReader { _ in
       Canvas { context, size in
-        let bins = max(1, Int(size.width / 3))
-        var counts = Array(repeating: 0, count: bins)
-        for note in notes {
-          let index = min(
-            bins - 1,
-            max(0, Int(note.onsetSec / duration * Double(bins)))
+        if !samples.isEmpty {
+          let centerY = size.height / 2
+          let usableHeight = max(1, size.height - 24) / 2
+          let audioWidth = WaveformLayout.audioWidth(
+            viewWidth: size.width,
+            audioDuration: audioDuration,
+            timelineDuration: timelineDuration
           )
-          counts[index] += 1
+          var path = Path()
+          for (index, sample) in samples.enumerated() {
+            let x =
+              samples.count == 1
+              ? 0
+              : Double(index) / Double(samples.count - 1) * audioWidth
+            let y = centerY - Double(sample) * usableHeight
+            if index == 0 {
+              path.move(to: CGPoint(x: x, y: y))
+            } else {
+              path.addLine(to: CGPoint(x: x, y: y))
+            }
+          }
+          for index in samples.indices.reversed() {
+            let x =
+              samples.count == 1
+              ? 0
+              : Double(index) / Double(samples.count - 1) * audioWidth
+            let y = centerY + Double(samples[index]) * usableHeight
+            path.addLine(to: CGPoint(x: x, y: y))
+          }
+          path.closeSubpath()
+          context.fill(path, with: .color(.accentColor.opacity(0.42)))
         }
-        let maximum = max(1, counts.max() ?? 1)
-        for (index, count) in counts.enumerated() {
-          let height = Double(count) / Double(maximum) * (size.height - 18)
-          let rect = CGRect(
-            x: Double(index) / Double(bins) * size.width,
-            y: size.height - height,
-            width: max(1, size.width / Double(bins)),
-            height: height
-          )
-          context.fill(Path(rect), with: .color(.accentColor.opacity(0.45)))
-        }
-        let cursorX = currentTime / duration * size.width
+        let cursorX =
+          min(
+            1,
+            max(0, currentTime / max(0.001, timelineDuration))
+          ) * size.width
         context.stroke(
           Path(
             CGRect(
@@ -373,12 +399,109 @@ private struct NoteOverview: View {
           lineWidth: 1
         )
       }
-      Text("音符密度概览（不是音频波形）")
+      Text("原曲真实音频波形")
         .font(.caption2)
         .foregroundStyle(.secondary)
         .padding(4)
+      if isLoading {
+        ProgressView("正在读取音频波形…")
+          .controlSize(.small)
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
+      } else if samples.isEmpty {
+        Text(errorMessage ?? "当前音频没有可显示的波形采样")
+          .font(.caption)
+          .foregroundStyle(
+            errorMessage == nil ? Color.secondary : Color.orange
+          )
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
+      }
     }
     .background(.quaternary.opacity(0.35))
+    .accessibilityElement(children: .combine)
+    .accessibilityLabel("原曲真实音频波形")
+    .accessibilityIdentifier("audio-waveform")
+  }
+}
+
+enum WaveformLayout {
+  static func audioWidth(
+    viewWidth: Double,
+    audioDuration: Double,
+    timelineDuration: Double
+  ) -> Double {
+    let boundedViewWidth = max(0, viewWidth)
+    guard audioDuration.isFinite, timelineDuration.isFinite,
+      audioDuration > 0, timelineDuration > 0
+    else {
+      return 0
+    }
+    return min(
+      boundedViewWidth,
+      boundedViewWidth * audioDuration / timelineDuration
+    )
+  }
+}
+
+private struct ConfidenceReviewPanel: View {
+  @ObservedObject var model: AppModel
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      HStack {
+        Label("待复核", systemImage: "exclamationmark.magnifyingglass")
+          .font(.headline)
+        Spacer()
+        Text(model.reviewPositionDescription)
+          .font(.caption.monospacedDigit())
+          .foregroundStyle(.secondary)
+      }
+      HStack {
+        Text("当前轨原始置信度 ≤")
+          .font(.caption)
+        Slider(
+          value: $model.reviewConfidenceThreshold,
+          in: 0...1,
+          step: 0.05
+        )
+        .accessibilityIdentifier("review-confidence-threshold")
+        Text(
+          model.reviewConfidenceThreshold.formatted(
+            .percent.precision(.fractionLength(0))
+          )
+        )
+        .font(.caption.monospacedDigit())
+        .frame(width: 38, alignment: .trailing)
+      }
+      HStack {
+        Button("上一个") {
+          model.selectPreviousReviewNote()
+        }
+        .disabled(model.reviewNotes.isEmpty)
+        .accessibilityIdentifier("review-previous")
+        Button("下一个") {
+          model.selectNextReviewNote()
+        }
+        .disabled(model.reviewNotes.isEmpty)
+        .accessibilityIdentifier("review-next")
+        Spacer()
+        Text("\(model.reviewNotes.count) 个")
+          .font(.caption)
+      }
+      Text(
+        "只筛选当前候选轨已提供的原始置信度；不同模型之间不可横向比较。"
+      )
+      .font(.caption2)
+      .foregroundStyle(.secondary)
+      if model.notesWithoutConfidenceCount > 0 {
+        Text(
+          "\(model.notesWithoutConfidenceCount) 个音符没有置信度，未混入待复核队列。"
+        )
+        .font(.caption2)
+        .foregroundStyle(.secondary)
+      }
+    }
+    .padding(12)
+    .accessibilityIdentifier("confidence-review")
   }
 }
 

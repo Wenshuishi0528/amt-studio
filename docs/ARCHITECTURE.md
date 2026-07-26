@@ -81,7 +81,9 @@ The gated Task 009A shell is narrower: it opens, validates, plays, edits, and
 exports already existing canonical projects with no subprocess or network
 dependency. `AMTStudioCore` owns the model-free contracts; SwiftUI and
 AVFoundation are adapters. Task 009B may add the versioned job API only after
-the backend gate passes.
+the backend gate passes. Model-independent Task 009B1 surfaces may read the
+already verified canonical audio and selected-track confidence locally
+without adding an inference route; see ADR 0009.
 
 ## Project directory contract
 

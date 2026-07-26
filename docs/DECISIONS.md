@@ -89,3 +89,12 @@ an implicit latest bundle, rank candidate tracks as accurate, or depend on
 Hyak. Import, background job progress/cancellation, and model packs remain a
 separate Task 009B boundary. See
 `docs/adr/0008-gated-native-editor-shell.md`.
+
+## D-016: Model-independent review surfaces may precede backend promotion
+
+Gate 4 continues to block import-triggered inference, production worker
+selection, and model packs. The existing-project editor may decode its
+already verified canonical audio into a local waveform and navigate
+confidence values already present in the selected track. Missing confidence
+is excluded, and source-model confidence is not compared across models. See
+`docs/adr/0009-model-independent-review-surfaces.md`.

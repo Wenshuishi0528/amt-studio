@@ -7,6 +7,7 @@ public final class AppModel: ObservableObject {
   @Published public private(set) var snapshot: ProjectSnapshot?
   @Published public private(set) var editor: EditorProject?
   @Published public var selectedNoteID: String?
+  @Published public var reviewConfidenceThreshold = 0.5
   @Published public var errorMessage: String?
   @Published public var statusMessage = "请选择一个已有 AMT Studio 项目"
 
@@ -52,6 +53,27 @@ public final class AppModel: ObservableObject {
   public var selectedNote: EditorNote? {
     guard let selectedNoteID else { return nil }
     return notes.first(where: { $0.id == selectedNoteID })
+  }
+
+  public var reviewNotes: [EditorNote] {
+    ConfidenceReviewQueue.notes(
+      from: notes,
+      threshold: reviewConfidenceThreshold
+    )
+  }
+
+  public var notesWithoutConfidenceCount: Int {
+    notes.lazy.filter { $0.confidence == nil }.count
+  }
+
+  public var reviewPositionDescription: String {
+    guard !reviewNotes.isEmpty else { return "0 / 0" }
+    guard let selectedNoteID,
+      let index = reviewNotes.firstIndex(where: { $0.id == selectedNoteID })
+    else {
+      return "未选择 / \(reviewNotes.count)"
+    }
+    return "\(index + 1) / \(reviewNotes.count)"
   }
 
   public func openProject(_ url: URL) {
@@ -154,6 +176,14 @@ public final class AppModel: ObservableObject {
     } catch {
       present(error)
     }
+  }
+
+  public func selectPreviousReviewNote() {
+    selectReviewNote(offset: -1)
+  }
+
+  public func selectNextReviewNote() {
+    selectReviewNote(offset: 1)
   }
 
   public func commit(_ note: EditorNote) {
@@ -269,10 +299,52 @@ public final class AppModel: ObservableObject {
     }
   }
 
+  private func selectReviewNote(offset: Int) {
+    let queue = reviewNotes
+    guard !queue.isEmpty else { return }
+    let targetIndex: Int
+    if let selectedNoteID,
+      let currentIndex = queue.firstIndex(where: { $0.id == selectedNoteID })
+    {
+      targetIndex = (currentIndex + offset + queue.count) % queue.count
+    } else {
+      targetIndex = offset < 0 ? queue.count - 1 : 0
+    }
+    let note = queue[targetIndex]
+    selectedNoteID = note.id
+    transport.seek(to: max(0, note.onsetSec - 0.25))
+    statusMessage =
+      "待复核音符 \(targetIndex + 1) / \(queue.count)，已定位到 \(note.onsetSec.formatted(.number.precision(.fractionLength(2)))) 秒"
+  }
+
   private func present(_ error: Error) {
     errorMessage =
       (error as? LocalizedError)?.errorDescription
       ?? error.localizedDescription
     statusMessage = "操作失败"
+  }
+}
+
+enum ConfidenceReviewQueue {
+  static func notes(
+    from notes: [EditorNote],
+    threshold: Double
+  ) -> [EditorNote] {
+    let boundedThreshold = min(1, max(0, threshold))
+    return
+      notes
+      .filter { note in
+        guard let confidence = note.confidence else { return false }
+        return confidence <= boundedThreshold
+      }
+      .sorted { first, second in
+        guard first.confidence == second.confidence else {
+          return (first.confidence ?? 1) < (second.confidence ?? 1)
+        }
+        guard first.onsetSec == second.onsetSec else {
+          return first.onsetSec < second.onsetSec
+        }
+        return first.id < second.id
+      }
   }
 }
