@@ -8,6 +8,7 @@ import shlex
 import subprocess
 import sys
 import tempfile
+import unicodedata
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
@@ -202,6 +203,11 @@ def _require_state_string(
     return value
 
 
+def _canonical_filesystem_text(value: str) -> str:
+    """Compare macOS paths and identifiers without changing their stored spelling."""
+    return unicodedata.normalize("NFC", value)
+
+
 def _validate_state(project_dir: Path, state: dict[str, Any]) -> dict[str, Any]:
     allowed = {
         "schema_version",
@@ -228,7 +234,8 @@ def _validate_state(project_dir: Path, state: dict[str, Any]) -> dict[str, Any]:
 
     project_id = _require_state_string(state, "project_id")
     if (
-        project_id != project_dir.name
+        _canonical_filesystem_text(project_id)
+        != _canonical_filesystem_text(project_dir.name)
         or project_id in {".", ".."}
         or "/" in project_id
         or "\n" in project_id
@@ -236,7 +243,11 @@ def _validate_state(project_dir: Path, state: dict[str, Any]) -> dict[str, Any]:
     ):
         raise PrivateBetaError("任务状态 project_id 与项目目录不匹配")
     local_project = Path(_require_state_string(state, "local_project_dir"))
-    if local_project.expanduser().resolve() != project_dir:
+    try:
+        local_project_matches = local_project.expanduser().resolve().samefile(project_dir)
+    except OSError:
+        local_project_matches = False
+    if not local_project_matches:
         raise PrivateBetaError("任务状态 local_project_dir 与项目目录不匹配")
 
     host = _safe_host(_require_state_string(state, "host"))
@@ -305,7 +316,10 @@ def _validate_state(project_dir: Path, state: dict[str, Any]) -> dict[str, Any]:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise PrivateBetaError(f"无法验证项目清单：{manifest_path}: {exc}") from exc
-    if not isinstance(manifest, dict) or manifest.get("project_id") != project_id:
+    manifest_project_id = manifest.get("project_id") if isinstance(manifest, dict) else None
+    if not isinstance(manifest_project_id, str) or _canonical_filesystem_text(
+        manifest_project_id
+    ) != _canonical_filesystem_text(project_id):
         raise PrivateBetaError("任务状态 project_id 与项目清单不匹配")
     state["host"] = host
     state["remote_root"] = remote_root

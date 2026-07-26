@@ -5,7 +5,8 @@ Status: private Beta usability implementation complete — Task 009A, 009B1,
 009B2D responsiveness/library/voice-coverage work are complete. Task 009B2E
 same-model directed gap recovery and Task 009B2F owner-approved enhanced voice
 productization are complete. Task 009B2G single-upload automatic same-model
-gap recovery is complete for future private-Beta jobs.
+gap recovery and Task 009B2H Unicode-safe polling/explicit whole-version export
+are complete for the private Beta.
 
 ## Objective
 
@@ -326,6 +327,33 @@ Evidence:
   `git diff --check` pass;
 - the single focused P0/P1 review fixed one hidden-diagnostic playback issue
   and one failed-recovery status label. No blocker remains.
+
+## Task 009B2H: Unicode-safe polling and explicit whole-version export
+
+Implemented:
+
+- project state accepts NFC/NFD-equivalent macOS project identifiers while
+  preserving same-file local-path, manifest, remote-path, Job ID, identifier,
+  symlink, and traversal validation;
+- `保存修改` no longer looks like the file-download route. `导出整版 MIDI` is
+  directly visible in the toolbar and selected-version sidebar, while
+  current-track/current-mix exports remain under `其他导出`;
+- the save panel names the selected recognition version and explains that the
+  full export contains all accompaniment tracks with only one preferred
+  melody representation.
+
+Evidence:
+
+- the old status failure was reproduced by passing the real
+  `大沢誉志幸-ゴーゴーヘブン` project in decomposed Unicode form. The same
+  production command passes after the fix;
+- real Job `37743206` remained `RUNNING` in `full_transcription`, and the
+  rebuilt app resumed polling the same job without another submission;
+- the application-level whole-version export passed on the private nine-track
+  `task009b2g-automatic-product-dryrun` bundle and wrote a valid MIDI file;
+- `make check` passes 257 Python and 25 Swift tests with three expected skips.
+  Strict Swift formatting, Apple Development-signed release packaging,
+  plist/signature validation, and `git diff --check` pass.
 
 Task 009B2C evidence:
 

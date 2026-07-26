@@ -4,6 +4,37 @@ This project records changes by numbered research task until formal semantic
 versions and releases begin. Dates and commit identifiers refer to the local
 Git history.
 
+## Task 009B2H — Unicode-safe jobs and explicit version export — 2026-07-26
+
+Commit: this task's final commit
+
+### Fixed
+
+- Accepted canonically equivalent NFC/NFD forms of a macOS project identifier
+  without weakening same-file, manifest, remote-path, identifier, or traversal
+  validation.
+- Restored polling for the Japanese-named real project attached to Job
+  `37743206`; the job remained running and was not submitted twice.
+
+### Changed
+
+- Separated `保存修改` from file export and promoted `导出整版 MIDI` to a
+  visible toolbar and sidebar action.
+- Explained that whole-version export uses the explicitly selected recognition
+  bundle, includes every accompaniment track and one preferred melody variant,
+  and ignores mixer M/S/volume. Current-mix and current-track exports remain
+  available under `其他导出`.
+
+### Verified
+
+- Reproduced the old failure with the decomposed Japanese path, then passed the
+  same production status command after the fix.
+- The real nine-track automatic `STILL LOVE HER` bundle passed application-level
+  whole-version MIDI export with a valid standard MIDI header.
+- `make check` passes 257 Python and 25 Swift tests with three expected skips.
+  Strict Swift formatting, signed release packaging, plist/signature
+  validation, and `git diff --check` pass.
+
 ## Task 009B2G — Automatic same-model voice-gap recovery — 2026-07-26
 
 Commit: this task's final commit

@@ -1,14 +1,35 @@
 # Project status
 
-Current product milestone: Task 009B2G single-upload automatic voice-gap
-recovery is implemented for future private-Beta jobs
+Current product milestone: Task 009B2H Unicode-safe job recovery and explicit
+whole-version MIDI export are implemented in the rebuilt private Beta
 Research status: Gate 4 remains not passed for the rejected fusion routes; no
 new dataset, fusion, retuning, or training work is in the product critical path
-Current task: Task 009B2G implementation and existing-artifact verification
-complete
-Next task: submit one genuinely new song through the rebuilt app to validate
-the automatic continuation on Hyak; do not start another model route
+Current task: real new-song Job `37743206` is running the full-transcription
+stage; the Mac app is polling the same job without resubmission
+Next task: let Job `37743206` finish, verify the fetched bundle, then use the
+visible whole-version export on that result; do not start another model route
 Current branch: `main`
+
+Implemented and verified for Task 009B2H:
+
+- the screenshot error was reproduced as an NFC/NFD spelling difference for
+  the same Japanese project directory. State validation now accepts only
+  canonically equivalent project identifiers while retaining same-file,
+  manifest, remote-path, Job ID, and traversal checks;
+- the production status command now accepts the exact decomposed path received
+  from the Mac app. Job `37743206` remains `RUNNING` in
+  `full_transcription`; no duplicate job was submitted;
+- `保存修改` is now explicitly separate from `导出整版 MIDI`. The selected
+  recognition version has a visible sidebar export action and explanatory
+  text; current-track and current-mix exports remain under `其他导出`;
+- whole-version export means every accompaniment track in the selected bundle
+  plus one preferred melody representation. It ignores mixer mute/solo/volume,
+  while current-mix export continues to honor them;
+- the real nine-track `STILL LOVE HER` automatic bundle passed application-level
+  whole-version MIDI export. The output has a valid standard MIDI header;
+- `make check` passes 257 Python and 25 Swift tests with three expected
+  environment-gated Swift skips. Strict Swift formatting, signed release
+  packaging, plist/signature validation, and `git diff --check` pass.
 
 Implemented and verified for Task 009B2G:
 

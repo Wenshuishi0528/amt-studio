@@ -34,6 +34,21 @@ final class AppModelTests: XCTestCase {
     ] {
       XCTAssertEqual(model.editor?.selectedTrack.id, expectedTrack)
     }
+
+    let output = FileManager.default.temporaryDirectory.appendingPathComponent(
+      "AMTStudio-real-version-\(UUID().uuidString).mid"
+    )
+    defer { try? FileManager.default.removeItem(at: output) }
+    let report = try XCTUnwrap(model.exportArrangementMIDI(to: output))
+    XCTAssertGreaterThan(report.trackCount, 0)
+    XCTAssertGreaterThan(report.noteCount, 0)
+    XCTAssertEqual(
+      String(
+        data: try Data(contentsOf: output).prefix(4),
+        encoding: .ascii
+      ),
+      "MThd"
+    )
   }
 
   func testConfiguredBetaProjectAutomaticallyRefreshesJobState() async throws {
@@ -396,6 +411,23 @@ final class AppModelTests: XCTestCase {
       "MThd"
     )
     XCTAssertEqual(try Data(contentsOf: fixture.eventsURL), originalEvents)
+
+    XCTAssertEqual(model.selectedBundleID, "bundle-ui")
+    let arrangementURL = fixture.root.appendingPathComponent(
+      "exports/ui-full-arrangement.mid"
+    )
+    let arrangement = try XCTUnwrap(
+      model.exportArrangementMIDI(to: arrangementURL)
+    )
+    XCTAssertEqual(arrangement.trackCount, 1)
+    XCTAssertEqual(arrangement.noteCount, 1)
+    XCTAssertEqual(
+      String(
+        data: try Data(contentsOf: arrangementURL).prefix(4),
+        encoding: .ascii
+      ),
+      "MThd"
+    )
 
     let reopened = AppModel(defaults: defaults, restoreRecent: true)
     XCTAssertNil(reopened.catalog)

@@ -65,24 +65,28 @@ public struct ContentView: View {
         }
         .disabled(model.catalog == nil)
         .accessibilityIdentifier("reveal-project")
-        Button("保存", systemImage: "square.and.arrow.down") {
+        Button("保存修改", systemImage: "tray.and.arrow.down") {
           model.save()
         }
         .disabled(model.editor == nil)
+        .help("保存项目选择与音符修改；不会创建 MIDI 文件")
         .accessibilityIdentifier("save-project")
-        Menu("导出 MIDI", systemImage: "pianokeys") {
+        Button("导出整版 MIDI", systemImage: "square.and.arrow.down") {
+          exportArrangementPanel()
+        }
+        .disabled(model.snapshot == nil || model.isLoadingSelection)
+        .help("把当前识别版本的伴奏和一条主旋律导出为一个多轨 MIDI 文件")
+        .accessibilityIdentifier("export-version-midi")
+        Menu("其他导出", systemImage: "ellipsis.circle") {
           Button("当前编辑音轨") {
             exportTrackPanel()
           }
           Button("当前混音（静音与音量生效）") {
             exportMixPanel()
           }
-          Button("标准完整多轨（单一主旋律）") {
-            exportArrangementPanel()
-          }
         }
         .disabled(model.editor == nil)
-        .accessibilityIdentifier("export-midi")
+        .accessibilityIdentifier("other-midi-exports")
         Button("撤销", systemImage: "arrow.uturn.backward") {
           model.undo()
         }
@@ -359,6 +363,36 @@ public struct ContentView: View {
         }
       }
 
+      if let selectedBundleID = model.selectedBundleID {
+        Section("导出当前识别版本") {
+          Button {
+            exportArrangementPanel()
+          } label: {
+            Label(
+              "导出整个版本 MIDI",
+              systemImage: "square.and.arrow.down"
+            )
+            .frame(maxWidth: .infinity)
+          }
+          .buttonStyle(.borderedProminent)
+          .accessibilityIdentifier("sidebar-export-version-midi")
+          Text(
+            "把版本 \(selectedBundleID) 的全部伴奏轨与一条默认主旋律保存到同一个 .mid 文件。"
+          )
+          .font(.caption)
+          .foregroundStyle(.secondary)
+          Text("此导出不受 M、S 和音量设置影响；要按当前试听状态导出，请用顶部“其他导出”。")
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+        }
+      } else if model.hasActiveBetaJob {
+        Section("导出") {
+          Text("识别完成并取回结果后，这里会出现“导出整个版本 MIDI”。")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+      }
+
       if !model.melodyGaps.isEmpty {
         Section("主旋律覆盖") {
           Label(
@@ -540,9 +574,13 @@ public struct ContentView: View {
 
   private func exportArrangementPanel() {
     let panel = NSSavePanel()
-    panel.title = "导出标准完整多轨 MIDI（只含一条主旋律）"
+    panel.title = "导出整个识别版本 MIDI"
+    if let selectedBundleID = model.selectedBundleID {
+      panel.message =
+        "当前版本：\(selectedBundleID)\n包含全部伴奏轨，并只保留一条默认主旋律。"
+    }
     panel.nameFieldStringValue =
-      "\(model.catalog?.manifest.projectID ?? "song").multitrack.mid"
+      "\(model.catalog?.manifest.projectID ?? "song").full-arrangement.mid"
     if let midi = UTType(filenameExtension: "mid") {
       panel.allowedContentTypes = [midi]
     }

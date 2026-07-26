@@ -345,6 +345,13 @@ public final class AppModel: ObservableObject {
     catalog?.bundles ?? []
   }
 
+  public var selectedBundleID: String? {
+    guard let catalog, let snapshot else { return nil }
+    return catalog.bundles.first {
+      $0.canonicalProjectURL == snapshot.canonicalProjectURL
+    }?.id
+  }
+
   public var trackChoices: [EditorTrack] {
     snapshot?.tracks ?? []
   }

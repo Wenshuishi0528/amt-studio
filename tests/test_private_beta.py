@@ -4,6 +4,7 @@ import json
 import subprocess
 import tempfile
 import unittest
+import unicodedata
 from pathlib import Path
 
 from amt_core.private_beta import (
@@ -12,6 +13,7 @@ from amt_core.private_beta import (
     _load_state,
     _pipeline_stage,
     _unique_project_dir,
+    _validate_state,
 )
 from amt_core.utils import atomic_write_json, slugify
 from workers.muscriptor import run_baseline
@@ -98,6 +100,44 @@ class PrivateBetaTests(unittest.TestCase):
             atomic_write_json(state_path, state)
             with self.assertRaisesRegex(PrivateBetaError, "project_id"):
                 _load_state(project)
+
+    def test_state_accepts_canonically_equivalent_macos_project_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            project_id = "大沢誉志幸-ゴーゴーヘブン"
+            decomposed_id = unicodedata.normalize("NFD", project_id)
+            self.assertNotEqual(decomposed_id, project_id)
+            project = root / decomposed_id
+            project.mkdir()
+            atomic_write_json(
+                project / "manifest.json",
+                {"schema_version": 1, "project_id": project_id},
+            )
+            state = {
+                "schema_version": 1,
+                "status": "submitted",
+                "submitted_at": "2026-07-26T00:00:00+00:00",
+                "project_id": project_id,
+                "local_project_dir": str(project),
+                "remote_project_dir": (
+                    "/mmfs1/gscratch/group/netid/amt-studio/projects/private/"
+                    + project_id
+                ),
+                "host": "netid@klone.hyak.uw.edu",
+                "remote_root": "/mmfs1/gscratch/group/netid/amt-studio",
+                "job_id": "12345",
+                "run_id": "safe-run",
+                "bundle_id": "safe-run-multitrack",
+                "weight_provenance_path": (
+                    "/mmfs1/gscratch/group/netid/weights/provenance.json"
+                ),
+                "slurm_state": "PENDING",
+            }
+
+            loaded = _validate_state(project.resolve(), state)
+
+            self.assertEqual(loaded["project_id"], project_id)
+            self.assertEqual(loaded["pipeline_stage"], "queued")
 
     def test_state_file_symlink_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
