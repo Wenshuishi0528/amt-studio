@@ -80,7 +80,7 @@ an ignored provenance file.
 Persistent project root:
 
 ```text
-/mmfs1/gscratch/stf/liuhaobo/amt-studio
+/mmfs1/gscratch/YOUR_GROUP/YOUR_NETID/amt-studio
 ```
 
 The locked root environment uses Python `3.12.13`. The isolated worker recorded

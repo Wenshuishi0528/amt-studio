@@ -46,6 +46,7 @@ slurm-*.err
 .env.*
 !.env.example
 configs/local*.yaml
+/configs/local_hyak.json
 *.pem
 *.key
 
