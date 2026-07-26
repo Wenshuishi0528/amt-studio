@@ -74,7 +74,7 @@ private struct EditSessionHeader: Codable {
   let updatedAt: Date
 }
 
-public struct EditorProject {
+public struct EditorProject: Sendable {
   public static let minimumDuration = 0.02
 
   public let snapshot: ProjectSnapshot
@@ -83,16 +83,17 @@ public struct EditorProject {
   public private(set) var operations: [EditOperation]
   public private(set) var headOperationID: UUID?
   public private(set) var redoOperationIDs: [UUID]
+  private var materializedNotesCache: [EditorNote]
 
   public var canUndo: Bool { headOperationID != nil }
   public var canRedo: Bool { !redoOperationIDs.isEmpty }
 
   public var notes: [EditorNote] {
-    (try? replay()) ?? []
+    materializedNotesCache
   }
 
   public func materializedNotes() throws -> [EditorNote] {
-    try replay()
+    materializedNotesCache
   }
 
   public var sessionDirectoryURL: URL {
@@ -121,8 +122,9 @@ public struct EditorProject {
     operations = []
     headOperationID = nil
     redoOperationIDs = []
+    materializedNotesCache = []
     try loadPersistedSessionIfPresent()
-    _ = try replay()
+    materializedNotesCache = try replay()
   }
 
   public mutating func update(_ note: EditorNote) throws {
@@ -243,7 +245,7 @@ public struct EditorProject {
     }
     redoOperationIDs.append(head.id)
     self.headOperationID = head.parentOperationID
-    _ = try replay()
+    materializedNotesCache = try replay()
   }
 
   public mutating func redo() throws {
@@ -254,7 +256,7 @@ public struct EditorProject {
       return
     }
     headOperationID = operation.id
-    _ = try replay()
+    materializedNotesCache = try replay()
   }
 
   public mutating func save() throws {
@@ -326,6 +328,13 @@ public struct EditorProject {
       encoder.encode(header),
       to: sessionURL
     )
+    try saveWorkspaceSelection()
+  }
+
+  public func saveWorkspaceSelection() throws {
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.sortedKeys]
+    encoder.dateEncodingStrategy = .iso8601
     let workspace = EditorWorkspace(
       projectID: snapshot.manifest.projectID,
       canonicalBundleID: bundleID,
@@ -334,7 +343,7 @@ public struct EditorProject {
       ),
       selectedTrackID: selectedTrack.id,
       editSessionPath: relativePath(
-        safeSessionDirectoryURL,
+        sessionDirectoryURL,
         from: snapshot.rootURL
       ) + "/session.json"
     )
@@ -419,7 +428,7 @@ public struct EditorProject {
     operations.append(operation)
     headOperationID = operation.id
     redoOperationIDs = []
-    _ = try replay()
+    materializedNotesCache = try replay()
   }
 
   private func noteForID(_ id: String) throws -> EditorNote {

@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 #if canImport(AMTStudioCore)
@@ -25,6 +26,44 @@ public enum HyakConnectionState: String, Sendable {
   case loginRequired
 }
 
+public struct MelodyGap: Sendable, Equatable, Identifiable {
+  public let startSec: Double
+  public let endSec: Double
+  public let otherTrackCount: Int
+  public let otherNoteCount: Int
+
+  public var id: String {
+    "\(startSec)-\(endSec)"
+  }
+
+  public var duration: Double {
+    endSec - startSec
+  }
+}
+
+public struct LocalProjectItem: Sendable, Equatable, Identifiable {
+  public let projectID: String
+  public let title: String
+  public let url: URL
+  public let modifiedAt: Date
+  public let hasResults: Bool
+  public let jobState: String?
+
+  public var id: String {
+    url.path
+  }
+
+  public var stateLabel: String {
+    switch jobState {
+    case "RUNNING": "识别中"
+    case "PENDING", "CONFIGURING": "排队中"
+    case "FAILED", "CANCELLED": "任务失败"
+    case "COMPLETED": hasResults ? "可打开" : "正在取回"
+    default: hasResults ? "可打开" : "尚无结果"
+    }
+  }
+}
+
 @MainActor
 public final class AppModel: ObservableObject {
   @Published public private(set) var catalog: ProjectCatalog?
@@ -43,6 +82,12 @@ public final class AppModel: ObservableObject {
   @Published public private(set) var mutedTrackIDs = Set<String>()
   @Published public private(set) var soloTrackIDs = Set<String>()
   @Published public private(set) var trackVolumes: [String: Double] = [:]
+  @Published public private(set) var midiMasterVolume = 1.0
+  @Published public private(set) var libraryProjects: [LocalProjectItem] = []
+  @Published public private(set) var isLoadingProject = false
+  @Published public private(set) var isRefreshingLibrary = false
+  @Published public private(set) var isLoadingSelection = false
+  @Published public private(set) var melodyGaps: [MelodyGap] = []
 
   public let transport = AudioTransport()
 
@@ -50,10 +95,21 @@ public final class AppModel: ObservableObject {
   private let persistRecentProject: Bool
   private let recentProjectKey = "AMTStudio.recentProjectPath"
   private let activeBetaProjectKey = "AMTStudio.activeBetaProjectPath"
+  private let originalVolumeKey = "AMTStudio.originalVolume"
+  private let midiMasterVolumeKey = "AMTStudio.midiMasterVolume"
+  private let projectBookmarksKey = "AMTStudio.projectBookmarks"
   private var pendingInitialProjectURL: URL?
   private var betaMonitor: Task<Void, Never>?
   private var connectionMonitor: Task<Void, Never>?
   private var midiPreviewRefresh: Task<Void, Never>?
+  private var midiPreviewGeneration = UUID()
+  private var currentMIDIPreviewURL: URL?
+  private var projectLoadTask: Task<Void, Never>?
+  private var projectLoadGeneration = UUID()
+  private var activeSecurityScopedURLs: [URL] = []
+  private var lastMelodyGapID: String?
+  private var selectionLoadTask: Task<Void, Never>?
+  private var selectionLoadGeneration = UUID()
 
   public init(
     defaults: UserDefaults = .standard,
@@ -63,6 +119,11 @@ public final class AppModel: ObservableObject {
   ) {
     self.defaults = defaults
     self.persistRecentProject = persistRecentProject
+    let originalVolume =
+      defaults.object(forKey: originalVolumeKey) as? Double ?? 0.35
+    transport.setOriginalVolume(originalVolume)
+    midiMasterVolume =
+      defaults.object(forKey: midiMasterVolumeKey) as? Double ?? 1
     if let initialProjectURL {
       pendingInitialProjectURL = initialProjectURL
     } else if restoreRecent,
@@ -73,7 +134,16 @@ public final class AppModel: ObservableObject {
     } else if restoreRecent,
       let path = defaults.string(forKey: recentProjectKey)
     {
-      pendingInitialProjectURL = URL(fileURLWithPath: path)
+      let restored = Self.restoreProjectBookmark(
+        path: path,
+        defaults: defaults,
+        key: projectBookmarksKey
+      )
+      pendingInitialProjectURL =
+        restored?.url ?? URL(fileURLWithPath: path)
+      if restored?.accessing == true, let url = restored?.url {
+        activeSecurityScopedURLs.append(url)
+      }
     }
   }
 
@@ -81,6 +151,50 @@ public final class AppModel: ObservableObject {
     guard let pendingInitialProjectURL else { return }
     self.pendingInitialProjectURL = nil
     openProject(pendingInitialProjectURL)
+  }
+
+  public func openAuthorizedProject(_ url: URL) {
+    do {
+      let data = try url.bookmarkData(
+        options: [.withSecurityScope],
+        includingResourceValuesForKeys: nil,
+        relativeTo: nil
+      )
+      var bookmarks =
+        defaults.dictionary(forKey: projectBookmarksKey)?
+        .compactMapValues { $0 as? Data } ?? [:]
+      bookmarks[url.standardizedFileURL.path] = data
+      bookmarks[url.standardizedFileURL.resolvingSymlinksInPath().path] = data
+      defaults.set(bookmarks, forKey: projectBookmarksKey)
+      if url.startAccessingSecurityScopedResource() {
+        activeSecurityScopedURLs.append(url)
+      }
+    } catch {
+      statusMessage = "项目可以打开，但 macOS 未能保存长期文件授权"
+    }
+    openProject(url)
+  }
+
+  public func revealCurrentProject() {
+    guard let url = catalog?.rootURL else { return }
+    NSWorkspace.shared.activateFileViewerSelecting([url])
+  }
+
+  public func refreshProjectLibrary() {
+    guard !isRefreshingLibrary else { return }
+    isRefreshingLibrary = true
+    Task {
+      do {
+        let root = try PrivateBetaBackend.locate().localProjectsRoot
+        let projects = try await Task.detached(priority: .utility) {
+          try LocalProjectLibrary.scan(rootURL: root)
+        }.value
+        libraryProjects = projects
+      } catch {
+        libraryProjects = []
+      }
+      isRefreshingLibrary = false
+    }
   }
 
   public func openHyakLogin() {
@@ -93,18 +207,11 @@ public final class AppModel: ObservableObject {
       else {
         throw PrivateBetaBackendError.repositoryNotFound
       }
-      let process = Process()
-      let escapedPath = backend.loginScriptURL.path
-        .replacingOccurrences(of: "\\", with: "\\\\")
-        .replacingOccurrences(of: "\"", with: "\\\"")
-      process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-      process.arguments = [
-        "-e",
-        "tell application \"Terminal\" to activate",
-        "-e",
-        "tell application \"Terminal\" to do script quoted form of \"\(escapedPath)\"",
-      ]
-      try process.run()
+      guard NSWorkspace.shared.open(backend.loginScriptURL) else {
+        throw PrivateBetaBackendError.invalidResponse(
+          "无法用 Terminal 打开 Hyak 登录脚本"
+        )
+      }
       hyakConnectionState = .checking
       statusMessage = "请在 Terminal 输入密码并通过 Duo；连接成功后应用会自动恢复任务"
       errorMessage = nil
@@ -124,6 +231,7 @@ public final class AppModel: ObservableObject {
 
   public func transcribeSong(_ audioURL: URL) {
     guard !isBetaBusy else { return }
+    let accessing = audioURL.startAccessingSecurityScopedResource()
     isBetaBusy = true
     statusMessage = "正在准备音频、上传 Hyak 并提交 GPU 任务…"
     errorMessage = nil
@@ -140,6 +248,9 @@ public final class AppModel: ObservableObject {
         }
       } catch {
         presentBetaError(error)
+      }
+      if accessing {
+        audioURL.stopAccessingSecurityScopedResource()
       }
       isBetaBusy = false
     }
@@ -206,6 +317,20 @@ public final class AppModel: ObservableObject {
     trackVolumes[id] ?? 1
   }
 
+  public func setOriginalVolume(_ value: Double) {
+    let bounded = min(1, max(0, value))
+    transport.setOriginalVolume(bounded)
+    defaults.set(bounded, forKey: originalVolumeKey)
+  }
+
+  public func setMIDIMasterVolume(_ value: Double) {
+    let bounded = min(1, max(0, value))
+    guard midiMasterVolume != bounded else { return }
+    midiMasterVolume = bounded
+    defaults.set(bounded, forKey: midiMasterVolumeKey)
+    scheduleMIDIPreviewRefresh()
+  }
+
   public func toggleMute(_ id: String) {
     guard trackChoices.contains(where: { $0.id == id }) else { return }
     midiPlaybackMode = .mix
@@ -267,6 +392,54 @@ public final class AppModel: ObservableObject {
     notes.lazy.filter { $0.confidence == nil }.count
   }
 
+  private func updateMelodyCoverage() {
+    guard let snapshot,
+      let voiceTrack = snapshot.tracks.first(where: {
+        $0.instrument?.lowercased() == "voice"
+      })
+    else {
+      melodyGaps = []
+      return
+    }
+    let voiceNotes =
+      editor?.selectedTrack.id == voiceTrack.id
+      ? notes
+      : snapshot.notes.filter { $0.trackID == voiceTrack.id }
+    let duration = max(
+      transport.duration,
+      snapshot.notes.map(\.offsetSec).max() ?? 0
+    )
+    melodyGaps = MelodyCoverageAnalyzer.gaps(
+      voiceNotes: voiceNotes,
+      allNotes: snapshot.notes,
+      voiceTrackID: voiceTrack.id,
+      duration: duration
+    )
+  }
+
+  public var melodyGapDuration: Double {
+    melodyGaps.reduce(0) { $0 + $1.duration }
+  }
+
+  public func seekToNextMelodyGap() {
+    let gaps = melodyGaps
+    guard !gaps.isEmpty else { return }
+    let next: MelodyGap
+    if let lastMelodyGapID,
+      let index = gaps.firstIndex(where: { $0.id == lastMelodyGapID })
+    {
+      next = gaps[(index + 1) % gaps.count]
+    } else {
+      next =
+        gaps.first(where: { $0.endSec > transport.currentTime + 0.25 })
+        ?? gaps[0]
+    }
+    lastMelodyGapID = next.id
+    transport.seek(to: max(0, next.startSec - 0.5))
+    statusMessage =
+      "已定位 voice 疑似空缺 \(formatClock(next.startSec))–\(formatClock(next.endSec))；可独奏其他轨寻找补全候选"
+  }
+
   public var reviewPositionDescription: String {
     guard !reviewNotes.isEmpty else { return "0 / 0" }
     guard let selectedNoteID,
@@ -278,73 +451,47 @@ public final class AppModel: ObservableObject {
   }
 
   public func openProject(_ url: URL) {
-    do {
-      let catalog = try ProjectLoader.inspect(url)
-      self.catalog = catalog
-      snapshot = nil
-      editor = nil
-      selectedNoteID = nil
-      transport.stop()
-      if persistRecentProject {
-        defaults.set(catalog.rootURL.path, forKey: recentProjectKey)
-      }
-      statusMessage = "已读取项目；请选择 canonical bundle"
-      errorMessage = nil
-      let jobStateURL = catalog.rootURL.appendingPathComponent(
-        "app/private_beta_job.json"
-      )
-      if FileManager.default.fileExists(atPath: jobStateURL.path) {
-        betaProjectURL = catalog.rootURL
-        if let state = try? JSONDecoder().decode(
-          PrivateBetaJobState.self,
-          from: Data(contentsOf: jobStateURL)
-        ) {
-          betaJobID = state.jobID
-          betaSlurmState = state.slurmState
-        }
-        if catalog.bundles.isEmpty
-          || !["COMPLETED", "FAILED", "CANCELLED"].contains(
-            betaSlurmState ?? ""
-          )
-        {
-          rememberActiveBetaProject()
-          startMonitoring(projectURL: catalog.rootURL)
-        } else {
-          clearActiveBetaProject()
-        }
-      }
-
+    projectLoadTask?.cancel()
+    selectionLoadTask?.cancel()
+    selectionLoadGeneration = UUID()
+    isLoadingSelection = false
+    let generation = UUID()
+    projectLoadGeneration = generation
+    isLoadingProject = true
+    melodyGaps = []
+    statusMessage = "正在后台校验并打开 \(url.lastPathComponent)…"
+    errorMessage = nil
+    projectLoadTask = Task { [weak self] in
       do {
-        if let workspace = try EditorProject.loadWorkspace(
-          projectURL: catalog.rootURL
-        ) {
-          guard workspace.projectID == catalog.manifest.projectID,
-            let bundle = catalog.bundles.first(where: {
-              $0.id == workspace.canonicalBundleID
-            }),
-            try ProjectLoader.sha256(bundle.canonicalProjectURL)
-              == workspace.canonicalProjectSHA256
-          else {
-            throw AMTProjectError.editSessionMismatch
-          }
-          try selectBundle(workspace.canonicalBundleID)
-          if snapshot?.tracks.contains(where: {
-            $0.id == workspace.selectedTrackID
-          }) == true {
-            try selectTrack(workspace.selectedTrackID)
-          }
-        } else if catalog.bundles.count == 1 {
-          try selectBundle(catalog.bundles[0].id)
+        let prepared = try await Task.detached(priority: .userInitiated) {
+          try PreparedProject.load(url)
+        }.value
+        guard !Task.isCancelled, let self,
+          self.projectLoadGeneration == generation
+        else {
+          return
         }
+        self.applyPreparedProject(prepared)
+      } catch is CancellationError {
+        return
       } catch {
-        statusMessage = "项目已打开；旧编辑状态无法恢复，请重新选择"
-        errorMessage =
-          (error as? LocalizedError)?.errorDescription
-          ?? error.localizedDescription
+        guard let self, self.projectLoadGeneration == generation else {
+          return
+        }
+        self.present(error)
       }
-    } catch {
-      present(error)
+      if let self, self.projectLoadGeneration == generation {
+        self.isLoadingProject = false
+      }
     }
+  }
+
+  func waitForProjectLoadForTesting() async {
+    await projectLoadTask?.value
+  }
+
+  func waitForSelectionLoadForTesting() async {
+    await selectionLoadTask?.value
   }
 
   public func selectBundle(_ id: String) throws {
@@ -355,25 +502,52 @@ public final class AppModel: ObservableObject {
     self.snapshot = snapshot
     editor = nil
     selectedNoteID = nil
+    lastMelodyGapID = nil
     transport.stop()
+    discardMIDIPreviewArtifact()
     restoreMixerSettings(for: snapshot)
+    updateMelodyCoverage()
     statusMessage = "已验证多轨结果 \(id)；请选择一条音轨"
     errorMessage = nil
     if let voice = snapshot.tracks.first(where: {
       $0.instrument?.lowercased() == "voice"
     }) {
       try selectTrack(voice.id)
-      statusMessage = "已默认打开 voice 主旋律轨；其余原始多轨仍完整保留"
+      statusMessage = "已默认打开 voice 主唱候选；其余原始多轨仍完整保留"
     } else if snapshot.tracks.count == 1 {
       try selectTrack(snapshot.tracks[0].id)
     }
   }
 
   public func chooseBundle(_ id: String) {
-    do {
-      try selectBundle(id)
-    } catch {
-      present(error)
+    guard let catalog else { return }
+    selectionLoadTask?.cancel()
+    let generation = UUID()
+    selectionLoadGeneration = generation
+    isLoadingSelection = true
+    statusMessage = "正在后台打开识别版本 \(id)…"
+    selectionLoadTask = Task { [weak self] in
+      do {
+        let prepared = try await Task.detached(priority: .userInitiated) {
+          try PreparedSelection.loadBundle(catalog: catalog, bundleID: id)
+        }.value
+        guard !Task.isCancelled, let self,
+          self.selectionLoadGeneration == generation
+        else {
+          return
+        }
+        self.applyPreparedSelection(prepared)
+      } catch is CancellationError {
+        return
+      } catch {
+        guard let self, self.selectionLoadGeneration == generation else {
+          return
+        }
+        self.present(error)
+      }
+      if let self, self.selectionLoadGeneration == generation {
+        self.isLoadingSelection = false
+      }
     }
   }
 
@@ -388,25 +562,60 @@ public final class AppModel: ObservableObject {
     else {
       throw AMTProjectError.missingCanonicalBundle
     }
-    var editor = try EditorProject(
+    let editor = try EditorProject(
       snapshot: snapshot,
       bundleID: bundleID,
       selectedTrackID: id
     )
-    try editor.save()
+    try editor.saveWorkspaceSelection()
     self.editor = editor
     selectedNoteID = editor.notes.first?.id
     statusMessage = "音轨 \(editor.selectedTrack.label)，\(editor.notes.count) 个音符"
     errorMessage = nil
     transport.load(audioURL: snapshot.audioURL)
+    updateMelodyCoverage()
     refreshMIDIPreview()
   }
 
   public func chooseTrack(_ id: String) {
-    do {
-      try selectTrack(id)
-    } catch {
-      present(error)
+    guard let catalog, let snapshot,
+      let bundleID = catalog.bundles.first(where: {
+        $0.canonicalProjectURL == snapshot.canonicalProjectURL
+      })?.id
+    else {
+      return
+    }
+    selectionLoadTask?.cancel()
+    let generation = UUID()
+    selectionLoadGeneration = generation
+    isLoadingSelection = true
+    statusMessage = "正在后台打开音轨…"
+    selectionLoadTask = Task { [weak self] in
+      do {
+        let prepared = try await Task.detached(priority: .userInitiated) {
+          try PreparedSelection.loadTrack(
+            snapshot: snapshot,
+            bundleID: bundleID,
+            trackID: id
+          )
+        }.value
+        guard !Task.isCancelled, let self,
+          self.selectionLoadGeneration == generation
+        else {
+          return
+        }
+        self.applyPreparedSelection(prepared)
+      } catch is CancellationError {
+        return
+      } catch {
+        guard let self, self.selectionLoadGeneration == generation else {
+          return
+        }
+        self.present(error)
+      }
+      if let self, self.selectionLoadGeneration == generation {
+        self.isLoadingSelection = false
+      }
     }
   }
 
@@ -427,6 +636,7 @@ public final class AppModel: ObservableObject {
       selectedNoteID = note.id
       statusMessage = "编辑已保存（原始模型输出未修改）"
       errorMessage = nil
+      updateMelodyCoverage()
       refreshMIDIPreview()
     } catch {
       present(error)
@@ -442,6 +652,7 @@ public final class AppModel: ObservableObject {
       self.selectedNoteID = editor.notes.first?.id
       statusMessage = "删除操作已记录，可撤销"
       errorMessage = nil
+      updateMelodyCoverage()
       refreshMIDIPreview()
     } catch {
       present(error)
@@ -461,6 +672,7 @@ public final class AppModel: ObservableObject {
       }
       statusMessage = "已撤销并保存"
       errorMessage = nil
+      updateMelodyCoverage()
       refreshMIDIPreview()
     } catch {
       present(error)
@@ -475,6 +687,7 @@ public final class AppModel: ObservableObject {
       self.editor = editor
       statusMessage = "已重做并保存"
       errorMessage = nil
+      updateMelodyCoverage()
       refreshMIDIPreview()
     } catch {
       present(error)
@@ -549,7 +762,7 @@ public final class AppModel: ObservableObject {
         bundleID: bundleID,
         to: url,
         includedTrackIDs: audibleTrackIDs,
-        trackVolumes: trackVolumes
+        trackVolumes: effectiveTrackVolumes
       )
       statusMessage =
         "已导出当前混音：\(report.trackCount) 轨、\(report.noteCount) 个音符"
@@ -565,6 +778,70 @@ public final class AppModel: ObservableObject {
     errorMessage = nil
   }
 
+  private func applyPreparedSelection(_ prepared: PreparedSelection) {
+    let bundleChanged =
+      snapshot?.canonicalProjectURL != prepared.snapshot.canonicalProjectURL
+    if bundleChanged {
+      midiPreviewRefresh?.cancel()
+      midiPreviewGeneration = UUID()
+      transport.stop()
+      discardMIDIPreviewArtifact()
+      restoreMixerSettings(for: prepared.snapshot)
+      lastMelodyGapID = nil
+    }
+    snapshot = prepared.snapshot
+    editor = prepared.editor
+    selectedNoteID = prepared.editor?.notes.first?.id
+    statusMessage = prepared.statusMessage
+    errorMessage = nil
+    if let editor = prepared.editor {
+      transport.load(audioURL: editor.snapshot.audioURL)
+      refreshMIDIPreview()
+    }
+    updateMelodyCoverage()
+  }
+
+  private func applyPreparedProject(_ prepared: PreparedProject) {
+    midiPreviewRefresh?.cancel()
+    midiPreviewGeneration = UUID()
+    transport.stop()
+    discardMIDIPreviewArtifact()
+    catalog = prepared.catalog
+    snapshot = prepared.snapshot
+    editor = prepared.editor
+    selectedNoteID = prepared.editor?.notes.first?.id
+    lastMelodyGapID = nil
+    statusMessage = prepared.statusMessage
+    errorMessage = prepared.warning
+    if persistRecentProject {
+      defaults.set(prepared.catalog.rootURL.path, forKey: recentProjectKey)
+    }
+    if let snapshot = prepared.snapshot {
+      restoreMixerSettings(for: snapshot)
+    }
+    if let editor = prepared.editor {
+      transport.load(audioURL: editor.snapshot.audioURL)
+      refreshMIDIPreview()
+    }
+    updateMelodyCoverage()
+    if let state = prepared.jobState {
+      betaProjectURL = prepared.catalog.rootURL
+      betaJobID = state.jobID
+      betaSlurmState = state.slurmState
+      if prepared.catalog.bundles.isEmpty
+        || !["COMPLETED", "FAILED", "CANCELLED"].contains(
+          state.slurmState ?? ""
+        )
+      {
+        rememberActiveBetaProject()
+        startMonitoring(projectURL: prepared.catalog.rootURL)
+      } else {
+        clearActiveBetaProject()
+      }
+    }
+    refreshProjectLibrary()
+  }
+
   private func refreshMIDIPreview() {
     guard let catalog, let snapshot, let editor else { return }
     guard
@@ -576,9 +853,15 @@ public final class AppModel: ObservableObject {
     }
     let includedTrackIDs = audibleTrackIDs
     guard !includedTrackIDs.isEmpty else {
+      midiPreviewRefresh?.cancel()
+      midiPreviewGeneration = UUID()
       transport.clearMIDI(message: "所有音轨已静音；请启用至少一条音轨。")
+      discardMIDIPreviewArtifact()
       return
     }
+    midiPreviewRefresh?.cancel()
+    let generation = UUID()
+    midiPreviewGeneration = generation
     let directory = FileManager.default.temporaryDirectory
       .appendingPathComponent("AMTStudioPreview", isDirectory: true)
     let previewID =
@@ -589,31 +872,66 @@ public final class AppModel: ObservableObject {
       $0.isLetter || $0.isNumber || "-._".contains($0) ? $0 : "-"
     }.reduce(into: "") { $0.append($1) }
     let url = directory.appendingPathComponent(
-      "\(editor.snapshot.baseFingerprint.prefix(16))-\(safePreviewID.prefix(48)).mid"
+      "\(editor.snapshot.baseFingerprint.prefix(16))-\(safePreviewID.prefix(48))-\(generation.uuidString).mid"
     )
-    do {
-      _ = try MIDIExporter.exportArrangement(
-        snapshot: snapshot,
-        bundleID: bundleID,
-        to: url,
-        includedTrackIDs: includedTrackIDs,
-        trackVolumes: trackVolumes
-      )
-      transport.loadMIDI(url: url)
-    } catch {
-      transport.clearMIDI(
-        message: "MIDI 预览暂不可用：\(error.localizedDescription)"
-      )
+    let volumes = effectiveTrackVolumes
+    transport.beginMIDILoading()
+    midiPreviewRefresh = Task { [weak self] in
+      do {
+        try await Task.sleep(for: .milliseconds(100))
+        guard !Task.isCancelled else { return }
+        _ = try await Task.detached(priority: .utility) {
+          try MIDIExporter.exportArrangement(
+            snapshot: snapshot,
+            bundleID: bundleID,
+            to: url,
+            includedTrackIDs: includedTrackIDs,
+            trackVolumes: volumes
+          )
+        }.value
+        guard !Task.isCancelled, let self,
+          self.midiPreviewGeneration == generation
+        else {
+          try? FileManager.default.removeItem(at: url)
+          return
+        }
+        let previous = self.currentMIDIPreviewURL
+        self.transport.loadMIDI(url: url)
+        if self.transport.midiAvailable {
+          self.currentMIDIPreviewURL = url
+          if let previous, previous != url {
+            try? FileManager.default.removeItem(at: previous)
+          }
+        } else {
+          try? FileManager.default.removeItem(at: url)
+        }
+      } catch is CancellationError {
+        try? FileManager.default.removeItem(at: url)
+      } catch {
+        guard let self, self.midiPreviewGeneration == generation else {
+          return
+        }
+        self.transport.clearMIDI(
+          message: "MIDI 预览暂不可用：\(error.localizedDescription)"
+        )
+      }
     }
   }
 
   private func scheduleMIDIPreviewRefresh() {
-    midiPreviewRefresh?.cancel()
-    midiPreviewRefresh = Task { [weak self] in
-      try? await Task.sleep(for: .milliseconds(180))
-      guard !Task.isCancelled, let self else { return }
-      self.refreshMIDIPreview()
+    refreshMIDIPreview()
+  }
+
+  private var effectiveTrackVolumes: [String: Double] {
+    trackVolumes.mapValues {
+      min(1, max(0, $0 * midiMasterVolume))
     }
+  }
+
+  private func discardMIDIPreviewArtifact() {
+    guard let currentMIDIPreviewURL else { return }
+    try? FileManager.default.removeItem(at: currentMIDIPreviewURL)
+    self.currentMIDIPreviewURL = nil
   }
 
   private func selectReviewNote(offset: Int) {
@@ -695,7 +1013,7 @@ public final class AppModel: ObservableObject {
       guard let betaProjectURL else { return }
       clearActiveBetaProject()
       openProject(betaProjectURL)
-      statusMessage = "Hyak 识别完成，完整多轨已取回；已默认打开 voice 主旋律轨"
+      statusMessage = "Hyak 识别完成，完整多轨已取回；已打开 voice 主唱候选并检查时间覆盖"
     case "failed":
       clearActiveBetaProject()
       errorMessage = "Hyak 任务失败；项目日志已经保留，可据此定位问题。"
@@ -707,6 +1025,7 @@ public final class AppModel: ObservableObject {
       rememberActiveBetaProject()
       statusMessage = "Hyak 任务已排队（\(betaSlurmState ?? "PENDING")）"
     }
+    refreshProjectLibrary()
   }
 
   private func waitForHyakLogin() {
@@ -825,6 +1144,42 @@ public final class AppModel: ObservableObject {
   private func mixerSettingsKey(_ snapshot: ProjectSnapshot) -> String {
     "AMTStudio.mixer.\(snapshot.baseFingerprint)"
   }
+
+  private static func restoreProjectBookmark(
+    path: String,
+    defaults: UserDefaults,
+    key: String
+  ) -> (url: URL, accessing: Bool)? {
+    guard
+      let data = defaults.dictionary(forKey: key)?[path] as? Data
+    else {
+      return nil
+    }
+    do {
+      var stale = false
+      let url = try URL(
+        resolvingBookmarkData: data,
+        options: [.withSecurityScope],
+        relativeTo: nil,
+        bookmarkDataIsStale: &stale
+      )
+      if stale {
+        let refreshed = try url.bookmarkData(
+          options: [.withSecurityScope],
+          includingResourceValuesForKeys: nil,
+          relativeTo: nil
+        )
+        var bookmarks =
+          defaults.dictionary(forKey: key)?
+          .compactMapValues { $0 as? Data } ?? [:]
+        bookmarks[path] = refreshed
+        defaults.set(bookmarks, forKey: key)
+      }
+      return (url, url.startAccessingSecurityScopedResource())
+    } catch {
+      return nil
+    }
+  }
 }
 
 private struct MixerSettings: Codable {
@@ -834,13 +1189,262 @@ private struct MixerSettings: Codable {
   let trackVolumes: [String: Double]
 }
 
-private struct PrivateBetaJobState: Decodable {
+private struct PrivateBetaJobState: Decodable, Sendable {
   let jobID: String?
   let slurmState: String?
 
   enum CodingKeys: String, CodingKey {
     case jobID = "job_id"
     case slurmState = "slurm_state"
+  }
+}
+
+private struct PreparedSelection: Sendable {
+  let snapshot: ProjectSnapshot
+  let editor: EditorProject?
+  let statusMessage: String
+
+  static func loadBundle(
+    catalog: ProjectCatalog,
+    bundleID: String
+  ) throws -> PreparedSelection {
+    let snapshot = try ProjectLoader.open(catalog, bundleID: bundleID)
+    let preferredTrack =
+      snapshot.tracks.first(where: {
+        $0.instrument?.lowercased() == "voice"
+      })
+      ?? (snapshot.tracks.count == 1 ? snapshot.tracks[0] : nil)
+    guard let preferredTrack else {
+      return PreparedSelection(
+        snapshot: snapshot,
+        editor: nil,
+        statusMessage: "已打开完整多轨；请选择要编辑的音轨"
+      )
+    }
+    return try loadTrack(
+      snapshot: snapshot,
+      bundleID: bundleID,
+      trackID: preferredTrack.id
+    )
+  }
+
+  static func loadTrack(
+    snapshot: ProjectSnapshot,
+    bundleID: String,
+    trackID: String
+  ) throws -> PreparedSelection {
+    let editor = try EditorProject(
+      snapshot: snapshot,
+      bundleID: bundleID,
+      selectedTrackID: trackID
+    )
+    try? editor.saveWorkspaceSelection()
+    let label =
+      editor.selectedTrack.instrument?.lowercased() == "voice"
+      ? "voice 主唱候选"
+      : editor.selectedTrack.label
+    return PreparedSelection(
+      snapshot: snapshot,
+      editor: editor,
+      statusMessage: "音轨 \(label)，\(editor.notes.count) 个音符"
+    )
+  }
+}
+
+private struct PreparedProject: Sendable {
+  let catalog: ProjectCatalog
+  let snapshot: ProjectSnapshot?
+  let editor: EditorProject?
+  let jobState: PrivateBetaJobState?
+  let statusMessage: String
+  let warning: String?
+
+  static func load(_ url: URL) throws -> PreparedProject {
+    let catalog = try ProjectLoader.inspect(url)
+    let stateURL = catalog.rootURL.appendingPathComponent(
+      "app/private_beta_job.json"
+    )
+    let jobState =
+      try? JSONDecoder().decode(
+        PrivateBetaJobState.self,
+        from: Data(contentsOf: stateURL)
+      )
+
+    var warning: String?
+    let workspace: EditorWorkspace?
+    do {
+      workspace = try EditorProject.loadWorkspace(
+        projectURL: catalog.rootURL
+      )
+    } catch {
+      workspace = nil
+      warning =
+        "旧编辑状态无法读取，已改用当前校验结果："
+        + ((error as? LocalizedError)?.errorDescription
+          ?? error.localizedDescription)
+    }
+    if let workspace {
+      do {
+        guard workspace.projectID == catalog.manifest.projectID,
+          let bundle = catalog.bundles.first(where: {
+            $0.id == workspace.canonicalBundleID
+          }),
+          try ProjectLoader.sha256(bundle.canonicalProjectURL)
+            == workspace.canonicalProjectSHA256
+        else {
+          throw AMTProjectError.editSessionMismatch
+        }
+        let snapshot = try ProjectLoader.open(
+          catalog,
+          bundleID: workspace.canonicalBundleID
+        )
+        guard
+          snapshot.tracks.contains(where: {
+            $0.id == workspace.selectedTrackID
+          })
+        else {
+          throw AMTProjectError.editSessionMismatch
+        }
+        let editor = try EditorProject(
+          snapshot: snapshot,
+          bundleID: workspace.canonicalBundleID,
+          selectedTrackID: workspace.selectedTrackID
+        )
+        return PreparedProject(
+          catalog: catalog,
+          snapshot: snapshot,
+          editor: editor,
+          jobState: jobState,
+          statusMessage: projectStatus(editor: editor),
+          warning: nil
+        )
+      } catch {
+        warning =
+          "旧编辑状态无法恢复，已改用当前校验结果："
+          + ((error as? LocalizedError)?.errorDescription
+            ?? error.localizedDescription)
+      }
+    }
+
+    guard catalog.bundles.count == 1 else {
+      return PreparedProject(
+        catalog: catalog,
+        snapshot: nil,
+        editor: nil,
+        jobState: jobState,
+        statusMessage: catalog.bundles.isEmpty
+          ? "项目还没有可打开的识别结果"
+          : "项目包含多个结果版本，请选择一个",
+        warning: warning
+      )
+    }
+    let bundle = catalog.bundles[0]
+    let snapshot = try ProjectLoader.open(catalog, bundleID: bundle.id)
+    let preferredTrack =
+      snapshot.tracks.first(where: {
+        $0.instrument?.lowercased() == "voice"
+      })
+      ?? (snapshot.tracks.count == 1 ? snapshot.tracks[0] : nil)
+    let editor: EditorProject?
+    if let preferredTrack {
+      let opened = try EditorProject(
+        snapshot: snapshot,
+        bundleID: bundle.id,
+        selectedTrackID: preferredTrack.id
+      )
+      try? opened.saveWorkspaceSelection()
+      editor = opened
+    } else {
+      editor = nil
+    }
+    return PreparedProject(
+      catalog: catalog,
+      snapshot: snapshot,
+      editor: editor,
+      jobState: jobState,
+      statusMessage: editor.map { projectStatus(editor: $0) }
+        ?? "已打开完整多轨；请选择要编辑的音轨",
+      warning: warning
+    )
+  }
+
+  private static func projectStatus(editor: EditorProject) -> String {
+    if editor.selectedTrack.instrument?.lowercased() == "voice" {
+      return "已打开 voice 主唱候选；长空缺会单独提示，不再把它冒充完整主旋律"
+    }
+    return "已打开音轨 \(editor.selectedTrack.label)，\(editor.notes.count) 个音符"
+  }
+}
+
+enum LocalProjectLibrary {
+  static func scan(rootURL: URL) throws -> [LocalProjectItem] {
+    guard FileManager.default.fileExists(atPath: rootURL.path) else {
+      return []
+    }
+    let children = try FileManager.default.contentsOfDirectory(
+      at: rootURL,
+      includingPropertiesForKeys: [
+        .isDirectoryKey,
+        .contentModificationDateKey,
+      ],
+      options: [.skipsHiddenFiles]
+    )
+    var projects: [LocalProjectItem] = []
+    for child in children {
+      guard
+        let values = try? child.resourceValues(
+          forKeys: [.isDirectoryKey, .contentModificationDateKey]
+        )
+      else {
+        continue
+      }
+      guard values.isDirectory == true else { continue }
+      let manifestURL = child.appendingPathComponent("manifest.json")
+      guard FileManager.default.fileExists(atPath: manifestURL.path),
+        let manifest = try? JSONDecoder().decode(
+          ProjectManifest.self,
+          from: Data(contentsOf: manifestURL)
+        )
+      else {
+        continue
+      }
+      let exportsURL = child.appendingPathComponent("exports")
+      let hasResults =
+        ((try? FileManager.default.contentsOfDirectory(
+          at: exportsURL,
+          includingPropertiesForKeys: nil
+        )) ?? [])
+        .contains {
+          FileManager.default.fileExists(
+            atPath: $0.appendingPathComponent("bundle_manifest.json").path
+          )
+        }
+      let stateURL = child.appendingPathComponent(
+        "app/private_beta_job.json"
+      )
+      let state =
+        try? JSONDecoder().decode(
+          PrivateBetaJobState.self,
+          from: Data(contentsOf: stateURL)
+        )
+      projects.append(
+        LocalProjectItem(
+          projectID: manifest.projectID,
+          title: manifest.title ?? manifest.projectID,
+          url: child,
+          modifiedAt: values.contentModificationDate ?? .distantPast,
+          hasResults: hasResults,
+          jobState: state?.slurmState
+        )
+      )
+    }
+    return projects.sorted {
+      if $0.modifiedAt == $1.modifiedAt {
+        return $0.title.localizedStandardCompare($1.title)
+          == .orderedAscending
+      }
+      return $0.modifiedAt > $1.modifiedAt
+    }
   }
 }
 
@@ -866,4 +1470,68 @@ enum ConfidenceReviewQueue {
         return first.id < second.id
       }
   }
+}
+
+enum MelodyCoverageAnalyzer {
+  static func gaps(
+    voiceNotes: [EditorNote],
+    allNotes: [EditorNote],
+    voiceTrackID: String,
+    duration: Double,
+    minimumGapDuration: Double = 3
+  ) -> [MelodyGap] {
+    guard duration.isFinite, duration > 0,
+      minimumGapDuration.isFinite, minimumGapDuration > 0
+    else {
+      return []
+    }
+    var merged: [(start: Double, end: Double)] = []
+    for note in voiceNotes.sorted(by: {
+      ($0.onsetSec, $0.offsetSec, $0.id)
+        < ($1.onsetSec, $1.offsetSec, $1.id)
+    }) {
+      guard note.onsetSec < duration else { continue }
+      let start = max(0, note.onsetSec)
+      let end = min(duration, note.offsetSec)
+      guard end > start else { continue }
+      if let last = merged.last, start <= last.end {
+        merged[merged.count - 1].end = max(last.end, end)
+      } else {
+        merged.append((start, end))
+      }
+    }
+
+    var ranges: [(Double, Double)] = []
+    var cursor = 0.0
+    for interval in merged {
+      if interval.start - cursor >= minimumGapDuration {
+        ranges.append((cursor, interval.start))
+      }
+      cursor = max(cursor, interval.end)
+    }
+    if duration - cursor >= minimumGapDuration {
+      ranges.append((cursor, duration))
+    }
+
+    return ranges.map { start, end in
+      let candidates = allNotes.filter {
+        $0.trackID != voiceTrackID
+          && $0.onsetSec < end
+          && $0.offsetSec > start
+      }
+      return MelodyGap(
+        startSec: start,
+        endSec: end,
+        otherTrackCount: Set(candidates.map(\.trackID)).count,
+        otherNoteCount: candidates.count
+      )
+    }
+  }
+}
+
+private func formatClock(_ seconds: Double) -> String {
+  let bounded = max(0, seconds)
+  let minutes = Int(bounded) / 60
+  let remainder = Int(bounded) % 60
+  return String(format: "%d:%02d", minutes, remainder)
 }

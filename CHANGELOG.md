@@ -4,6 +4,48 @@ This project records changes by numbered research task until formal semantic
 versions and releases begin. Dates and commit identifiers refer to the local
 Git history.
 
+## Task 009B2D — Responsive library and voice coverage — 2026-07-26
+
+Commit: this task's final commit
+
+### Added
+
+- Added a project home screen and prior-music sidebar backed by the existing
+  private project library, plus remembered security-scoped access for projects
+  opened outside the repository.
+- Added original-audio and MIDI-master volume controls.
+- Added `voice` coverage diagnostics: long-gap count/duration, direct gap
+  navigation, and per-gap note counts from other predicted tracks.
+- Reworded `voice` as a lead-vocal candidate instead of a complete
+  main-melody claim.
+
+### Changed
+
+- Moved project preparation, bundle/track selection, and MIDI-preview export
+  off the SwiftUI main actor with stale-result guards.
+- Cached editor materialization and melody-gap analysis, avoided reloading the
+  same audio for every track click, isolated transport refreshes, and split
+  the piano roll into lazy time segments.
+- Opened the Hyak login script without AppleScript Terminal control. Release
+  builds now use an installed Apple Development identity when available and
+  fall back to ad-hoc signing only when necessary.
+
+### Verified
+
+- The fetched 349.85-second `STILL LOVE HER` result has four `voice` gaps of
+  at least three seconds (`0.00–33.35`, `63.55–90.69`,
+  `104.52–131.41`, and `195.14–349.85`), totaling `242.09` seconds.
+  This corroborates the owner's report of high apparent pitch accuracy where
+  notes exist but poor time coverage; it is not a formal accuracy score.
+- All 24 Swift tests pass with three expected environment-gated skips. Both
+  real-project integration tests pass on the private fetched result.
+- Final `make check` passes 247 Python and 24 Swift tests. A focused P0/P1
+  review found no remaining blocker.
+- The release app passes strict Apple Development signature and plist
+  validation and launches on the real fetched project.
+- No inference, Slurm submission, model retuning, or destructive merge was
+  performed.
+
 ## Task 009B2C — Reconnectable multitrack mixer — 2026-07-26
 
 Commit: this task's final commit

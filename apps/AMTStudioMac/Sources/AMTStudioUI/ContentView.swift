@@ -36,7 +36,10 @@ public struct ContentView: View {
         Button("识别歌曲", systemImage: "waveform.badge.plus") {
           importAudioPanel()
         }
-        .disabled(model.isBetaBusy || model.hasActiveBetaJob)
+        .disabled(
+          model.isBetaBusy || model.hasActiveBetaJob
+            || model.isLoadingProject
+        )
         .help(
           model.hasActiveBetaJob
             ? "当前已有任务，完成或失败前不会重复提交"
@@ -55,7 +58,13 @@ public struct ContentView: View {
         Button("打开项目", systemImage: "folder") {
           openProjectPanel()
         }
+        .disabled(model.isLoadingProject)
         .accessibilityIdentifier("open-project")
+        Button("结果文件夹", systemImage: "folder.badge.gearshape") {
+          model.revealCurrentProject()
+        }
+        .disabled(model.catalog == nil)
+        .accessibilityIdentifier("reveal-project")
         Button("保存", systemImage: "square.and.arrow.down") {
           model.save()
         }
@@ -101,6 +110,7 @@ public struct ContentView: View {
     }
     .task {
       await Task.yield()
+      model.refreshProjectLibrary()
       model.openInitialProjectIfNeeded()
     }
   }
@@ -108,6 +118,57 @@ public struct ContentView: View {
   @ViewBuilder
   private var sidebar: some View {
     List {
+      Section("以前的音乐") {
+        if model.libraryProjects.isEmpty {
+          if model.isRefreshingLibrary {
+            ProgressView("正在读取本地音乐库…")
+              .controlSize(.small)
+          } else {
+            Text("还没有可打开的本地项目")
+              .foregroundStyle(.secondary)
+          }
+        } else {
+          ForEach(Array(model.libraryProjects.prefix(12))) { project in
+            Button {
+              model.openProject(project.url)
+            } label: {
+              HStack(spacing: 8) {
+                Image(
+                  systemName: project.hasResults
+                    ? "music.note.house.fill"
+                    : "hourglass"
+                )
+                .foregroundStyle(
+                  model.catalog?.rootURL == project.url
+                    ? Color.accentColor
+                    : Color.secondary
+                )
+                VStack(alignment: .leading, spacing: 2) {
+                  Text(project.title)
+                    .lineLimit(1)
+                  Text(project.stateLabel)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                }
+                Spacer()
+                if model.catalog?.rootURL == project.url {
+                  Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.tint)
+                }
+              }
+              .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(model.isLoadingProject)
+            .accessibilityIdentifier("library-\(project.projectID)")
+          }
+        }
+        Button("刷新音乐库", systemImage: "arrow.clockwise") {
+          model.refreshProjectLibrary()
+        }
+        .disabled(model.isRefreshingLibrary)
+      }
+
       Section("项目") {
         if let manifest = model.catalog?.manifest {
           LabeledContent(
@@ -145,7 +206,7 @@ public struct ContentView: View {
       }
 
       if !model.bundleChoices.isEmpty {
-        Section("Canonical bundle（必须明确选择）") {
+        Section("识别版本") {
           ForEach(model.bundleChoices) { bundle in
             Button {
               model.chooseBundle(bundle.id)
@@ -159,6 +220,7 @@ public struct ContentView: View {
               }
             }
             .buttonStyle(.plain)
+            .disabled(model.isLoadingSelection)
             .accessibilityIdentifier("bundle-\(bundle.id)")
           }
         }
@@ -221,6 +283,7 @@ public struct ContentView: View {
                   .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .disabled(model.isLoadingSelection)
                 .accessibilityIdentifier("track-\(track.id)")
 
                 Button("M") {
@@ -281,6 +344,41 @@ public struct ContentView: View {
         }
       }
 
+      if !model.melodyGaps.isEmpty {
+        Section("主旋律覆盖") {
+          Label(
+            "voice 有 \(model.melodyGaps.count) 段 ≥3 秒的疑似空缺",
+            systemImage: "waveform.path.badge.minus"
+          )
+          .foregroundStyle(.orange)
+          Text(
+            "合计约 \(formatTime(model.melodyGapDuration))。这表示时间覆盖不足，不代表已识别音符不准。"
+          )
+          .font(.caption)
+          .foregroundStyle(.secondary)
+          Button("跳到下一处空缺", systemImage: "forward.end") {
+            model.seekToNextMelodyGap()
+          }
+          .accessibilityIdentifier("next-melody-gap")
+          ForEach(Array(model.melodyGaps.prefix(4))) { gap in
+            VStack(alignment: .leading, spacing: 2) {
+              Text(
+                "\(formatTime(gap.startSec))–\(formatTime(gap.endSec)) · \(formatTime(gap.duration))"
+              )
+              .font(.caption.monospacedDigit())
+              Text(
+                "同期其他 \(gap.otherTrackCount) 轨有 \(gap.otherNoteCount) 个音符，可逐轨独奏寻找补全候选"
+              )
+              .font(.caption2)
+              .foregroundStyle(.secondary)
+            }
+          }
+          Text("原始 voice 不会被自动覆盖；伴奏候选与已确认主唱旋律保持分离。")
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+        }
+      }
+
       if let editor = model.editor {
         Section("当前编辑音轨") {
           LabeledContent("名称", value: editor.selectedTrack.label)
@@ -292,13 +390,19 @@ public struct ContentView: View {
       }
     }
     .safeAreaInset(edge: .bottom) {
-      Text(model.statusMessage)
-        .font(.caption)
-        .foregroundStyle(.secondary)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(10)
-        .background(.bar)
-        .accessibilityIdentifier("status-message")
+      HStack(spacing: 8) {
+        if model.isLoadingProject || model.isLoadingSelection {
+          ProgressView()
+            .controlSize(.small)
+        }
+        Text(model.statusMessage)
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .padding(10)
+      .background(.bar)
+      .accessibilityIdentifier("status-message")
     }
   }
 
@@ -339,7 +443,17 @@ public struct ContentView: View {
 
   @ViewBuilder
   private var detail: some View {
-    if let editor = model.editor {
+    if model.isLoadingProject {
+      VStack(spacing: 14) {
+        ProgressView()
+          .controlSize(.large)
+        Text("正在后台校验项目")
+          .font(.headline)
+        Text("界面可以继续响应；不会重新运行模型。")
+          .foregroundStyle(.secondary)
+      }
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
+    } else if let editor = model.editor {
       WorkspaceView(
         model: model,
         transport: model.transport,
@@ -355,19 +469,21 @@ public struct ContentView: View {
       EmptyStateView(
         icon: "music.note.list",
         title: "请选择一条音轨",
-        message: "这个结果含 \(snapshot.tracks.count) 条 MuScriptor 原始音轨；voice 存在时会自动作为主旋律入口。"
+        message: "这个结果含 \(snapshot.tracks.count) 条 MuScriptor 原始音轨；voice 存在时会自动作为主唱候选入口，并单独显示长空缺。"
       )
     } else if model.catalog != nil {
       EmptyStateView(
         icon: "shippingbox",
-        title: "请选择 canonical bundle",
-        message: "项目没有 active/latest 指针，因此必须由你明确选择要编辑的版本。"
+        title: "请选择识别版本",
+        message: "这个项目有多个结果版本，请从左侧选择要试听和编辑的一版。"
       )
     } else {
-      EmptyStateView(
-        icon: "waveform",
-        title: "AMT Studio",
-        message: "先连接 Hyak，再点“识别歌曲”选择 MP3/WAV；完成后会自动打开 voice 主旋律和完整多轨。"
+      LibraryHomeView(
+        projects: model.libraryProjects,
+        isBusy: model.isBetaBusy || model.hasActiveBetaJob,
+        onTranscribe: importAudioPanel,
+        onOpenProject: openProjectPanel,
+        onSelectProject: model.openProject
       )
     }
   }
@@ -379,7 +495,7 @@ public struct ContentView: View {
     panel.canChooseFiles = false
     panel.allowsMultipleSelection = false
     if panel.runModal() == .OK, let url = panel.url {
-      model.openProject(url)
+      model.openAuthorizedProject(url)
     }
   }
 
@@ -434,6 +550,103 @@ public struct ContentView: View {
   }
 }
 
+private struct LibraryHomeView: View {
+  let projects: [LocalProjectItem]
+  let isBusy: Bool
+  let onTranscribe: () -> Void
+  let onOpenProject: () -> Void
+  let onSelectProject: (URL) -> Void
+
+  var body: some View {
+    ScrollView {
+      VStack(alignment: .leading, spacing: 26) {
+        VStack(alignment: .leading, spacing: 8) {
+          Label("AMT Studio", systemImage: "waveform")
+            .font(.system(size: 34, weight: .bold))
+          Text("把一首歌变成可以试听、分轨和编辑的 MIDI。模型在 Hyak GPU 运行，Mac 负责项目与编辑。")
+            .font(.title3)
+            .foregroundStyle(.secondary)
+        }
+
+        HStack(spacing: 16) {
+          Button(action: onTranscribe) {
+            Label("识别一首新歌", systemImage: "waveform.badge.plus")
+              .font(.headline)
+              .frame(maxWidth: .infinity, minHeight: 70)
+          }
+          .buttonStyle(.borderedProminent)
+          .disabled(isBusy)
+
+          Button(action: onOpenProject) {
+            Label("打开已有项目", systemImage: "folder")
+              .font(.headline)
+              .frame(maxWidth: .infinity, minHeight: 70)
+          }
+          .buttonStyle(.bordered)
+        }
+
+        if !projects.isEmpty {
+          VStack(alignment: .leading, spacing: 12) {
+            Text("以前的音乐")
+              .font(.title2.bold())
+            LazyVGrid(
+              columns: [
+                GridItem(.flexible(), spacing: 12),
+                GridItem(.flexible(), spacing: 12),
+              ],
+              spacing: 12
+            ) {
+              ForEach(Array(projects.prefix(8))) { project in
+                Button {
+                  onSelectProject(project.url)
+                } label: {
+                  HStack(spacing: 12) {
+                    Image(
+                      systemName: project.hasResults
+                        ? "music.note.house.fill"
+                        : "hourglass"
+                    )
+                    .font(.title2)
+                    .foregroundStyle(
+                      project.hasResults ? Color.accentColor : Color.secondary
+                    )
+                    VStack(alignment: .leading, spacing: 4) {
+                      Text(project.title)
+                        .font(.headline)
+                        .lineLimit(2)
+                      Text(project.stateLabel)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                      .foregroundStyle(.tertiary)
+                  }
+                  .padding(14)
+                  .frame(maxWidth: .infinity, minHeight: 82)
+                  .background(.quaternary.opacity(0.45))
+                  .clipShape(RoundedRectangle(cornerRadius: 12))
+                }
+                .buttonStyle(.plain)
+              }
+            }
+          }
+        }
+
+        Label(
+          "已经提交的 Hyak 作业在关闭窗口或 SSH 登录过期后仍会继续；重新连接只恢复查询，不会重复提交。",
+          systemImage: "checkmark.shield"
+        )
+        .font(.callout)
+        .foregroundStyle(.secondary)
+      }
+      .frame(maxWidth: 920, alignment: .leading)
+      .padding(44)
+      .frame(maxWidth: .infinity, alignment: .top)
+    }
+  }
+}
+
 private struct EmptyStateView: View {
   let icon: String
   let title: String
@@ -451,27 +664,27 @@ private struct EmptyStateView: View {
 
 private struct WorkspaceView: View {
   @ObservedObject var model: AppModel
-  @ObservedObject var transport: AudioTransport
+  let transport: AudioTransport
   let editor: EditorProject
 
   var body: some View {
     HSplitView {
       VStack(spacing: 0) {
-        transportControls
+        TransportControlsView(
+          model: model,
+          transport: transport,
+          timelineDuration: timelineDuration
+        )
         Divider()
-        AudioWaveformView(
-          samples: transport.waveformSamples,
-          isLoading: transport.waveformLoading,
-          errorMessage: transport.waveformErrorMessage,
-          currentTime: transport.currentTime,
-          audioDuration: transport.duration,
+        AudioWaveformPanel(
+          transport: transport,
           timelineDuration: timelineDuration
         )
         .frame(height: 90)
         Divider()
         PianoRollView(
           notes: editor.notes,
-          currentTime: transport.currentTime,
+          transport: transport,
           duration: timelineDuration,
           selectedNoteID: $model.selectedNoteID,
           onCommit: model.commit
@@ -487,12 +700,40 @@ private struct WorkspaceView: View {
   private var timelineDuration: Double {
     max(
       transport.duration,
-      editor.notes.map(\.offsetSec).max() ?? 1,
+      editor.snapshot.notes.map(\.offsetSec).max() ?? 1,
       1
     )
   }
 
-  private var transportControls: some View {
+  @ViewBuilder
+  private var inspector: some View {
+    VStack(spacing: 0) {
+      ConfidenceReviewPanel(model: model)
+      Divider()
+      if let note = model.selectedNote {
+        NoteInspector(
+          note: note,
+          onCommit: model.commit,
+          onDelete: model.deleteSelectedNote
+        )
+        .id("\(note.id)-\(note.onsetSec)-\(note.offsetSec)-\(note.pitchMIDI)")
+      } else {
+        EmptyStateView(
+          icon: "cursorarrow.click",
+          title: "选择音符",
+          message: "拖动音符可同时改变时间与音高；拖左右把手可调整长度。"
+        )
+      }
+    }
+  }
+}
+
+private struct TransportControlsView: View {
+  @ObservedObject var model: AppModel
+  @ObservedObject var transport: AudioTransport
+  let timelineDuration: Double
+
+  var body: some View {
     VStack(alignment: .leading, spacing: 6) {
       HStack(spacing: 12) {
         Button {
@@ -550,6 +791,51 @@ private struct WorkspaceView: View {
         .font(.caption)
         .foregroundStyle(.secondary)
       }
+      HStack(spacing: 10) {
+        Label("原曲音量", systemImage: "waveform")
+          .font(.caption)
+        Slider(
+          value: Binding(
+            get: { transport.originalVolume },
+            set: { model.setOriginalVolume($0) }
+          ),
+          in: 0...1
+        )
+        .frame(maxWidth: 150)
+        .accessibilityIdentifier("original-volume")
+        Text(
+          transport.originalVolume.formatted(
+            .percent.precision(.fractionLength(0))
+          )
+        )
+        .font(.caption.monospacedDigit())
+        .frame(width: 36, alignment: .trailing)
+
+        Label("MIDI 总音量", systemImage: "pianokeys")
+          .font(.caption)
+        Slider(
+          value: Binding(
+            get: { model.midiMasterVolume },
+            set: { model.setMIDIMasterVolume($0) }
+          ),
+          in: 0...1
+        )
+        .frame(maxWidth: 150)
+        .accessibilityIdentifier("midi-master-volume")
+        Text(
+          model.midiMasterVolume.formatted(
+            .percent.precision(.fractionLength(0))
+          )
+        )
+        .font(.caption.monospacedDigit())
+        .frame(width: 36, alignment: .trailing)
+        if transport.midiLoading {
+          ProgressView("正在更新 MIDI…")
+            .controlSize(.small)
+            .font(.caption)
+        }
+        Spacer()
+      }
       ForEach(transport.errorMessages, id: \.self) { message in
         Label(message, systemImage: "exclamationmark.triangle.fill")
           .font(.caption)
@@ -559,27 +845,21 @@ private struct WorkspaceView: View {
     }
     .padding(10)
   }
+}
 
-  @ViewBuilder
-  private var inspector: some View {
-    VStack(spacing: 0) {
-      ConfidenceReviewPanel(model: model)
-      Divider()
-      if let note = model.selectedNote {
-        NoteInspector(
-          note: note,
-          onCommit: model.commit,
-          onDelete: model.deleteSelectedNote
-        )
-        .id("\(note.id)-\(note.onsetSec)-\(note.offsetSec)-\(note.pitchMIDI)")
-      } else {
-        EmptyStateView(
-          icon: "cursorarrow.click",
-          title: "选择音符",
-          message: "拖动音符可同时改变时间与音高；拖左右把手可调整长度。"
-        )
-      }
-    }
+private struct AudioWaveformPanel: View {
+  @ObservedObject var transport: AudioTransport
+  let timelineDuration: Double
+
+  var body: some View {
+    AudioWaveformView(
+      samples: transport.waveformSamples,
+      isLoading: transport.waveformLoading,
+      errorMessage: transport.waveformErrorMessage,
+      currentTime: transport.currentTime,
+      audioDuration: transport.duration,
+      timelineDuration: timelineDuration
+    )
   }
 }
 
@@ -760,13 +1040,14 @@ private struct ConfidenceReviewPanel: View {
 
 private struct PianoRollView: View {
   let notes: [EditorNote]
-  let currentTime: Double
+  let transport: AudioTransport
   let duration: Double
   @Binding var selectedNoteID: String?
   let onCommit: (EditorNote) -> Void
 
   private let pointsPerSecond = 28.0
   private let pointsPerSemitone = 14.0
+  private let segmentDuration = 10.0
 
   var body: some View {
     let minimumPitch = max(
@@ -782,6 +1063,13 @@ private struct PianoRollView: View {
       520,
       (maximumPitch - minimumPitch + 1) * pointsPerSemitone
     )
+    let segmentCount = max(1, Int(ceil(duration / segmentDuration)))
+    let notesBySegment = Dictionary(grouping: notes) {
+      min(
+        segmentCount - 1,
+        max(0, Int($0.onsetSec / segmentDuration))
+      )
+    }
 
     ScrollView([.horizontal, .vertical]) {
       ZStack(alignment: .topLeading) {
@@ -792,28 +1080,77 @@ private struct PianoRollView: View {
           pointsPerSecond: pointsPerSecond,
           pointsPerSemitone: pointsPerSemitone
         )
-        ForEach(notes) { note in
-          NoteBlock(
-            note: note,
-            minimumPitch: minimumPitch,
-            maximumPitch: maximumPitch,
-            pointsPerSecond: pointsPerSecond,
-            pointsPerSemitone: pointsPerSemitone,
-            selected: note.id == selectedNoteID,
-            onSelect: { selectedNoteID = note.id },
-            onCommit: onCommit
-          )
+        LazyHStack(alignment: .top, spacing: 0) {
+          ForEach(0..<segmentCount, id: \.self) { index in
+            PianoRollSegment(
+              notes: notesBySegment[index] ?? [],
+              timeOrigin: Double(index) * segmentDuration,
+              minimumPitch: minimumPitch,
+              maximumPitch: maximumPitch,
+              pointsPerSecond: pointsPerSecond,
+              pointsPerSemitone: pointsPerSemitone,
+              selectedNoteID: $selectedNoteID,
+              onCommit: onCommit
+            )
+            .frame(
+              width: segmentDuration * pointsPerSecond,
+              height: contentHeight
+            )
+          }
         }
-        Rectangle()
-          .fill(.red.opacity(0.85))
-          .frame(width: 1, height: contentHeight)
-          .offset(x: currentTime * pointsPerSecond)
-          .allowsHitTesting(false)
+        PianoRollPlayhead(
+          transport: transport,
+          pointsPerSecond: pointsPerSecond,
+          contentHeight: contentHeight
+        )
       }
       .frame(width: contentWidth, height: contentHeight)
     }
     .background(Color(nsColor: .textBackgroundColor))
     .accessibilityIdentifier("piano-roll")
+  }
+}
+
+private struct PianoRollSegment: View {
+  let notes: [EditorNote]
+  let timeOrigin: Double
+  let minimumPitch: Double
+  let maximumPitch: Double
+  let pointsPerSecond: Double
+  let pointsPerSemitone: Double
+  @Binding var selectedNoteID: String?
+  let onCommit: (EditorNote) -> Void
+
+  var body: some View {
+    ZStack(alignment: .topLeading) {
+      ForEach(notes) { note in
+        NoteBlock(
+          note: note,
+          timeOrigin: timeOrigin,
+          minimumPitch: minimumPitch,
+          maximumPitch: maximumPitch,
+          pointsPerSecond: pointsPerSecond,
+          pointsPerSemitone: pointsPerSemitone,
+          selected: note.id == selectedNoteID,
+          onSelect: { selectedNoteID = note.id },
+          onCommit: onCommit
+        )
+      }
+    }
+  }
+}
+
+private struct PianoRollPlayhead: View {
+  @ObservedObject var transport: AudioTransport
+  let pointsPerSecond: Double
+  let contentHeight: Double
+
+  var body: some View {
+    Rectangle()
+      .fill(.red.opacity(0.85))
+      .frame(width: 1, height: contentHeight)
+      .offset(x: transport.currentTime * pointsPerSecond)
+      .allowsHitTesting(false)
   }
 }
 
@@ -930,6 +1267,7 @@ enum NoteGestureProjection {
 
 private struct NoteBlock: View {
   let note: EditorNote
+  let timeOrigin: Double
   let minimumPitch: Double
   let maximumPitch: Double
   let pointsPerSecond: Double
@@ -952,7 +1290,7 @@ private struct NoteBlock: View {
       baseWidth - leftDrag.width + rightDrag.width
     )
     let x =
-      note.onsetSec * pointsPerSecond
+      (note.onsetSec - timeOrigin) * pointsPerSecond
       + adjustedWidth / 2
       + leftDrag.width
       + bodyDrag.width

@@ -1,14 +1,52 @@
 # Project status
 
-Current product milestone: Task 009B2C usable private Beta, using the useful
+Current product milestone: Task 009B2D responsive private Beta, using the useful
 Task 002 MuScriptor full-song multitrack baseline selected by the project owner
 Research status: Gate 4 remains not passed for the rejected fusion routes; no
 new dataset, fusion, retuning, or training work is in the product critical path
-Current task: Task 009B2C reconnect and multitrack mixer implementation
-complete; hand the fetched new-song result to the owner for product acceptance
-Next task: only owner acceptance and genuine P0/P1 fixes; do not restart
-Task 007 experiments or Task 010
+Current task: Task 009B2D responsiveness, prior-project library, permission
+flow, and voice-coverage diagnostics complete
+Next task: owner acceptance of the rebuilt app; only genuine product blockers
+after that, without restarting Task 007 experiments or Task 010
 Current branch: `main`
+
+Implemented for Task 009B2D responsiveness and melody coverage:
+
+- project loading, bundle/track selection, note materialization, and MIDI
+  preview generation no longer perform full-project work on the SwiftUI main
+  actor; stale background selections and previews are discarded;
+- playback observes only the transport components that need live updates, the
+  piano roll uses lazy 10-second segments, and selecting a track no longer
+  reloads the same FLAC or rewrites every note into the edit history;
+- the start screen and sidebar list six existing private song projects, so
+  prior music can be reopened without choosing its folder again;
+- external project access is remembered with security-scoped bookmarks.
+  `连接 Hyak` opens the login script through LaunchServices instead of
+  automating Terminal, and release builds use the installed Apple Development
+  identity when available instead of changing ad-hoc identity every build;
+- original-audio and MIDI-master volume controls make the transcription
+  audible over the song;
+- `voice` is now described as a **主唱候选**, not a complete main melody. The
+  app detects silent spans of at least three seconds, seeks through them, and
+  reports how many other predicted tracks contain notes in each span without
+  automatically copying accompaniment into `voice`;
+- on the 349.85-second `STILL LOVE HER` result, the 254-note `voice` candidate
+  has four such spans: `0.00–33.35`, `63.55–90.69`,
+  `104.52–131.41`, and `195.14–349.85`, totaling `242.09` seconds.
+  The owner's listening says detected voice notes are usually accurate while
+  these long omissions are obvious; this is product feedback, not a formal
+  accuracy measurement;
+- 24 Swift tests pass with three expected environment-gated skips. Two
+  private real-project integration tests also pass; opening the full project
+  returns control to the main actor promptly while background preparation
+  completes;
+- final `make check` passes all 247 Python and 24 Swift tests. A focused
+  P0/P1 review found no remaining blocker;
+- the release app is signed with the installed Apple Development identity,
+  passes strict signature/plist validation, and is running on the real fetched
+  project;
+- this slice submitted no Hyak/model job, did not alter canonical model
+  output, and did not attempt an unsafe automatic melody merge.
 
 Implemented for Task 009B2C usability:
 

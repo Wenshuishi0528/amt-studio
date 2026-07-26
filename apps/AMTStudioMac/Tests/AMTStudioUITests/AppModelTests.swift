@@ -6,6 +6,31 @@ import XCTest
 
 @MainActor
 final class AppModelTests: XCTestCase {
+  func testConfiguredRealProjectOpensWithoutBlockingMainActor() async throws {
+    guard
+      let projectPath = ProcessInfo.processInfo.environment[
+        "AMT_STUDIO_REAL_PROJECT"
+      ]
+    else {
+      throw XCTSkip("Set AMT_STUDIO_REAL_PROJECT for private integration.")
+    }
+    let model = AppModel(
+      initialProjectURL: URL(fileURLWithPath: projectPath),
+      restoreRecent: false,
+      persistRecentProject: false
+    )
+    let start = ContinuousClock.now
+    model.openInitialProjectIfNeeded()
+    let returnLatency = start.duration(to: .now)
+    XCTAssertLessThan(returnLatency, .milliseconds(100))
+
+    await model.waitForProjectLoadForTesting()
+
+    XCTAssertEqual(model.catalog?.rootURL.path, projectPath)
+    XCTAssertNotNil(model.snapshot)
+    XCTAssertNotNil(model.editor)
+  }
+
   func testConfiguredBetaProjectAutomaticallyRefreshesJobState() async throws {
     guard
       let projectPath = ProcessInfo.processInfo.environment[
@@ -20,6 +45,7 @@ final class AppModelTests: XCTestCase {
       persistRecentProject: false
     )
     model.openInitialProjectIfNeeded()
+    await model.waitForProjectLoadForTesting()
     XCTAssertEqual(model.betaProjectURL?.path, projectPath)
     try await Task.sleep(for: .seconds(22))
     XCTAssertNotNil(model.betaJobID)
@@ -27,7 +53,7 @@ final class AppModelTests: XCTestCase {
     XCTAssertNotEqual(model.betaSlurmState, "PENDING")
   }
 
-  func testMissingProjectProducesActionableErrorWithoutStartingAJob() {
+  func testMissingProjectProducesActionableErrorWithoutStartingAJob() async {
     let defaults = UserDefaults(
       suiteName: "AMTStudioUITests.\(UUID().uuidString)"
     )!
@@ -35,6 +61,7 @@ final class AppModelTests: XCTestCase {
     model.openProject(
       URL(fileURLWithPath: "/missing/AMT Studio project")
     )
+    await model.waitForProjectLoadForTesting()
     XCTAssertNotNil(model.errorMessage)
     XCTAssertEqual(model.statusMessage, "操作失败")
     XCTAssertNil(model.editor)
@@ -143,9 +170,88 @@ final class AppModelTests: XCTestCase {
       800,
       accuracy: 0.000_001
     )
+
+    let transport = AudioTransport()
+    transport.load(audioURL: waveformURL)
+    transport.seek(to: 0.000_05)
+    transport.load(audioURL: waveformURL)
+    XCTAssertEqual(transport.currentTime, 0.000_05, accuracy: 0.000_001)
   }
 
-  func testOpenEditUndoRedoExportAndRestart() throws {
+  func testMelodyCoverageReportsLongVoiceGapsWithoutCallingThemErrors() {
+    let voice = [
+      reviewNote(
+        id: "voice-a",
+        trackID: "voice",
+        onset: 5,
+        offset: 7
+      ),
+      reviewNote(
+        id: "voice-b",
+        trackID: "voice",
+        onset: 12,
+        offset: 13
+      ),
+    ]
+    let accompaniment = [
+      reviewNote(
+        id: "guitar-a",
+        trackID: "guitar",
+        onset: 0,
+        offset: 6
+      ),
+      reviewNote(
+        id: "piano-a",
+        trackID: "piano",
+        onset: 8,
+        offset: 18
+      ),
+    ]
+    let gaps = MelodyCoverageAnalyzer.gaps(
+      voiceNotes: voice,
+      allNotes: voice + accompaniment,
+      voiceTrackID: "voice",
+      duration: 20
+    )
+
+    XCTAssertEqual(
+      gaps.map { [$0.startSec, $0.endSec] },
+      [[0, 5], [7, 12], [13, 20]]
+    )
+    XCTAssertEqual(gaps.map(\.otherTrackCount), [1, 1, 1])
+    XCTAssertEqual(gaps.map(\.otherNoteCount), [1, 1, 1])
+  }
+
+  func testLocalProjectLibraryFindsPreviousSongsWithoutOpeningThem() throws {
+    let root = FileManager.default.temporaryDirectory
+      .appendingPathComponent("AMT Studio library \(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let project = root.appendingPathComponent("以前的歌")
+    try FileManager.default.createDirectory(
+      at: project,
+      withIntermediateDirectories: true
+    )
+    try writeFixtureJSON(
+      [
+        "schema_version": 1,
+        "project_id": "previous-song",
+        "title": "以前的歌",
+        "canonical_audio": [
+          "path": "audio/canonical/mix.flac",
+          "sha256": String(repeating: "a", count: 64),
+        ],
+      ],
+      to: project.appendingPathComponent("manifest.json")
+    )
+
+    let items = try LocalProjectLibrary.scan(rootURL: root)
+
+    XCTAssertEqual(items.count, 1)
+    XCTAssertEqual(items[0].title, "以前的歌")
+    XCTAssertEqual(items[0].stateLabel, "尚无结果")
+  }
+
+  func testOpenEditUndoRedoExportAndRestart() async throws {
     let fixture = try AppFixtureProject()
     defer { fixture.remove() }
     let suiteName = "AMTStudioUITests.\(UUID().uuidString)"
@@ -159,7 +265,11 @@ final class AppModelTests: XCTestCase {
     )
     XCTAssertNil(model.catalog)
     model.openInitialProjectIfNeeded()
+    await model.waitForProjectLoadForTesting()
     XCTAssertEqual(model.bundleChoices.map(\.id), ["bundle-ui"])
+    XCTAssertEqual(model.editor?.selectedTrack.id, "candidate-ui")
+    model.chooseTrack("candidate-ui")
+    await model.waitForSelectionLoadForTesting()
     XCTAssertEqual(model.editor?.selectedTrack.id, "candidate-ui")
     let original = try XCTUnwrap(model.notes.first)
     let originalEvents = try Data(contentsOf: fixture.eventsURL)
@@ -195,11 +305,12 @@ final class AppModelTests: XCTestCase {
     let reopened = AppModel(defaults: defaults, restoreRecent: true)
     XCTAssertNil(reopened.catalog)
     reopened.openInitialProjectIfNeeded()
+    await reopened.waitForProjectLoadForTesting()
     XCTAssertEqual(reopened.editor?.selectedTrack.id, "candidate-ui")
     XCTAssertEqual(reopened.notes.first, moved)
   }
 
-  func testMixerControlsAndSettingsPersistAcrossRestart() throws {
+  func testMixerControlsAndSettingsPersistAcrossRestart() async throws {
     let fixture = try AppFixtureProject()
     defer { fixture.remove() }
     let suiteName = "AMTStudioUITests.\(UUID().uuidString)"
@@ -211,6 +322,7 @@ final class AppModelTests: XCTestCase {
       restoreRecent: false
     )
     model.openInitialProjectIfNeeded()
+    await model.waitForProjectLoadForTesting()
 
     XCTAssertEqual(model.midiPlaybackMode, .mix)
     XCTAssertEqual(model.audibleTrackCount, 1)
@@ -219,10 +331,13 @@ final class AppModelTests: XCTestCase {
     XCTAssertEqual(model.audibleTrackCount, 0)
     model.enableAllTracks()
     model.setTrackVolume(0.25, trackID: "candidate-ui")
+    model.setOriginalVolume(0.2)
+    model.setMIDIMasterVolume(0.6)
     model.listenToSelectedTrack()
 
     let reopened = AppModel(defaults: defaults, restoreRecent: true)
     reopened.openInitialProjectIfNeeded()
+    await reopened.waitForProjectLoadForTesting()
     XCTAssertEqual(reopened.midiPlaybackMode, .currentTrack)
     XCTAssertEqual(
       reopened.volume(for: "candidate-ui"),
@@ -230,9 +345,11 @@ final class AppModelTests: XCTestCase {
       accuracy: 0.000_001
     )
     XCTAssertEqual(reopened.audibleTrackIDs, Set(["candidate-ui"]))
+    XCTAssertEqual(reopened.transport.originalVolume, 0.2, accuracy: 0.000_001)
+    XCTAssertEqual(reopened.midiMasterVolume, 0.6, accuracy: 0.000_001)
   }
 
-  func testCompletedBetaProjectRestoresWithoutBlockingNewSubmission() throws {
+  func testCompletedBetaProjectRestoresWithoutBlockingNewSubmission() async throws {
     let fixture = try AppFixtureProject()
     defer { fixture.remove() }
     try fixture.writePrivateBetaState(
@@ -249,6 +366,7 @@ final class AppModelTests: XCTestCase {
 
     let model = AppModel(defaults: defaults, restoreRecent: true)
     model.openInitialProjectIfNeeded()
+    await model.waitForProjectLoadForTesting()
 
     XCTAssertEqual(model.catalog?.rootURL.path, fixture.root.path)
     XCTAssertEqual(model.betaJobID, "fixture-job")
@@ -451,16 +569,18 @@ private func pcmWAV(
 
 private func reviewNote(
   id: String,
+  trackID: String = "candidate",
   onset: Double,
-  confidence: Double?
+  offset: Double? = nil,
+  confidence: Double? = nil
 ) -> EditorNote {
   EditorNote(
     id: id,
-    trackID: "candidate",
+    trackID: trackID,
     sourceTrackID: "source",
     instrument: "voice",
     onsetSec: onset,
-    offsetSec: onset + 0.5,
+    offsetSec: offset ?? onset + 0.5,
     pitchMIDI: 60,
     velocity: 80,
     confidence: confidence,

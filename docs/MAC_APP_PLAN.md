@@ -38,6 +38,21 @@ separately from the recent editor project. Expired SSH authentication is shown
 as a reconnect state; completing password and Duo in Terminal resumes polling
 the existing Slurm job rather than submitting another one.
 
+Task 009B2D makes that Beta usable with full-song results. Project and track
+preparation plus MIDI-preview export run off the main actor, note state and
+coverage analysis are cached, and the piano roll is divided into lazy bounded
+segments. Existing private projects appear as a reusable music library, and
+security-scoped bookmarks retain access to externally opened projects.
+Original audio and MIDI preview have separate master levels.
+
+The product now treats `voice` as a lead-vocal candidate whose precision and
+time coverage are separate questions. It surfaces gaps of at least three
+seconds and other-track activity at the same times, but does not automatically
+merge those notes: an accompaniment note, a mislabeled melody note, and a
+model hallucination cannot be distinguished without more evidence. This keeps
+the complete raw multitrack output non-destructive while providing a concrete
+next place to listen or edit.
+
 Before first Hyak use, copy `configs/hyak.example.json` to the ignored
 `configs/local_hyak.json` and fill in `host` plus `remote_root`. The current
 machine already has this non-secret local configuration; passwords and Duo

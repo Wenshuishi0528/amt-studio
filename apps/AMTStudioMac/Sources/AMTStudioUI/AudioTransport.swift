@@ -8,8 +8,10 @@ public final class AudioTransport: ObservableObject {
   @Published public private(set) var isPlaying = false
   @Published public private(set) var audioURL: URL?
   @Published public private(set) var midiAvailable = false
+  @Published public private(set) var midiLoading = false
   @Published public private(set) var originalEnabled = true
   @Published public private(set) var midiEnabled = true
+  @Published public private(set) var originalVolume = 0.35
   @Published public private(set) var audioErrorMessage: String?
   @Published public private(set) var midiErrorMessage: String?
   @Published public private(set) var waveformSamples: [Float] = []
@@ -31,9 +33,15 @@ public final class AudioTransport: ObservableObject {
   }
 
   public func load(audioURL: URL) {
+    if self.audioURL?.standardizedFileURL == audioURL.standardizedFileURL,
+      audioPlayer != nil
+    {
+      return
+    }
     stop()
     do {
       let player = try AVAudioPlayer(contentsOf: audioURL)
+      player.volume = Float(originalVolume)
       player.prepareToPlay()
       audioPlayer = player
       self.audioURL = audioURL
@@ -55,6 +63,7 @@ public final class AudioTransport: ObservableObject {
       player.currentPosition = min(position, player.duration)
       midiPlayer = player
       midiAvailable = true
+      midiLoading = false
       midiErrorMessage = nil
       if wasPlaying, midiEnabled {
         player.play {}
@@ -70,13 +79,25 @@ public final class AudioTransport: ObservableObject {
     midiPlayer?.stop()
     midiPlayer = nil
     midiAvailable = false
+    midiLoading = false
     midiErrorMessage = message
+  }
+
+  public func beginMIDILoading() {
+    midiLoading = true
+    midiErrorMessage = nil
   }
 
   public func setOriginalEnabled(_ enabled: Bool) {
     guard originalEnabled != enabled else { return }
     originalEnabled = enabled
     reconcileEnabledPlayers()
+  }
+
+  public func setOriginalVolume(_ value: Double) {
+    let bounded = min(1, max(0, value))
+    originalVolume = bounded
+    audioPlayer?.volume = Float(bounded)
   }
 
   public func setMIDIEnabled(_ enabled: Bool) {
@@ -127,6 +148,7 @@ public final class AudioTransport: ObservableObject {
     midiPlayer = nil
     audioURL = nil
     midiAvailable = false
+    midiLoading = false
     currentTime = 0
     duration = 0
     audioErrorMessage = nil
@@ -153,7 +175,7 @@ public final class AudioTransport: ObservableObject {
 
   private func startTimer() {
     timer?.invalidate()
-    timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) {
+    timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 20.0, repeats: true) {
       [weak self] _ in
       MainActor.assumeIsolated {
         guard let self else { return }

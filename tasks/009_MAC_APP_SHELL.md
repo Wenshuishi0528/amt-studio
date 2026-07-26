@@ -1,8 +1,9 @@
 # Task 009: Native macOS application shell
 
 Status: private Beta usability implementation complete — Task 009A, 009B1,
-009B2A, bounded 009B2B MuScriptor inference, and 009B2C reconnect/mixer work
-are complete. Owner product acceptance is next.
+009B2A, bounded 009B2B MuScriptor inference, 009B2C reconnect/mixer, and
+009B2D responsiveness/library/voice-coverage work are complete. Owner product
+acceptance is next.
 
 ## Objective
 
@@ -102,6 +103,43 @@ Implemented:
 The mixer is a non-destructive MIDI audition surface. It does not claim the
 predicted instrument names are correct and does not change MuScriptor.
 
+## Task 009B2D: responsiveness, music library, and voice coverage
+
+Implemented:
+
+- existing local song projects appear on the start screen and in the sidebar,
+  while external project access can persist through security-scoped bookmarks;
+- project open, bundle/track selection, and MIDI preview generation prepare in
+  background work with generation guards so stale results cannot replace a
+  newer selection;
+- editor materialization and melody gaps are cached, the same audio is not
+  reloaded for every track click, transport observation is isolated, and the
+  piano roll uses lazy 10-second sections;
+- original and MIDI preview volume are independently adjustable;
+- `voice` is labeled as a lead-vocal candidate. Gaps of at least three seconds
+  are listed with seek controls and same-time activity from other tracks;
+- login uses LaunchServices rather than AppleScript control of Terminal, and
+  builds prefer a stable installed Apple Development signing identity.
+
+The gap display is intentionally diagnostic. It never treats another predicted
+track as ground-truth melody or changes canonical model events.
+
+Task 009B2D evidence:
+
+- the 349.85-second `STILL LOVE HER` result has 254 `voice` notes and four
+  gaps of at least three seconds: `0.00–33.35`, `63.55–90.69`,
+  `104.52–131.41`, and `195.14–349.85`, totaling `242.09` seconds;
+- owner listening reports that detected voice notes are mostly accurate but
+  long passages are missing. This supports a high-precision/low-coverage
+  product diagnosis, not a formal accuracy percentage;
+- all 24 Swift tests pass with three expected environment-gated skips, and
+  both private real-project tests pass;
+- final `make check` passes 247 Python and 24 Swift tests, a focused P0/P1
+  review has no remaining blocker, and the Apple Development-signed release
+  passes strict signature/plist validation and launches on the real project;
+- no Hyak/model job, new dataset, retuning, or automatic cross-track merge was
+  run.
+
 Task 009B2C evidence:
 
 - real owner-uploaded Job `37735878` completed `0:0` in `00:24:50` on L40
@@ -141,6 +179,9 @@ Task 009B2C evidence:
   **covered by persisted-state and production-flow tests**.
 - All-track/current-track playback, mute/solo/volume, and mix export:
   **implemented and tested for 009B2C**.
+- Prior-project reopening, responsive full-song loading, independent audition
+  levels, and explicit `voice` gap navigation:
+  **implemented and tested for 009B2D**.
 
 ### Task 009B2B evidence
 

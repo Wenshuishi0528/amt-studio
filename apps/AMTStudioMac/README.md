@@ -61,6 +61,25 @@ the current edited track, the current audible mix, or the complete multitrack.
 The model labels are predictions, and all original canonical tracks remain
 unchanged.
 
+The app home screen and sidebar also list existing local song projects. Heavy
+project/track loading and MIDI-preview generation run away from the UI thread,
+the piano roll loads in bounded time segments, and selecting another track does
+not decode the same source audio again. A project chosen outside the repository
+can be reopened through a security-scoped bookmark.
+
+`voice` is treated as a lead-vocal candidate, not proof of a complete main
+melody. For that track the app reports gaps of at least three seconds, can seek
+directly to each gap, and shows whether other predicted tracks contain notes
+there. Those notes are diagnostic candidates only: the app never copies them
+into `voice` automatically. Separate original-audio and MIDI-master controls
+make the transcription audible during comparison.
+
+`连接 Hyak` opens the login script through LaunchServices rather than
+controlling Terminal with AppleScript. The build script uses an installed
+Apple Development signing identity when available, which keeps the application
+identity stable across rebuilds; system file-access prompts and Duo approval
+still remain user-controlled.
+
 Cancellation, MusicXML, training, and generic model-pack discovery remain
 outside this private Beta. Inference is not embedded in the Mac app and never
 runs on a Hyak login node.

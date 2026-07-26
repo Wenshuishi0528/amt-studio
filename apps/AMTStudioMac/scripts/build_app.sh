@@ -25,7 +25,22 @@ STAGING_APP="$STAGING_ROOT/AMT Studio.app"
 /usr/bin/install -m 0755 "$BIN_DIR/AMTStudio" \
   "$STAGING_APP/Contents/MacOS/AMTStudio"
 /bin/cp "$PLIST_PATH" "$STAGING_APP/Contents/Info.plist"
-/usr/bin/codesign --force --sign - --timestamp=none "$STAGING_APP"
+SIGNING_IDENTITY="${AMT_STUDIO_CODESIGN_IDENTITY:-}"
+if [[ -z "$SIGNING_IDENTITY" ]]; then
+  SIGNING_IDENTITY="$(
+    /usr/bin/security find-identity -v -p codesigning 2>/dev/null \
+      | /usr/bin/sed -n 's/.*"\(Apple Development:.*\)"/\1/p' \
+      | /usr/bin/head -n 1
+  )"
+fi
+if [[ -z "$SIGNING_IDENTITY" ]]; then
+  SIGNING_IDENTITY="-"
+fi
+/usr/bin/codesign \
+  --force \
+  --sign "$SIGNING_IDENTITY" \
+  --timestamp=none \
+  "$STAGING_APP"
 
 /bin/mkdir -p "$OUTPUT_ROOT"
 if [[ -e "$APP_PATH" ]]; then
@@ -33,4 +48,5 @@ if [[ -e "$APP_PATH" ]]; then
 fi
 /bin/mv "$STAGING_APP" "$APP_PATH"
 
+echo "codesign identity: $SIGNING_IDENTITY"
 echo "$APP_PATH"
