@@ -2,8 +2,8 @@
 
 Status: private Beta usability implementation complete — Task 009A, 009B1,
 009B2A, bounded 009B2B MuScriptor inference, 009B2C reconnect/mixer, and
-009B2D responsiveness/library/voice-coverage work are complete. Owner product
-acceptance is next.
+009B2D responsiveness/library/voice-coverage work are complete. Task 009B2E
+same-model directed gap recovery is now the only active product experiment.
 
 ## Objective
 
@@ -139,6 +139,49 @@ Task 009B2D evidence:
   passes strict signature/plist validation and launches on the real project;
 - no Hyak/model job, new dataset, retuning, or automatic cross-track merge was
   run.
+
+## Task 009B2E: same-model directed voice-gap probe
+
+Objective:
+
+- keep the fetched full-song `voice` track immutable as `voice_raw`;
+- rerun the same pinned MuScriptor model, beam size 4, prelude forcing, and
+  no instrument allowlist only on frozen shorter clips around empty spans;
+- shift any newly predicted `voice` events back to the original song timeline
+  and store them only as `voice_gap_candidate`;
+- measure added time coverage, then require owner listening before counting
+  correct recovered notes or false positives;
+- stop before source separation, GAME, training, fusion, or automatic merge.
+
+Frozen preflight:
+
+- canonical audio duration is `349.153719` seconds. The previous 349.85-second
+  editor timeline came from predicted events extending beyond the audio and is
+  not used as a clip boundary;
+- four decode windows cover five target intervals using 279.223719 seconds of
+  audio: one possible-instrumental intro negative control, the two middle
+  omissions in one contextual clip, and the long tail split into two shorter
+  clips;
+- each clip carries four seconds of available context at its outer edges. The
+  two middle target gaps keep the intervening detected phrase as model context;
+- the private, ignored frozen config is
+  `reports/task009b2e-muscriptor-gap-v2/config.json` inside the fetched project;
+- preflight verifies all five targets contain zero overlapping `voice_raw`
+  notes. No assumption that every target actually contains singing is made.
+
+Acceptance:
+
+- clipping and MuScriptor inference run only inside a Slurm compute
+  allocation, never on the Mac or a login node;
+- every child run preserves native output and an immutable manifest with the
+  same model/decoding settings as the full-song private Beta;
+- the parent probe binds the canonical audio, source `voice_raw`, frozen
+  config, exact code snapshot, clip hashes, child manifests, and original-time
+  mapping;
+- the review bundle exposes `voice_raw` and `voice_gap_candidate` as separate
+  tracks and explicitly records `automatic_merge_performed=false`;
+- correct-recovery and false-positive counts remain `null` until the owner
+  reviews the target spans.
 
 Task 009B2C evidence:
 
