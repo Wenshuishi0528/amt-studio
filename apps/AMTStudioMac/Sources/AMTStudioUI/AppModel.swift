@@ -13,6 +13,10 @@ public final class AppModel: ObservableObject {
   @Published public var reviewConfidenceThreshold = 0.5
   @Published public var errorMessage: String?
   @Published public var statusMessage = "请选择一个已有 AMT Studio 项目"
+  @Published public private(set) var betaJobID: String?
+  @Published public private(set) var betaSlurmState: String?
+  @Published public private(set) var betaProjectURL: URL?
+  @Published public private(set) var isBetaBusy = false
 
   public let transport = AudioTransport()
 
@@ -20,6 +24,7 @@ public final class AppModel: ObservableObject {
   private let persistRecentProject: Bool
   private let recentProjectKey = "AMTStudio.recentProjectPath"
   private var pendingInitialProjectURL: URL?
+  private var betaMonitor: Task<Void, Never>?
 
   public init(
     defaults: UserDefaults = .standard,
@@ -42,6 +47,64 @@ public final class AppModel: ObservableObject {
     guard let pendingInitialProjectURL else { return }
     self.pendingInitialProjectURL = nil
     openProject(pendingInitialProjectURL)
+  }
+
+  public func openHyakLogin() {
+    do {
+      let backend = try PrivateBetaBackend.locate()
+      guard FileManager.default.isExecutableFile(
+        atPath: backend.loginScriptURL.path
+      ) else {
+        throw PrivateBetaBackendError.repositoryNotFound
+      }
+      let process = Process()
+      let escapedPath = backend.loginScriptURL.path
+        .replacingOccurrences(of: "\\", with: "\\\\")
+        .replacingOccurrences(of: "\"", with: "\\\"")
+      process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+      process.arguments = [
+        "-e",
+        "tell application \"Terminal\" to activate",
+        "-e",
+        "tell application \"Terminal\" to do script quoted form of \"\(escapedPath)\"",
+      ]
+      try process.run()
+      statusMessage = "请在 Terminal 输入密码并通过 Duo；成功后回到这里选择歌曲"
+      errorMessage = nil
+    } catch {
+      present(error)
+    }
+  }
+
+  public func transcribeSong(_ audioURL: URL) {
+    guard !isBetaBusy else { return }
+    isBetaBusy = true
+    statusMessage = "正在准备音频、上传 Hyak 并提交 GPU 任务…"
+    errorMessage = nil
+    Task {
+      do {
+        let backend = try PrivateBetaBackend.locate()
+        let response = try await Task.detached(priority: .userInitiated) {
+          try backend.start(audioURL: audioURL)
+        }.value
+        try handleBetaResponse(response)
+        if let betaProjectURL {
+          startMonitoring(projectURL: betaProjectURL)
+        }
+      } catch {
+        present(error)
+      }
+      isBetaBusy = false
+    }
+  }
+
+  public func refreshBetaJob() {
+    guard let betaProjectURL, !isBetaBusy else { return }
+    isBetaBusy = true
+    Task {
+      await refreshBetaJob(projectURL: betaProjectURL)
+      isBetaBusy = false
+    }
   }
 
   public var bundleChoices: [CanonicalBundleChoice] {
@@ -95,6 +158,15 @@ public final class AppModel: ObservableObject {
       }
       statusMessage = "已读取项目；请选择 canonical bundle"
       errorMessage = nil
+      let jobStateURL = catalog.rootURL.appendingPathComponent(
+        "app/private_beta_job.json"
+      )
+      if FileManager.default.fileExists(atPath: jobStateURL.path) {
+        betaProjectURL = catalog.rootURL
+        if catalog.bundles.isEmpty {
+          startMonitoring(projectURL: catalog.rootURL)
+        }
+      }
 
       do {
         if let workspace = try EditorProject.loadWorkspace(
@@ -138,9 +210,14 @@ public final class AppModel: ObservableObject {
     editor = nil
     selectedNoteID = nil
     transport.stop()
-    statusMessage = "已验证 bundle \(id)；请选择一条候选轨"
+    statusMessage = "已验证多轨结果 \(id)；请选择一条音轨"
     errorMessage = nil
-    if snapshot.tracks.count == 1 {
+    if let voice = snapshot.tracks.first(where: {
+      $0.instrument?.lowercased() == "voice"
+    }) {
+      try selectTrack(voice.id)
+      statusMessage = "已默认打开 voice 主旋律轨；其余原始多轨仍完整保留"
+    } else if snapshot.tracks.count == 1 {
       try selectTrack(snapshot.tracks[0].id)
     }
   }
@@ -172,7 +249,7 @@ public final class AppModel: ObservableObject {
     try editor.save()
     self.editor = editor
     selectedNoteID = editor.notes.first?.id
-    statusMessage = "候选轨 \(editor.selectedTrack.label)，\(editor.notes.count) 个音符"
+    statusMessage = "音轨 \(editor.selectedTrack.label)，\(editor.notes.count) 个音符"
     errorMessage = nil
     transport.load(audioURL: snapshot.audioURL)
     refreshMIDIPreview()
@@ -283,6 +360,32 @@ public final class AppModel: ObservableObject {
     }
   }
 
+  @discardableResult
+  public func exportArrangementMIDI(to url: URL) -> MIDIExportReport? {
+    do {
+      guard let catalog, let snapshot else { return nil }
+      guard
+        let bundleID = catalog.bundles.first(
+          where: { $0.canonicalProjectURL == snapshot.canonicalProjectURL }
+        )?.id
+      else {
+        throw AMTProjectError.missingCanonicalBundle
+      }
+      let report = try MIDIExporter.exportArrangement(
+        snapshot: snapshot,
+        bundleID: bundleID,
+        to: url
+      )
+      statusMessage =
+        "已导出 \(report.trackCount) 条音轨、\(report.noteCount) 个音符：\(url.lastPathComponent)"
+      errorMessage = nil
+      return report
+    } catch {
+      present(error)
+      return nil
+    }
+  }
+
   public func clearError() {
     errorMessage = nil
   }
@@ -330,6 +433,64 @@ public final class AppModel: ObservableObject {
       (error as? LocalizedError)?.errorDescription
       ?? error.localizedDescription
     statusMessage = "操作失败"
+  }
+
+  private func startMonitoring(projectURL: URL) {
+    betaMonitor?.cancel()
+    betaMonitor = Task { [weak self] in
+      while !Task.isCancelled {
+        try? await Task.sleep(for: .seconds(20))
+        guard !Task.isCancelled, let self else { return }
+        await self.refreshBetaJob(projectURL: projectURL)
+        if self.betaSlurmState == "COMPLETED"
+          || self.betaSlurmState == "FAILED"
+          || self.betaSlurmState == "CANCELLED"
+          || self.errorMessage != nil
+        {
+          return
+        }
+      }
+    }
+  }
+
+  private func refreshBetaJob(projectURL: URL) async {
+    do {
+      let backend = try PrivateBetaBackend.locate()
+      let response = try await Task.detached(priority: .utility) {
+        try backend.refresh(projectURL: projectURL)
+      }.value
+      try handleBetaResponse(response)
+    } catch {
+      present(error)
+    }
+  }
+
+  private func handleBetaResponse(
+    _ response: PrivateBetaResponse
+  ) throws {
+    guard response.ok else {
+      throw PrivateBetaBackendError.invalidResponse(
+        response.error ?? "未知后台错误"
+      )
+    }
+    if let path = response.localProjectDir {
+      betaProjectURL = URL(fileURLWithPath: path, isDirectory: true)
+    }
+    betaJobID = response.jobID ?? betaJobID
+    betaSlurmState = response.slurmState ?? betaSlurmState
+    switch response.status {
+    case "succeeded":
+      guard let betaProjectURL else { return }
+      openProject(betaProjectURL)
+      statusMessage = "Hyak 识别完成，完整多轨已取回；已默认打开 voice 主旋律轨"
+    case "failed":
+      errorMessage = "Hyak 任务失败；项目日志已经保留，可据此定位问题。"
+      statusMessage = "识别失败"
+    case "running":
+      statusMessage = "Hyak GPU 正在识别整首歌（任务 \(betaJobID ?? "未知")）"
+    default:
+      statusMessage = "Hyak 任务已排队（\(betaSlurmState ?? "PENDING")）"
+    }
   }
 }
 

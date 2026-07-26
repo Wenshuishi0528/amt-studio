@@ -1,0 +1,5 @@
+{
+  "schema_version": 1,
+  "host": "YOUR_NETID@klone.hyak.uw.edu",
+  "remote_root": "/mmfs1/gscratch/YOUR_GROUP/YOUR_NETID/amt-studio"
+}

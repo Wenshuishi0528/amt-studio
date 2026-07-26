@@ -1,16 +1,67 @@
 # Project status
 
-Current gate: Gate 4 not passed; deterministic fusion v1 and constrained v2
-were rejected on sealed blind evidence, and the direct-mix instrumental
-development route also failed its frozen preconditions
-Current task: `tasks/007C_INSTRUMENTAL_MELODY_DEV_PROBE.md` complete —
-automatic development decision rejected the route without Phoenix retuning
-Paused task: Task 009B2B backend/import integration remains blocked by Gate 4
-Next task: define a lead-vocal-only research MVP around retained GAME evidence
-and specify genuinely new accompanied-vocal blind/reference/correction data;
-do not start Task 009B2B, Task 010, another Vocadito/Phoenix retune, or matched
-human correction on either rejected route
+Current product milestone: Task 009B2B private Beta, using the useful Task 002
+MuScriptor full-song multitrack baseline selected by the project owner
+Research status: Gate 4 remains not passed for the rejected fusion routes; no
+new dataset, fusion, retuning, or training work is in the product critical path
+Current task: Task 009B2B private Beta implementation complete; hand the app to
+the owner for product acceptance
+Next task: only owner acceptance and genuine P0/P1 fixes; do not restart
+Task 007 experiments or Task 010
 Current branch: `main`
+
+Implemented for Task 009B2B private Beta:
+
+- the Mac app now exposes `连接 Hyak`, `识别歌曲`, job refresh, current-track
+  MIDI export, and complete edited multitrack MIDI export;
+- the Mac performs only audio canonicalization, transfer, status polling,
+  editing, and export; MuScriptor inference is submitted to an L40 Slurm
+  compute node and refuses login-node execution;
+- the fast path runs one MuScriptor JSONL decode, then losslessly groups every
+  event by its predicted instrument instead of running a second model decode;
+- the `voice` track is opened as the default main-melody view when present;
+  all other raw predicted tracks remain available and no accuracy claim is
+  added;
+- original worker output remains immutable. Manual edits stay in
+  `annotations/corrections/` and change exports, not the MuScriptor model;
+- the Task 002 full-song run was converted locally into 9 instrument tracks
+  containing all 7,667 events. The bundle opens through the production Swift
+  loader, and both selected-track and complete-arrangement MIDI exports pass
+  the private integration test;
+- all 34 melodic MuScriptor instrument classes have explicit General MIDI
+  programs, and `drums` uses the percussion channel, so edited multitrack
+  exports do not collapse to undifferentiated piano tracks;
+- real end-to-end job `37734361` completed `0:0` in `00:17:28` on L40 compute
+  node `g3098`; the app workflow created, uploaded, submitted, polled, fetched,
+  validated, and reopened the private project without login-node inference;
+- the fetched run preserved 6,881 valid events across 13 predicted instrument
+  tracks, defaulted to the 469-event `voice` track, and produced a 14-track
+  MIDI with all 6,881 note-ons, 12 program changes, and 1,545 percussion
+  note-ons on channel 10;
+- the source/canonical hashes, model revision, weight hash, beam size, and
+  prelude setting match Task 002. The earlier A100 result had 7,667 events
+  across 9 labels while this L40 result has 6,881 across 13, so cross-hardware
+  byte invariance is not claimed; the private Beta pins the L40 route;
+- Hyak identity and persistent-root values now come from the ignored local
+  `configs/local_hyak.json` (or explicit environment/CLI overrides), while
+  `configs/hyak.example.json` contains only placeholders. Password and Duo
+  data are never stored;
+- each future submission synchronizes a clean `git archive` snapshot and
+  records its exact commit in the worker manifest. Persisted job state is
+  project/path/identifier bound and rejects symlink or traversal input;
+- canonical JSONL preserves every predicted track even if more than one MIDI
+  port can represent. Fifteen melodic tracks plus drums fit one file; a larger
+  result remains usable as canonical multitrack data and marks only the
+  convenience performance MIDI unavailable;
+- the single final `/review` found no P0 and five P1 issues. All five P1s were
+  fixed: Xcode source membership, state validation, 16+ track preservation,
+  synchronized-code revision binding, and removal of committed personal Hyak
+  defaults. Three P2 suggestions were deliberately left outside this bounded
+  closeout;
+- final `make check` passed 247 Python tests and 18 Swift tests, with two
+  expected environment-gated Swift integration skips. Seven Python tests in
+  that worktree belong to the preserved, paused Task 007D files and are not
+  part of the Task 009 commit; all Task 009 tests passed.
 
 Verified for Task 007C:
 

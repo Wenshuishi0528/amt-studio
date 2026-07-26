@@ -4,21 +4,12 @@
 
 ## 一句话状态
 
-Task 001–008 已完成，Task 009A 原生既有项目编辑器、Task 009B1 的真实波形/
-置信度待复核界面，以及 Task 009B2A 正式 UI 流程测试已完成。两套专业标注
-benchmark 与新的 singer-disjoint Task 007
-开发/盲测集均已按先冻结、后评分的顺序完成。GAME 仍是主旋律最强基线；
-deterministic fusion v1 因 onset+pitch 明显回退而拒绝，不进入默认路线。ADR 0005
-允许以明确命名的 assisted workflow 开展融合研究，但 direct owner edit time
-仍不可用；Gate 4 没有通过。Task 008 的 Hyak 批处理、续跑、缓存、索引和持久化
-同步已经验证，但不改变模型质量结论。Task 009A 只负责打开、试听、修改和导出
-现有 canonical 项目，不含导入或模型推理；Task 009B1 也只读取已有 canonical
-音频和音符。Task 009B2A 只补齐真实应用交互验证；Task 009B2B 的后台/模型集成
-仍受 Gate 4 阻塞。
-
-Task 009B2A 之后，Task 007B 的两路线恢复实验和 Task 007C 的器乐 full-mix
-开发探针均已按冻结规则完成并被拒绝。当前最终任务切片是 Task 007C（用
-`git log -1 --oneline` 查看）；开发分支是 `main`。
+Task 001–008 和既有项目编辑器已经完成。产品路线现已按所有者的实际试听结果
+收敛到 Task 002 MuScriptor 整曲多轨：保留模型输出的全部乐器轨，并在存在时
+默认打开 `voice` 作为主旋律。此前的 fusion、额外数据集和 Gate 4 研究路线不再
+位于“今天做出可用软件”的关键路径；它们仍保留为研究记录，但不会继续消耗开发
+时间。Task 009B2B 私有 Beta 已实现 Mac 导入/轮询/编辑/导出和 Hyak L40 Slurm
+推理链路。真实 Job `37734361` 已完成并取回，现在可以直接交付试听。
 
 ## 项目目标与硬边界
 
@@ -57,6 +48,9 @@ ssh "$UW_NETID@klone.hyak.uw.edu"
 
 Duo 必须由项目所有者在手机上确认。密码、token 和 Duo 信息不得写进仓库、
 脚本、日志或本交接文件。SSH 会话会过期，因此“上次登录成功”不等于以后持续在线。
+应用使用的 NetID/主机和持久化根目录保存在本地忽略文件
+`configs/local_hyak.json`；仓库只提交不含个人信息的
+`configs/hyak.example.json`。换账号时复制示例并修改本地文件即可。
 
 ## Task 009 Mac 编辑器
 
@@ -69,18 +63,41 @@ open -n "apps/AMTStudioMac/dist/AMT Studio.app"
 
 当前编辑器会：
 
-- 打开并校验已有 `manifest.json` 和 canonical bundle，不运行模型；
+- 从工具栏打开 Terminal 建立不保存密码的 Hyak SSH 控制连接；
+- 选择 MP3/WAV/M4A/FLAC，在 Mac 做轻量 canonicalize/传输后提交 Hyak L40；
+- 每 20 秒查询一次真实 Slurm 状态，完成后自动取回并打开项目；
+- 打开并校验已有 `manifest.json` 和 canonical bundle；
 - 对多个 bundle 和候选轨要求明确选择，不使用隐式 `latest`；
+- 对 MuScriptor 多轨默认打开 `voice`，同时保留所有伴奏轨；
 - 同步播放原曲和当前候选轨钢琴 MIDI；
 - 用鼠标拖动音符、拖左右把手调整长度，并支持撤销/重做；
 - 将选择写入 `app/workspace.json`，将非破坏性编辑历史写入
   `annotations/corrections/`，不覆盖原始 candidate JSONL；
-- 导出当前修正版的 performance MIDI。
+- 分别导出当前主旋律/音轨 MIDI 和完整修正版多轨 MIDI；
 - 从已校验 canonical 音频异步生成真实波形，不再用音符密度冒充波形；
 - 按当前候选轨提供的原始置信度筛选并逐个定位待复核音符；没有置信度的音符
   保持未知，不会误判为低置信度。
 
-真实 `glass-kiss` 项目的三个 bundle、四条轨和 2,223 个音符均通过路径、大小和
+Task 002 的旧结果可无推理地拆为 9 条预测乐器轨并保留全部 7,667 个音符。
+新的真实端到端 Job `37734361` 在 L40 compute node `g3098` 上用时 `00:17:28`，
+完成 `0:0`，取回 13 条预测乐器轨和 6,881 个音符；默认 `voice` 有 469 个音符。
+完整多轨 MIDI 为 14 个 track（含 conductor），有 12 个 General MIDI program
+change，1,545 个鼓音全部位于 percussion channel。模型原始 JSONL 不会被修改；
+人工调整只改变当前项目和重新导出的 MIDI，并不会自动训练或改变 MuScriptor。
+
+同一 canonical 音频、模型权重、beam 4 和 prelude 配置在旧 A100 Task 002 与本次
+L40 运行间产生了不同的事件数/标签数，因此不宣称跨硬件字节一致；私有 Beta
+固定使用当前 L40 路线，不为这个差异重复跑模型。
+
+收尾时唯一一次 `/review` 没有 P0，报告 5 个 P1；现已全部修复：Xcode 工程纳入
+Hyak 后台源码、任务状态拒绝路径逃逸/身份错配、16 条以上预测轨不会导致
+canonical bundle 丢失、远端运行绑定实际同步的 Git commit、个人 Hyak 信息移出
+提交内容。3 个 P2 按“只修 P0/P1”的边界保留，不继续扩大。最终 `make check`
+通过当前工作树的 247 项 Python 和 18 项 Swift 测试（2 项需要私有环境变量而
+预期跳过）；其中 7 项 Python 测试来自保留但暂停的 Task 007D 未提交文件，
+不属于本次 Task 009 commit。
+
+旧 `glass-kiss` 项目的三个 bundle、四条轨和 2,223 个音符均通过路径、大小和
 SHA-256 校验。选择 GAME 后是 391 个音符、4:25 时间线；播放游标已实际推进。
 导出的 391-note MIDI 已被 Mido 完整解析，并分别在 GarageBand 与 Logic Pro
 中打开。普通 `swift test` 通过 16 项测试，其中私有集成测试按设计跳过；提供
@@ -95,9 +112,9 @@ SHA-256 校验。选择 GAME 后是 391 个音符、4:25 时间线；播放游�
 测试在含中文和空格的临时路径生成三秒 WAV 与 canonical fixture，实际完成打开
 项目、真实波形、播放推进、低置信度导航、音符编辑、撤销/重做以及退出重开后的
 历史恢复；测试结束即删除 fixture，并通过 `--no-recent-project` 隔离用户的最近
-项目偏好。音频导入、后台任务 progress/cancel、worker/model pack 仍属于受
-Gate 4 阻塞的 009B2B；不要为了补齐后台而在 Mac 上启动研究模型或默认采用被
-拒绝的 fusion。
+项目偏好。私有 Beta 不采用被拒绝的 fusion，也不在 Mac 上运行 MuScriptor；
+推理只允许由 `slurm/40_private_beta_muscriptor.slurm` 在 Hyak compute node
+执行。今天不做 MusicXML、训练、新数据集或通用 model-pack 打包。
 
 ## 当前已验证结果
 

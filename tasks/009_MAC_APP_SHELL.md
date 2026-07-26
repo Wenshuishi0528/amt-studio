@@ -1,8 +1,9 @@
 # Task 009: Native macOS application shell
 
-Status: in progress — Task 009A editor shell, Task 009B1 model-independent
-review surfaces, and Task 009B2A formal UI-flow verification are complete;
-backend integration remains blocked by Gate 4
+Status: private Beta implementation complete — Task 009A, 009B1, 009B2A, and
+the bounded 009B2B MuScriptor path are complete. Implementation, Task 002
+integration, real Hyak end-to-end Job `37734361`, final review, and final
+checks pass; owner product acceptance is next.
 
 ## Objective
 
@@ -61,16 +62,23 @@ audio, model artifact, inference process, or Hyak job is involved.
 
 ## Task 009B2B: gated backend work
 
-Not started:
+Implemented for the private Beta:
 
-- audio import;
-- a versioned local job API;
-- background inference progress and cancellation;
-- model-pack/worker discovery and failure states;
-- MusicXML after notation tests.
+- audio import and deterministic local project creation;
+- a bounded `amt-private-beta` start/status interface;
+- safe reuse of a user-authenticated SSH ControlMaster without storing a
+  password, OTP, or Duo response;
+- L40 Slurm submission, status/accounting checks, and automatic result
+  retrieval;
+- one-pass full-song MuScriptor JSONL inference followed by lossless
+  per-instrument bundle derivation;
+- default `voice` main-melody selection while keeping every original predicted
+  accompaniment track;
+- selected-track and complete edited multitrack MIDI export.
 
-These items cannot silently select the rejected fusion route or move model
-compute onto the Mac. Research inference remains on Hyak compute nodes.
+Cancellation, MusicXML, training, generic model-pack discovery, and new
+research datasets are outside this private Beta. The workflow does not select
+the rejected fusion route or move model compute onto the Mac/login node.
 
 ## Acceptance status
 
@@ -83,7 +91,53 @@ compute onto the Mac. Research inference remains on Hyak compute nodes.
   edit/undo/redo, restart, and export: **passed**.
 - Real waveform and confidence queue behavior: **passed for 009B1**.
 - Formal XCUITest editor flow: **passed for 009B2A**.
-- Import/job failure behavior: **pending in gated 009B2B**.
+- Import/job failure behavior: **implemented; real Hyak E2E passed**.
+
+### Task 009B2B evidence
+
+- The immutable Task 002 run
+  `muscriptor-large-beam4-hyak-37604080` was converted without inference into
+  9 predicted instrument tracks containing all 7,667 events.
+- `voice` is first/default and contains 493 events; other sparse or possibly
+  incorrect accompaniment labels remain visible rather than being hidden or
+  relabeled as ground truth.
+- The resulting production bundle passes hash/path validation and the real
+  Swift private integration test for both selected-track and complete
+  arrangement export.
+- Real Job `37734361` completed `0:0` in `00:17:28` on L40 node `g3098`.
+  Its fetched output has 6,881 events across 13 predicted instrument tracks;
+  `voice` is the default with 469 events.
+- The final complete MIDI has 14 MIDI tracks including conductor, 12 program
+  changes, and all 1,545 drum notes on percussion channel 10 (zero-based
+  channel 9).
+- The production `.app` builds and is ad-hoc signed. No credential entered the
+  repository or project, and no model ran on the Mac or login node.
+- Identical canonical audio/model/configuration produced different A100 versus
+  L40 full-song event/label counts, so only the L40 product route is pinned;
+  cross-hardware byte invariance is not claimed.
+- Hyak host/root values are explicit local configuration, excluded from Git;
+  the committed example contains placeholders only. Future jobs synchronize a
+  clean `git archive` and bind the exact commit in the worker manifest.
+- Persisted job fields are validated against the selected project and reject
+  unsafe identifiers, path escape, mismatched identity, and symlinked state.
+  Canonical tracks are never dropped merely because a result exceeds one
+  General MIDI port.
+- The single final `/review` found no P0 and five P1 issues. All five P1s were
+  fixed with targeted regression coverage; three P2 suggestions were not
+  pursued under the owner-directed closeout boundary.
+- Final `make check` passed 247 Python tests and 18 Swift tests, with two
+  expected private-environment skips. Seven of those Python tests are from
+  preserved paused Task 007D worktree files and are not included in this Task
+  009 commit.
+
+Remaining non-blocking review notes:
+
+- a failed terminal Slurm job does not yet fetch its remote logs automatically;
+- the completion message can be more precise when fetched artifacts fail to
+  open or a result has no `voice` label;
+- the bundle limitation text still mentions preserved native MIDI even when
+  the private job deliberately used `--skip-midi`; raw JSONL and normalized
+  events are preserved, but that run has no native MIDI file.
 
 ## Evidence
 

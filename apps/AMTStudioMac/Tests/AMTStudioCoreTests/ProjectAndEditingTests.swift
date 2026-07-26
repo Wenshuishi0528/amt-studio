@@ -54,8 +54,12 @@ final class ProjectAndEditingTests: XCTestCase {
     let catalog = try ProjectLoader.inspect(
       URL(fileURLWithPath: projectPath)
     )
-    XCTAssertGreaterThan(catalog.bundles.count, 1)
-    XCTAssertThrowsError(try ProjectLoader.open(catalog))
+    XCTAssertGreaterThanOrEqual(catalog.bundles.count, 1)
+    if catalog.bundles.count > 1 {
+      XCTAssertThrowsError(try ProjectLoader.open(catalog))
+    } else {
+      XCTAssertNoThrow(try ProjectLoader.open(catalog))
+    }
     let snapshot = try ProjectLoader.open(catalog, bundleID: bundleID)
     let selectedTrack = try XCTUnwrap(
       snapshot.tracks.first(where: { $0.id == trackID })
@@ -87,6 +91,24 @@ final class ProjectAndEditingTests: XCTestCase {
     XCTAssertEqual(
       String(
         data: try Data(contentsOf: output).prefix(4),
+        encoding: .ascii
+      ),
+      "MThd"
+    )
+
+    let arrangementOutput = output.deletingLastPathComponent()
+      .appendingPathComponent("AMTStudio-real-arrangement-\(UUID().uuidString).mid")
+    defer { try? FileManager.default.removeItem(at: arrangementOutput) }
+    let arrangement = try MIDIExporter.exportArrangement(
+      snapshot: snapshot,
+      bundleID: bundleID,
+      to: arrangementOutput
+    )
+    XCTAssertEqual(arrangement.trackCount, snapshot.tracks.count)
+    XCTAssertEqual(arrangement.noteCount, snapshot.notes.count)
+    XCTAssertEqual(
+      String(
+        data: try Data(contentsOf: arrangementOutput).prefix(4),
         encoding: .ascii
       ),
       "MThd"

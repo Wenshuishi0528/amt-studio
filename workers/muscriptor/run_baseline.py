@@ -71,6 +71,22 @@ def run_capture(argv: list[str], *, cwd: Path | None = None) -> subprocess.Compl
 
 
 def git_state(repo_root: Path) -> dict[str, Any]:
+    snapshot_path = repo_root / ".amt-code-snapshot.json"
+    if snapshot_path.is_file() and not snapshot_path.is_symlink():
+        try:
+            snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise RuntimeError(f"Invalid synchronized code snapshot: {exc}") from exc
+        commit = snapshot.get("commit") if isinstance(snapshot, dict) else None
+        if (
+            snapshot.get("schema_version") != 1
+            or not isinstance(commit, str)
+            or re.fullmatch(r"[0-9a-f]{40}", commit) is None
+            or snapshot.get("dirty") is not False
+            or snapshot.get("source") != "git_archive"
+        ):
+            raise RuntimeError("Invalid synchronized code snapshot")
+        return {"commit": commit, "dirty": False}
     commit = run_capture(["git", "rev-parse", "HEAD"], cwd=repo_root)
     status = run_capture(["git", "status", "--porcelain"], cwd=repo_root)
     return {

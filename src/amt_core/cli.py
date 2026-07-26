@@ -5,7 +5,12 @@ import json
 import sys
 from pathlib import Path
 
-from .bundle import BundleBuildError, build_canonical_bundle, parse_candidate
+from .bundle import (
+    BundleBuildError,
+    build_canonical_bundle,
+    build_muscriptor_multitrack_bundle,
+    parse_candidate,
+)
 from .canonical import CanonicalValidationError
 from .contracts import ContractValidationError
 from .doctor import checks_as_dict, required_checks_pass, run_doctor
@@ -59,6 +64,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     canonical.add_argument("--output", type=Path, required=True)
     canonical.add_argument("--score-subdivision", type=int, default=4)
+
+    muscriptor_bundle = subparsers.add_parser(
+        "build-muscriptor-multitrack",
+        help="Split one MuScriptor full-song run into an editable multitrack bundle",
+    )
+    muscriptor_bundle.add_argument("project", type=Path)
+    muscriptor_bundle.add_argument("--run", type=Path, required=True)
+    muscriptor_bundle.add_argument("--output", type=Path, required=True)
+    muscriptor_bundle.add_argument("--default-bpm", type=float, default=120.0)
 
     return parser
 
@@ -119,6 +133,16 @@ def main(argv: list[str] | None = None) -> int:
                 candidates,
                 args.output,
                 score_subdivision=args.score_subdivision,
+            )
+            print(json.dumps(manifest, ensure_ascii=False, indent=2))
+            return 0
+
+        if args.command == "build-muscriptor-multitrack":
+            manifest = build_muscriptor_multitrack_bundle(
+                args.project,
+                args.run,
+                args.output,
+                default_bpm=args.default_bpm,
             )
             print(json.dumps(manifest, ensure_ascii=False, indent=2))
             return 0

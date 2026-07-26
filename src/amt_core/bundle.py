@@ -2,19 +2,23 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import tempfile
+from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
 from .canonical import (
     CanonicalTrack,
     CanonicalValidationError,
+    MeterPoint,
     ProvenanceRef,
     RhythmMap,
+    TempoPoint,
     build_score_grid,
 )
 from .contracts import ContractValidationError, WorkerResultV1, load_worker_result
-from .events import NoteEvent
+from .events import NoteEvent, write_jsonl
 from .midi import export_performance_midi
 from .project import load_project
 from .utils import atomic_write_json, sha256_file
@@ -59,6 +63,11 @@ def _manifest_canonical_hash(result: WorkerResultV1) -> str | None:
     lineage = result.manifest.get("input_lineage")
     if isinstance(lineage, dict):
         value = lineage.get("canonical_mix_sha256")
+        if isinstance(value, str):
+            return value
+    inputs = result.manifest.get("inputs")
+    if isinstance(inputs, list) and len(inputs) == 1 and isinstance(inputs[0], dict):
+        value = inputs[0].get("sha256")
         return value if isinstance(value, str) else None
     return None
 
@@ -285,6 +294,255 @@ def build_canonical_bundle(
     return bundle_manifest
 
 
+def _safe_track_id(instrument: str, used: set[str]) -> str:
+    base = re.sub(r"[^a-z0-9_-]+", "-", instrument.strip().lower()).strip("-")
+    if not base:
+        base = "unknown"
+    candidate = base[:64]
+    suffix = 2
+    while candidate in used:
+        tail = f"-{suffix}"
+        candidate = f"{base[: 64 - len(tail)]}{tail}"
+        suffix += 1
+    used.add(candidate)
+    return candidate
+
+
+def _bundle_output_records(root: Path) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for path in sorted(root.rglob("*")):
+        if not path.is_file() or path.name == "bundle_manifest.json":
+            continue
+        records.append(
+            {
+                "path": str(path.relative_to(root)),
+                "sha256": sha256_file(path),
+                "size_bytes": path.stat().st_size,
+            }
+        )
+    return records
+
+
+def build_muscriptor_multitrack_bundle(
+    project_dir: Path,
+    run_dir: Path,
+    output_dir: Path,
+    *,
+    default_bpm: float = 120.0,
+) -> dict[str, Any]:
+    """Build an editable multitrack bundle from one immutable MuScriptor run."""
+
+    project_dir = project_dir.expanduser().resolve()
+    output_dir = output_dir.expanduser().resolve()
+    try:
+        output_relative = output_dir.relative_to(project_dir)
+    except ValueError as exc:
+        raise BundleBuildError("output path must be inside the project directory") from exc
+    if output_dir.exists() or output_dir.is_symlink():
+        raise BundleBuildError(f"output path already exists: {output_dir}")
+    if not 1 <= default_bpm <= 1000:
+        raise BundleBuildError("default BPM must be in [1, 1000]")
+
+    project_id, canonical_path, canonical_sha256 = _canonical_project_identity(project_dir)
+    result = load_worker_result(run_dir)
+    if result.worker != "muscriptor" or result.project_id != project_id:
+        raise BundleBuildError("result is not a MuScriptor run for this project")
+    if _manifest_canonical_hash(result) != canonical_sha256:
+        raise BundleBuildError("MuScriptor result is not bound to the canonical mix")
+
+    events = result.read_note_events()
+    if not events:
+        raise BundleBuildError("MuScriptor result has no note events")
+    if any(event.source_run_id != result.run_id for event in events):
+        raise BundleBuildError("MuScriptor event provenance does not match its run")
+    source_model = events[0].source_model
+    if any(event.source_model != source_model for event in events):
+        raise BundleBuildError("MuScriptor result has ambiguous source models")
+
+    grouped: dict[str, list[NoteEvent]] = defaultdict(list)
+    for event in events:
+        instrument = event.instrument.strip() if isinstance(event.instrument, str) else ""
+        grouped[instrument or "unknown"].append(event)
+
+    output_dir.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(
+        prefix=f".{output_dir.name}.",
+        dir=output_dir.parent,
+    ) as temporary_name:
+        temporary_dir = Path(temporary_name)
+        tracks_dir = temporary_dir / "tracks"
+        tracks_dir.mkdir()
+        used_track_ids: set[str] = set()
+        loaded: dict[str, list[NoteEvent]] = {}
+        tracks: list[CanonicalTrack] = []
+
+        ordered_instruments = sorted(grouped, key=lambda name: (name != "voice", name))
+        for instrument in ordered_instruments:
+            track_id = _safe_track_id(instrument, used_track_ids)
+            track_events = sorted(
+                grouped[instrument],
+                key=lambda event: (event.onset_sec, event.offset_sec, event.event_id),
+            )
+            track_path = tracks_dir / f"{track_id}.jsonl"
+            write_jsonl(track_path, track_events)
+            loaded[track_id] = track_events
+            tracks.append(
+                CanonicalTrack(
+                    track_id=track_id,
+                    label=instrument.replace("_", " "),
+                    role="candidate",
+                    instrument=instrument,
+                    event_count=len(track_events),
+                    source_events_path=str(output_relative / "tracks" / track_path.name),
+                    provenance=ProvenanceRef(
+                        source_run_id=result.run_id,
+                        source_model=source_model,
+                        run_manifest_sha256=sha256_file(result.manifest_path),
+                        normalized_artifact_sha256=sha256_file(track_path),
+                    ),
+                )
+            )
+
+        tempo_points = (
+            TempoPoint(
+                time_sec=0.0,
+                bpm=float(default_bpm),
+                confidence=None,
+                uncertainty_bpm=None,
+                source_event_ids=("private-beta-default-tempo",),
+                method="private_beta_default",
+            ),
+        )
+        meter_points = (
+            MeterPoint(
+                time_sec=0.0,
+                numerator=4,
+                denominator=4,
+                confidence=None,
+                source_event_ids=("private-beta-default-meter",),
+                status="defaulted",
+            ),
+        )
+        performance_midi = temporary_dir / "performance.mid"
+        melodic_track_count = sum(track_id != "drums" for track_id in loaded)
+        if melodic_track_count <= 15:
+            midi_report: dict[str, Any] = export_performance_midi(
+                performance_midi,
+                loaded,
+                tempo_points,
+                meter_points,
+            )
+        else:
+            midi_report = {
+                "status": "unavailable",
+                "reason": (
+                    "The canonical result has more than the 15 melodic channels "
+                    "available in one General MIDI port."
+                ),
+                "track_count": len(loaded),
+                "note_count": sum(len(track_events) for track_events in loaded.values()),
+            }
+        native_midi = result.outputs.get("raw/full.native.mid")
+        if native_midi is not None:
+            shutil.copy2(
+                result.output_path(native_midi.path),
+                temporary_dir / "muscriptor.native.mid",
+            )
+
+        canonical_project = {
+            "schema_version": 1,
+            "artifact_type": "amt-canonical-project",
+            "project_id": project_id,
+            "timeline_basis": "original_canonical_mix_seconds",
+            "canonical_audio": {
+                "path": _project_relative(canonical_path, project_dir),
+                "sha256": canonical_sha256,
+            },
+            "worker_results": [
+                {
+                    "contract_version": result.manifest.get(
+                        "contract_version",
+                        "amt-worker-result/v1",
+                    ),
+                    "worker": result.worker,
+                    "run_id": result.run_id,
+                    "manifest_path": _project_relative(result.manifest_path, project_dir),
+                    "manifest_sha256": sha256_file(result.manifest_path),
+                }
+            ],
+            "tracks": [track.to_dict() for track in tracks],
+            "main_melody_track_id": next(
+                (track.track_id for track in tracks if track.instrument == "voice"),
+                None,
+            ),
+            "rhythm": {
+                "source_run_id": None,
+                "source_model": None,
+                "normalized_path": None,
+                "normalized_sha256": None,
+                "tempo_map": [{"time_sec": 0.0, "bpm": float(default_bpm)}],
+                "meter_map": [
+                    {
+                        "time_sec": 0.0,
+                        "numerator": 4,
+                        "denominator": 4,
+                    }
+                ],
+                "uncertainty": {
+                    "status": "defaulted_for_midi_serialization",
+                    "tempo_bpm": float(default_bpm),
+                    "meter": "4/4",
+                    "warning": "No beat or tempo model was run.",
+                },
+            },
+            "exports": {
+                "performance_midi": {
+                    "path": (
+                        "performance.mid"
+                        if midi_report.get("status") != "unavailable"
+                        else None
+                    ),
+                    "representation": "performance",
+                    "report": midi_report,
+                },
+                "muscriptor_native_midi": (
+                    {
+                        "path": "muscriptor.native.mid",
+                        "representation": "native_model_output",
+                    }
+                    if native_midi is not None
+                    else None
+                ),
+            },
+            "claims": {
+                "all_muscriptor_instruments_preserved": True,
+                "voice_used_as_default_main_melody": "voice" in grouped,
+                "instrument_labels_verified": False,
+                "accuracy_claimed": False,
+                "tempo_inferred": False,
+                "score_notation_claimed": False,
+            },
+        }
+        atomic_write_json(temporary_dir / "canonical_project.json", canonical_project)
+        bundle_manifest = {
+            "schema_version": 1,
+            "artifact_type": "amt-canonical-bundle",
+            "project_id": project_id,
+            "canonical_audio_sha256": canonical_sha256,
+            "status": "succeeded",
+            "outputs": _bundle_output_records(temporary_dir),
+            "limitations": [
+                "Instrument names are MuScriptor predictions and may be incomplete or wrong.",
+                "The voice track is the default main-melody view, not a formal accuracy claim.",
+                "A fixed 120 BPM and 4/4 meter are used only to serialize performance MIDI.",
+                "Original normalized events and native MIDI remain preserved in the worker run.",
+            ],
+        }
+        atomic_write_json(temporary_dir / "bundle_manifest.json", bundle_manifest)
+        temporary_dir.replace(output_dir)
+    return bundle_manifest
+
+
 def parse_candidate(value: str) -> tuple[str, Path]:
     if "=" not in value:
         raise BundleBuildError("--candidate must use LABEL=RUN_DIR")
@@ -299,5 +557,6 @@ __all__ = [
     "CanonicalValidationError",
     "ContractValidationError",
     "build_canonical_bundle",
+    "build_muscriptor_multitrack_bundle",
     "parse_candidate",
 ]

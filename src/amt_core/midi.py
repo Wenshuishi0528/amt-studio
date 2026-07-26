@@ -17,6 +17,45 @@ class MidiExportError(ValueError):
     """Raised when a performance MIDI export cannot be represented safely."""
 
 
+GENERAL_MIDI_PROGRAMS = {
+    "acoustic_piano": 0,
+    "electric_piano": 4,
+    "chromatic_percussion": 11,
+    "organ": 19,
+    "acoustic_guitar": 24,
+    "clean_electric_guitar": 27,
+    "distorted_electric_guitar": 30,
+    "acoustic_bass": 32,
+    "electric_bass": 33,
+    "violin": 40,
+    "viola": 41,
+    "cello": 42,
+    "contrabass": 43,
+    "orchestral_harp": 46,
+    "timpani": 47,
+    "string_ensemble": 48,
+    "synth_strings": 50,
+    "voice": 52,
+    "orchestra_hit": 55,
+    "trumpet": 56,
+    "trombone": 57,
+    "tuba": 58,
+    "french_horn": 60,
+    "brass_section": 61,
+    "soprano_and_alto_sax": 64,
+    "sax": 64,
+    "tenor_sax": 66,
+    "baritone_sax": 67,
+    "oboe": 68,
+    "english_horn": 69,
+    "bassoon": 70,
+    "clarinet": 71,
+    "flutes": 73,
+    "synth_lead": 80,
+    "synth_pad": 88,
+}
+
+
 def _vlq(value: int) -> bytes:
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         raise MidiExportError("MIDI variable-length value must be a non-negative integer")
@@ -169,8 +208,13 @@ def export_performance_midi(
 ) -> dict[str, int | float | str]:
     if not tracks:
         raise MidiExportError("at least one performance track is required")
-    if len(tracks) > 15:
-        raise MidiExportError("performance MIDI v1 supports at most 15 candidate tracks")
+    normalized_names = [
+        name.strip().lower().replace(" ", "_") for name in tracks
+    ]
+    if normalized_names.count("drums") > 1:
+        raise MidiExportError("performance MIDI supports at most one drum track")
+    if sum(name != "drums" for name in normalized_names) > 15:
+        raise MidiExportError("performance MIDI supports at most 15 melodic tracks")
     timeline = TempoTimeline(tempo_points, ticks_per_beat=ticks_per_beat)
 
     conductor_events: list[tuple[int, int, bytes]] = [
@@ -198,15 +242,16 @@ def export_performance_midi(
     midi_tracks = [_track_chunk(conductor_events)]
     note_count = 0
     maximum_timing_error = 0.0
-    channels = [channel for channel in range(16) if channel != 9]
-    for channel, (track_name, raw_events) in zip(
-        channels,
-        tracks.items(),
-        strict=False,
-    ):
+    melodic_channels = iter(channel for channel in range(16) if channel != 9)
+    for track_name, raw_events in tracks.items():
+        normalized_name = track_name.strip().lower().replace(" ", "_")
+        channel = 9 if normalized_name == "drums" else next(melodic_channels)
         encoded_events: list[tuple[int, int, bytes]] = [
             (0, 0, _meta(0x03, track_name.encode("utf-8")))
         ]
+        program = GENERAL_MIDI_PROGRAMS.get(normalized_name)
+        if channel != 9 and program is not None:
+            encoded_events.append((0, 1, bytes((0xC0 | channel, program))))
         for event in raw_events:
             event.validate()
             onset_tick = timeline.seconds_to_ticks(event.onset_sec)

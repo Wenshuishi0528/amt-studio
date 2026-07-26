@@ -6,7 +6,7 @@ Use SwiftUI for the native interface and AVFoundation for media playback. Keep t
 
 During research, the app launches `amt` or a local Python service. Later, a model pack can use CoreML, ONNX Runtime, MPS-backed Python, or a bundled executable. The project file format must not depend on the deployment mechanism.
 
-## Current gated implementation
+## Current private Beta implementation
 
 Task 009A implements only the model-independent existing-project editor in
 `apps/AMTStudioMac`. It opens verified canonical bundles without a subprocess,
@@ -14,15 +14,29 @@ requires an explicit bundle and candidate track, plays original audio with a
 selected-track MIDI preview, stores non-destructive edits, restores after
 restart, and exports performance MIDI.
 
-Task 009A contains no import or inference command and never contacts Hyak.
+Task 009A contains no import or inference command.
 Task 009B1 now replaces the note-density placeholder with a cancellable,
 fixed-size waveform decoded from the existing canonical audio and adds a
 selected-track confidence review queue. Missing confidence is excluded and
 uncalibrated source-model values are not compared across tracks. The future
 Task 009B2A Xcode target now formally verifies the existing editor flow with a
-runtime-generated synthetic project and no inference. The future local job API,
-audio import, progress/cancellation, and model-pack discovery remain gated by
-backend quality. Build the development app with:
+runtime-generated synthetic project and no inference.
+
+The owner subsequently selected the Task 002 MuScriptor full-song multitrack
+result as the private Beta product baseline. Task 009B2B now adds a deliberately
+narrow local controller: the Mac canonicalizes/transfers audio and polls state,
+an L40 Slurm compute node runs MuScriptor once, and the Mac retrieves an
+immutable per-instrument bundle. `voice` is the default main-melody view, while
+all accompaniment predictions remain available and explicitly unverified.
+This does not revive rejected fusion or run the model on the Mac.
+
+Before first Hyak use, copy `configs/hyak.example.json` to the ignored
+`configs/local_hyak.json` and fill in `host` plus `remote_root`. The current
+machine already has this non-secret local configuration; passwords and Duo
+responses are never written there. Each submitted job receives a clean
+Git-archive snapshot whose exact commit is recorded in the run manifest.
+
+Build the development app with:
 
 ```bash
 make mac-app

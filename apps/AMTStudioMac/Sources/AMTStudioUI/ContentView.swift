@@ -23,6 +23,24 @@ public struct ContentView: View {
     .frame(minWidth: 1_150, minHeight: 720)
     .toolbar {
       ToolbarItemGroup {
+        Button("连接 Hyak", systemImage: "network") {
+          model.openHyakLogin()
+        }
+        .accessibilityIdentifier("connect-hyak")
+        Button("识别歌曲", systemImage: "waveform.badge.plus") {
+          importAudioPanel()
+        }
+        .disabled(model.isBetaBusy)
+        .accessibilityIdentifier("transcribe-song")
+        if model.isBetaBusy {
+          ProgressView()
+            .controlSize(.small)
+        }
+        Button("刷新任务", systemImage: "arrow.clockwise") {
+          model.refreshBetaJob()
+        }
+        .disabled(model.betaProjectURL == nil || model.isBetaBusy)
+        .accessibilityIdentifier("refresh-beta-job")
         Button("打开项目", systemImage: "folder") {
           openProjectPanel()
         }
@@ -32,8 +50,13 @@ public struct ContentView: View {
         }
         .disabled(model.editor == nil)
         .accessibilityIdentifier("save-project")
-        Button("导出 MIDI", systemImage: "pianokeys") {
-          exportPanel()
+        Menu("导出 MIDI", systemImage: "pianokeys") {
+          Button("当前音轨（主旋律）") {
+            exportTrackPanel()
+          }
+          Button("完整多轨") {
+            exportArrangementPanel()
+          }
         }
         .disabled(model.editor == nil)
         .accessibilityIdentifier("export-midi")
@@ -84,6 +107,19 @@ public struct ContentView: View {
         }
       }
 
+      if let jobID = model.betaJobID {
+        Section("Hyak 识别任务") {
+          LabeledContent("Job ID", value: jobID)
+          LabeledContent(
+            "状态",
+            value: model.betaSlurmState ?? "准备中"
+          )
+          Text("模型在 Hyak GPU 上运行；Mac 只负责音频准备、上传、取回和编辑。")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+      }
+
       if !model.bundleChoices.isEmpty {
         Section("Canonical bundle（必须明确选择）") {
           ForEach(model.bundleChoices) { bundle in
@@ -105,7 +141,7 @@ public struct ContentView: View {
       }
 
       if !model.trackChoices.isEmpty {
-        Section("候选轨（不代表最终准确率）") {
+        Section("原始多轨（乐器标签可能有误）") {
           ForEach(model.trackChoices) { track in
             Button {
               model.chooseTrack(track.id)
@@ -132,7 +168,7 @@ public struct ContentView: View {
 
       if let editor = model.editor {
         Section("当前修正版") {
-          LabeledContent("候选轨", value: editor.selectedTrack.label)
+          LabeledContent("音轨", value: editor.selectedTrack.label)
           LabeledContent("音符", value: "\(editor.notes.count)")
           Text("所有修改写入独立操作历史；原始 JSONL 不会覆盖。")
             .font(.caption)
@@ -162,8 +198,8 @@ public struct ContentView: View {
     } else if let snapshot = model.snapshot {
       EmptyStateView(
         icon: "music.note.list",
-        title: "请选择一条候选轨",
-        message: "这个 bundle 含 \(snapshot.tracks.count) 条候选轨。应用不会自动把其中任何一条宣称为最终主旋律。"
+        title: "请选择一条音轨",
+        message: "这个结果含 \(snapshot.tracks.count) 条 MuScriptor 原始音轨；voice 存在时会自动作为主旋律入口。"
       )
     } else if model.catalog != nil {
       EmptyStateView(
@@ -175,7 +211,7 @@ public struct ContentView: View {
       EmptyStateView(
         icon: "waveform.and.music.note",
         title: "AMT Studio",
-        message: "打开已有项目即可试听和修改，不会触发模型推理，也不需要连接 Hyak。"
+        message: "先连接 Hyak，再点“识别歌曲”选择 MP3/WAV；完成后会自动打开 voice 主旋律和完整多轨。"
       )
     }
   }
@@ -191,15 +227,40 @@ public struct ContentView: View {
     }
   }
 
-  private func exportPanel() {
+  private func importAudioPanel() {
+    let panel = NSOpenPanel()
+    panel.title = "选择要识别的歌曲"
+    panel.canChooseDirectories = false
+    panel.canChooseFiles = true
+    panel.allowsMultipleSelection = false
+    panel.allowedContentTypes = [.audio]
+    if panel.runModal() == .OK, let url = panel.url {
+      model.transcribeSong(url)
+    }
+  }
+
+  private func exportTrackPanel() {
     let panel = NSSavePanel()
-    panel.title = "导出当前候选轨修正版 MIDI"
+    panel.title = "导出当前音轨修正版 MIDI"
     panel.nameFieldStringValue = "\(model.editor?.selectedTrack.id ?? "track").performance.mid"
     if let midi = UTType(filenameExtension: "mid") {
       panel.allowedContentTypes = [midi]
     }
     if panel.runModal() == .OK, let url = panel.url {
       model.exportMIDI(to: url)
+    }
+  }
+
+  private func exportArrangementPanel() {
+    let panel = NSSavePanel()
+    panel.title = "导出完整多轨修正版 MIDI"
+    panel.nameFieldStringValue =
+      "\(model.catalog?.manifest.projectID ?? "song").multitrack.mid"
+    if let midi = UTType(filenameExtension: "mid") {
+      panel.allowedContentTypes = [midi]
+    }
+    if panel.runModal() == .OK, let url = panel.url {
+      model.exportArrangementMIDI(to: url)
     }
   }
 }

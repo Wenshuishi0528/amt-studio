@@ -6,6 +6,27 @@ import XCTest
 
 @MainActor
 final class AppModelTests: XCTestCase {
+  func testConfiguredBetaProjectAutomaticallyRefreshesJobState() async throws {
+    guard
+      let projectPath = ProcessInfo.processInfo.environment[
+        "AMT_STUDIO_BETA_PROJECT"
+      ]
+    else {
+      throw XCTSkip("Set AMT_STUDIO_BETA_PROJECT for live Hyak integration.")
+    }
+    let model = AppModel(
+      initialProjectURL: URL(fileURLWithPath: projectPath),
+      restoreRecent: false,
+      persistRecentProject: false
+    )
+    model.openInitialProjectIfNeeded()
+    XCTAssertEqual(model.betaProjectURL?.path, projectPath)
+    try await Task.sleep(for: .seconds(22))
+    XCTAssertNotNil(model.betaJobID)
+    XCTAssertNotNil(model.betaSlurmState)
+    XCTAssertNotEqual(model.betaSlurmState, "PENDING")
+  }
+
   func testMissingProjectProducesActionableErrorWithoutStartingAJob() {
     let defaults = UserDefaults(
       suiteName: "AMTStudioUITests.\(UUID().uuidString)"

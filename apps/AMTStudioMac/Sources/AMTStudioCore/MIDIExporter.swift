@@ -57,6 +57,80 @@ public enum MIDIExporter {
     )
   }
 
+  public static func exportArrangement(
+    snapshot: ProjectSnapshot,
+    bundleID: String,
+    to outputURL: URL,
+    ticksPerBeat: Int = 960
+  ) throws -> MIDIExportReport {
+    guard ticksPerBeat > 0, ticksPerBeat <= 32_767 else {
+      throw AMTProjectError.malformedManifest("MIDI ticksPerBeat 无效")
+    }
+    let timeline = try TempoTimeline(
+      points: snapshot.canonicalProject.rhythm.tempoMap,
+      ticksPerBeat: ticksPerBeat
+    )
+    var tracks = [
+      try conductorTrack(
+        timeline: timeline,
+        meters: snapshot.canonicalProject.rhythm.meterMap
+      )
+    ]
+    var noteCount = 0
+    var melodicChannels = Array(0...15).filter { $0 != 9 }
+    for track in snapshot.tracks {
+      let editor = try EditorProject(
+        snapshot: snapshot,
+        bundleID: bundleID,
+        selectedTrackID: track.id
+      )
+      let notes = try editor.materializedNotes()
+      noteCount += notes.count
+      let instrument = track.instrument?.lowercased()
+      let channel: UInt8
+      if instrument == "drums" {
+        channel = 9
+      } else {
+        guard !melodicChannels.isEmpty else {
+          throw AMTProjectError.malformedManifest(
+            "完整多轨 MIDI 最多支持 15 条旋律轨和 1 条鼓轨"
+          )
+        }
+        channel = UInt8(melodicChannels.removeFirst())
+      }
+      tracks.append(
+        try performanceTrack(
+          name: track.label,
+          notes: notes,
+          timeline: timeline,
+          channel: channel,
+          program: generalMIDIProgram(instrument)
+        )
+      )
+    }
+    guard noteCount > 0 else {
+      throw AMTProjectError.noNotesToExport
+    }
+    var file = Data("MThd".utf8)
+    appendUInt32(6, to: &file)
+    appendUInt16(1, to: &file)
+    appendUInt16(UInt16(tracks.count), to: &file)
+    appendUInt16(UInt16(ticksPerBeat), to: &file)
+    for track in tracks {
+      file.append(trackChunk(track))
+    }
+    try FileManager.default.createDirectory(
+      at: outputURL.deletingLastPathComponent(),
+      withIntermediateDirectories: true
+    )
+    try file.write(to: outputURL, options: [.atomic])
+    return MIDIExportReport(
+      noteCount: noteCount,
+      trackCount: snapshot.tracks.count,
+      ticksPerBeat: ticksPerBeat
+    )
+  }
+
   private static func conductorTrack(
     timeline: TempoTimeline,
     meters: [MeterPoint]
@@ -126,7 +200,9 @@ public enum MIDIExporter {
   private static func performanceTrack(
     name: String,
     notes: [EditorNote],
-    timeline: TempoTimeline
+    timeline: TempoTimeline,
+    channel: UInt8 = 0,
+    program: UInt8? = nil
   ) throws -> [MIDIEvent] {
     var events = [
       MIDIEvent(
@@ -135,6 +211,15 @@ public enum MIDIExporter {
         data: meta(type: 0x03, payload: Data(name.utf8))
       )
     ]
+    if channel != 9, let program {
+      events.append(
+        MIDIEvent(
+          tick: 0,
+          order: 1,
+          data: Data([0xC0 | channel, program])
+        )
+      )
+    }
     for note in notes {
       _ = try note.validated()
       let onset = try timeline.tick(at: note.onsetSec)
@@ -148,18 +233,60 @@ public enum MIDIExporter {
         MIDIEvent(
           tick: offset,
           order: 1,
-          data: Data([0x80, pitch, 0])
+          data: Data([0x80 | channel, pitch, 0])
         )
       )
       events.append(
         MIDIEvent(
           tick: onset,
           order: 2,
-          data: Data([0x90, pitch, velocity])
+          data: Data([0x90 | channel, pitch, velocity])
         )
       )
     }
     return events
+  }
+
+  private static func generalMIDIProgram(
+    _ instrument: String?
+  ) -> UInt8? {
+    switch instrument?.replacingOccurrences(of: " ", with: "_") {
+    case "acoustic_piano": 0
+    case "electric_piano": 4
+    case "chromatic_percussion": 11
+    case "organ": 19
+    case "acoustic_guitar": 24
+    case "clean_electric_guitar": 27
+    case "distorted_electric_guitar": 30
+    case "acoustic_bass": 32
+    case "electric_bass": 33
+    case "violin": 40
+    case "viola": 41
+    case "cello": 42
+    case "contrabass": 43
+    case "orchestral_harp": 46
+    case "timpani": 47
+    case "string_ensemble": 48
+    case "synth_strings": 50
+    case "voice": 52
+    case "orchestra_hit": 55
+    case "trumpet": 56
+    case "trombone": 57
+    case "tuba": 58
+    case "french_horn": 60
+    case "brass_section": 61
+    case "soprano_and_alto_sax", "sax": 64
+    case "tenor_sax": 66
+    case "baritone_sax": 67
+    case "oboe": 68
+    case "english_horn": 69
+    case "bassoon": 70
+    case "clarinet": 71
+    case "flutes": 73
+    case "synth_lead": 80
+    case "synth_pad": 88
+    default: nil
+    }
   }
 
   private static func trackChunk(_ events: [MIDIEvent]) -> Data {

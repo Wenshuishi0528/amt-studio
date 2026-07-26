@@ -4,6 +4,59 @@ This project records changes by numbered research task until formal semantic
 versions and releases begin. Dates and commit identifiers refer to the local
 Git history.
 
+## Task 009B2B — MuScriptor private Beta workflow — 2026-07-26
+
+Commit: this task's final commit
+
+### Added
+
+- Added a single-song Mac-to-Hyak controller with safe ControlMaster reuse,
+  project/code synchronization, L40 Slurm submission, status polling, final
+  accounting, and result retrieval.
+- Added a one-pass MuScriptor job that skips the redundant native-MIDI decode
+  and derives one immutable canonical track per predicted instrument.
+- Added native app controls for Hyak login, song selection, progress refresh,
+  automatic result opening, default `voice` main-melody selection, and
+  current-track versus complete-multitrack MIDI export.
+- Added General MIDI program/channel mapping for edited multitrack exports
+  while retaining model labels and explicit uncertainty.
+- Added an ignored per-machine Hyak configuration with a placeholder-only
+  committed example; personal NetIDs and storage roots are no longer compiled
+  into the product.
+- Added commit-exact `git archive` code synchronization and strict persisted
+  job-state boundary validation.
+
+### Verified
+
+- The Task 002 full-song run converts to 9 tracks with all 7,667 events.
+- Production Swift loading and the private selected/full-arrangement export
+  test pass on that real project; Python bundle and orchestration regression
+  tests pass.
+- The ad-hoc-signed production app builds successfully.
+- Real job `37734361` completed `0:0` in `00:17:28` on L40 node `g3098`.
+  The bounded workflow created the project, synchronized code/audio, submitted,
+  polled, fetched, and reopened the result without login-node inference.
+- The fetched run contains 6,881 valid events in 13 predicted instrument
+  tracks. Its complete MIDI has 14 tracks including conductor, 12 program
+  changes, and all 1,545 drum notes on the percussion channel.
+- The source/canonical hashes, model weight/revision, beam size, and prelude
+  setting match Task 002. The old A100 and new L40 event/label counts differ,
+  so cross-hardware byte invariance is explicitly not claimed.
+- The single final `/review` found no P0 and five P1 issues. All five were
+  fixed with targeted coverage: Xcode target membership, state path/identity
+  validation, preservation beyond one MIDI port, exact synchronized commit
+  provenance, and configurable Hyak identity/root. Three P2 suggestions were
+  not expanded under the requested stop rule.
+- Final `make check` passed 247 Python and 18 Swift tests with two expected
+  environment-gated Swift skips. Seven Python tests came from preserved,
+  paused Task 007D worktree files and are excluded from this commit.
+
+### Scope
+
+- This product Beta uses the Task 002 MuScriptor baseline. It does not revive
+  rejected fusion, add a dataset, retune a model, claim formal accuracy, or
+  run inference on the Mac/login node.
+
 ## Task 007C — Instrumental full-mix development rejection — 2026-07-26
 
 Commit: this task's final commit

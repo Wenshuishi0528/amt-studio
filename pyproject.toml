@@ -18,6 +18,7 @@ dev = [
 
 [project.scripts]
 amt = "amt_core.cli:main"
+amt-private-beta = "amt_core.private_beta:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/amt_core"]

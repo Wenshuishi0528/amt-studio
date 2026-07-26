@@ -7,7 +7,11 @@ from pathlib import Path
 
 import mido
 
-from amt_core.bundle import BundleBuildError, build_canonical_bundle
+from amt_core.bundle import (
+    BundleBuildError,
+    build_canonical_bundle,
+    build_muscriptor_multitrack_bundle,
+)
 from amt_core.canonical import MeterPoint, RhythmEvent, RhythmMap, TempoPoint
 from amt_core.events import NoteEvent, write_jsonl
 from amt_core.utils import atomic_write_json, sha256_file
@@ -146,6 +150,212 @@ def _beat_run(project: Path, canonical_hash: str) -> Path:
 
 
 class BundleTests(unittest.TestCase):
+    def test_builds_muscriptor_instrument_tracks_with_voice_first(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            project, canonical_hash = _project(Path(temporary))
+            run_id = "muscriptor-full"
+            run_dir = project / "runs" / run_id
+            events_path = run_dir / "normalized" / "events.jsonl"
+            write_jsonl(
+                events_path,
+                [
+                    NoteEvent(
+                        event_id="piano-note",
+                        track_id="muscriptor-native:acoustic_piano",
+                        instrument="acoustic_piano",
+                        onset_sec=0.1,
+                        offset_sec=0.5,
+                        pitch_midi=60,
+                        source_run_id=run_id,
+                        source_model="muscriptor-model",
+                    ),
+                    NoteEvent(
+                        event_id="voice-note",
+                        track_id="muscriptor-native:voice",
+                        instrument="voice",
+                        onset_sec=0.2,
+                        offset_sec=0.8,
+                        pitch_midi=72,
+                        source_run_id=run_id,
+                        source_model="muscriptor-model",
+                    ),
+                    NoteEvent(
+                        event_id="trumpet-note",
+                        track_id="muscriptor-native:trumpet",
+                        instrument="trumpet",
+                        onset_sec=0.3,
+                        offset_sec=0.9,
+                        pitch_midi=67,
+                        source_run_id=run_id,
+                        source_model="muscriptor-model",
+                    ),
+                ],
+            )
+            native_midi = run_dir / "raw" / "full.native.mid"
+            native_midi.parent.mkdir(parents=True)
+            native_midi.write_bytes(b"MThd-native")
+            atomic_write_json(
+                run_dir / "run_manifest.json",
+                {
+                    "schema_version": 1,
+                    "run_id": run_id,
+                    "project_id": project.name,
+                    "worker": "muscriptor",
+                    "status": "succeeded",
+                    "input_lineage": {"canonical_mix_sha256": canonical_hash},
+                    "outputs": [
+                        _output(events_path, run_dir),
+                        _output(native_midi, run_dir),
+                    ],
+                },
+            )
+            output = project / "exports" / "muscriptor-multitrack"
+            manifest = build_muscriptor_multitrack_bundle(project, run_dir, output)
+            canonical = json.loads(
+                (output / "canonical_project.json").read_text(encoding="utf-8")
+            )
+            midi = mido.MidiFile(output / "performance.mid")
+
+            self.assertEqual(manifest["status"], "succeeded")
+            self.assertEqual(
+                [track["track_id"] for track in canonical["tracks"]],
+                ["voice", "acoustic_piano", "trumpet"],
+            )
+            self.assertEqual(canonical["main_melody_track_id"], "voice")
+            self.assertEqual(len(midi.tracks), 4)
+            self.assertEqual(
+                [
+                    message.program
+                    for message in midi.tracks[1]
+                    if message.type == "program_change"
+                ],
+                [52],
+            )
+            self.assertEqual(
+                [
+                    message.program
+                    for message in midi.tracks[3]
+                    if message.type == "program_change"
+                ],
+                [56],
+            )
+            self.assertTrue((output / "muscriptor.native.mid").is_file())
+            self.assertEqual(
+                {
+                    record["path"]
+                    for record in manifest["outputs"]
+                    if record["path"].startswith("tracks/")
+                },
+                {
+                    "tracks/acoustic_piano.jsonl",
+                    "tracks/trumpet.jsonl",
+                    "tracks/voice.jsonl",
+                },
+            )
+            self.assertFalse(canonical["claims"]["accuracy_claimed"])
+
+    def test_multitrack_bundle_preserves_tracks_beyond_one_midi_port(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            project, canonical_hash = _project(Path(temporary))
+            run_id = "muscriptor-many-tracks"
+            run_dir = project / "runs" / run_id
+            events_path = run_dir / "normalized" / "events.jsonl"
+            instruments = [f"instrument_{index:02d}" for index in range(17)]
+            write_jsonl(
+                events_path,
+                [
+                    NoteEvent(
+                        event_id=f"note-{index}",
+                        track_id=f"muscriptor-native:{instrument}",
+                        instrument=instrument,
+                        onset_sec=index * 0.01,
+                        offset_sec=index * 0.01 + 0.2,
+                        pitch_midi=60 + index % 12,
+                        source_run_id=run_id,
+                        source_model="muscriptor-model",
+                    )
+                    for index, instrument in enumerate(instruments)
+                ],
+            )
+            atomic_write_json(
+                run_dir / "run_manifest.json",
+                {
+                    "schema_version": 1,
+                    "run_id": run_id,
+                    "project_id": project.name,
+                    "worker": "muscriptor",
+                    "status": "succeeded",
+                    "input_lineage": {"canonical_mix_sha256": canonical_hash},
+                    "outputs": [_output(events_path, run_dir)],
+                },
+            )
+            output = project / "exports" / "many-tracks"
+            build_muscriptor_multitrack_bundle(project, run_dir, output)
+            canonical = json.loads(
+                (output / "canonical_project.json").read_text(encoding="utf-8")
+            )
+
+            self.assertEqual(len(canonical["tracks"]), 17)
+            self.assertFalse((output / "performance.mid").exists())
+            self.assertEqual(
+                canonical["exports"]["performance_midi"]["report"]["status"],
+                "unavailable",
+            )
+            self.assertEqual(
+                len(list((output / "tracks").glob("*.jsonl"))),
+                17,
+            )
+
+    def test_performance_midi_accepts_fifteen_melodic_tracks_plus_drums(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            project, canonical_hash = _project(Path(temporary))
+            run_id = "muscriptor-sixteen-tracks"
+            run_dir = project / "runs" / run_id
+            events_path = run_dir / "normalized" / "events.jsonl"
+            instruments = ["drums", *[f"melodic_{index:02d}" for index in range(15)]]
+            write_jsonl(
+                events_path,
+                [
+                    NoteEvent(
+                        event_id=f"note-{index}",
+                        track_id=f"muscriptor-native:{instrument}",
+                        instrument=instrument,
+                        onset_sec=index * 0.01,
+                        offset_sec=index * 0.01 + 0.2,
+                        pitch_midi=36 if instrument == "drums" else 60,
+                        source_run_id=run_id,
+                        source_model="muscriptor-model",
+                    )
+                    for index, instrument in enumerate(instruments)
+                ],
+            )
+            atomic_write_json(
+                run_dir / "run_manifest.json",
+                {
+                    "schema_version": 1,
+                    "run_id": run_id,
+                    "project_id": project.name,
+                    "worker": "muscriptor",
+                    "status": "succeeded",
+                    "input_lineage": {"canonical_mix_sha256": canonical_hash},
+                    "outputs": [_output(events_path, run_dir)],
+                },
+            )
+            output = project / "exports" / "sixteen-tracks"
+            build_muscriptor_multitrack_bundle(project, run_dir, output)
+            midi = mido.MidiFile(output / "performance.mid")
+
+            self.assertEqual(len(midi.tracks), 17)
+            drum_note_ons = [
+                message
+                for track in midi.tracks
+                for message in track
+                if message.type == "note_on"
+                and message.velocity > 0
+                and message.channel == 9
+            ]
+            self.assertEqual(len(drum_note_ons), 1)
+
     def test_builds_separate_candidate_tracks_performance_midi_and_score_grid(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             project, canonical_hash = _project(Path(temporary))
