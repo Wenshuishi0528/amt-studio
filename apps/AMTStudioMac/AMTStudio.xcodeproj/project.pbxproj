@@ -1,0 +1,402 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		000000000000000000000050 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000030 /* Models.swift */; };
+		000000000000000000000051 /* ProjectLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000031 /* ProjectLoader.swift */; };
+		000000000000000000000052 /* EditHistory.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000032 /* EditHistory.swift */; };
+		000000000000000000000053 /* MIDIExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000033 /* MIDIExporter.swift */; };
+		000000000000000000000054 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000034 /* AppModel.swift */; };
+		000000000000000000000055 /* AudioTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000035 /* AudioTransport.swift */; };
+		000000000000000000000056 /* AudioWaveformLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000036 /* AudioWaveformLoader.swift */; };
+		000000000000000000000057 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000037 /* ContentView.swift */; };
+		000000000000000000000058 /* AMTStudioApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000038 /* AMTStudioApp.swift */; };
+		000000000000000000000059 /* AMTStudioAppUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000039 /* AMTStudioAppUITests.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		000000000000000000000070 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 000000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 000000000000000000000010;
+			remoteInfo = AMTStudio;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		000000000000000000000020 /* AMT Studio.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "AMT Studio.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		000000000000000000000021 /* AMTStudioAppUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AMTStudioAppUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		000000000000000000000030 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/AMTStudioCore/Models.swift; sourceTree = "<group>"; };
+		000000000000000000000031 /* ProjectLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/AMTStudioCore/ProjectLoader.swift; sourceTree = "<group>"; };
+		000000000000000000000032 /* EditHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/AMTStudioCore/EditHistory.swift; sourceTree = "<group>"; };
+		000000000000000000000033 /* MIDIExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/AMTStudioCore/MIDIExporter.swift; sourceTree = "<group>"; };
+		000000000000000000000034 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/AMTStudioUI/AppModel.swift; sourceTree = "<group>"; };
+		000000000000000000000035 /* AudioTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/AMTStudioUI/AudioTransport.swift; sourceTree = "<group>"; };
+		000000000000000000000036 /* AudioWaveformLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/AMTStudioUI/AudioWaveformLoader.swift; sourceTree = "<group>"; };
+		000000000000000000000037 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/AMTStudioUI/ContentView.swift; sourceTree = "<group>"; };
+		000000000000000000000038 /* AMTStudioApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/AMTStudio/AMTStudioApp.swift; sourceTree = "<group>"; };
+		000000000000000000000039 /* AMTStudioAppUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UITests/AMTStudioAppUITests.swift; sourceTree = "<group>"; };
+		000000000000000000000040 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Support/Info.plist; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		000000000000000000000061 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		000000000000000000000064 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		000000000000000000000002 = {
+			isa = PBXGroup;
+			children = (
+				000000000000000000000004 /* Sources */,
+				000000000000000000000005 /* UITests */,
+				000000000000000000000006 /* Support */,
+				000000000000000000000003 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		000000000000000000000003 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				000000000000000000000020 /* AMT Studio.app */,
+				000000000000000000000021 /* AMTStudioAppUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		000000000000000000000004 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				000000000000000000000030 /* Models.swift */,
+				000000000000000000000031 /* ProjectLoader.swift */,
+				000000000000000000000032 /* EditHistory.swift */,
+				000000000000000000000033 /* MIDIExporter.swift */,
+				000000000000000000000034 /* AppModel.swift */,
+				000000000000000000000035 /* AudioTransport.swift */,
+				000000000000000000000036 /* AudioWaveformLoader.swift */,
+				000000000000000000000037 /* ContentView.swift */,
+				000000000000000000000038 /* AMTStudioApp.swift */,
+			);
+			name = Sources;
+			sourceTree = "<group>";
+		};
+		000000000000000000000005 /* UITests */ = {
+			isa = PBXGroup;
+			children = (
+				000000000000000000000039 /* AMTStudioAppUITests.swift */,
+			);
+			name = UITests;
+			sourceTree = "<group>";
+		};
+		000000000000000000000006 /* Support */ = {
+			isa = PBXGroup;
+			children = (
+				000000000000000000000040 /* Info.plist */,
+			);
+			name = Support;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		000000000000000000000010 /* AMTStudio */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 000000000000000000000081 /* Build configuration list for PBXNativeTarget "AMTStudio" */;
+			buildPhases = (
+				000000000000000000000060 /* Sources */,
+				000000000000000000000061 /* Frameworks */,
+				000000000000000000000062 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = AMTStudio;
+			productName = "AMT Studio";
+			productReference = 000000000000000000000020 /* AMT Studio.app */;
+			productType = "com.apple.product-type.application";
+		};
+		000000000000000000000011 /* AMTStudioAppUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 000000000000000000000082 /* Build configuration list for PBXNativeTarget "AMTStudioAppUITests" */;
+			buildPhases = (
+				000000000000000000000063 /* Sources */,
+				000000000000000000000064 /* Frameworks */,
+				000000000000000000000065 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				000000000000000000000071 /* PBXTargetDependency */,
+			);
+			name = AMTStudioAppUITests;
+			productName = AMTStudioAppUITests;
+			productReference = 000000000000000000000021 /* AMTStudioAppUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		000000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2610;
+				LastUpgradeCheck = 2610;
+				TargetAttributes = {
+					000000000000000000000010 = {
+						CreatedOnToolsVersion = 26.1;
+					};
+					000000000000000000000011 = {
+						CreatedOnToolsVersion = 26.1;
+						TestTargetID = 000000000000000000000010;
+					};
+				};
+			};
+			buildConfigurationList = 000000000000000000000080 /* Build configuration list for PBXProject "AMTStudio" */;
+			developmentRegion = zh_CN;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				zh_CN,
+				en,
+				Base,
+			);
+			mainGroup = 000000000000000000000002;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 000000000000000000000003 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				000000000000000000000010 /* AMTStudio */,
+				000000000000000000000011 /* AMTStudioAppUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		000000000000000000000062 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		000000000000000000000065 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		000000000000000000000060 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				000000000000000000000050 /* Models.swift in Sources */,
+				000000000000000000000051 /* ProjectLoader.swift in Sources */,
+				000000000000000000000052 /* EditHistory.swift in Sources */,
+				000000000000000000000053 /* MIDIExporter.swift in Sources */,
+				000000000000000000000054 /* AppModel.swift in Sources */,
+				000000000000000000000055 /* AudioTransport.swift in Sources */,
+				000000000000000000000056 /* AudioWaveformLoader.swift in Sources */,
+				000000000000000000000057 /* ContentView.swift in Sources */,
+				000000000000000000000058 /* AMTStudioApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		000000000000000000000063 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				000000000000000000000059 /* AMTStudioAppUITests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		000000000000000000000071 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 000000000000000000000010 /* AMTStudio */;
+			targetProxy = 000000000000000000000070 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		000000000000000000000090 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		000000000000000000000091 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = YES;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		000000000000000000000092 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_HARDENED_RUNTIME = NO;
+				ENABLE_TESTABILITY = YES;
+				EXECUTABLE_NAME = AMTStudio;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Support/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.amtstudio.editor;
+				PRODUCT_MODULE_NAME = AMTStudio;
+				PRODUCT_NAME = "AMT Studio";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_CONCURRENCY = complete;
+			};
+			name = Debug;
+		};
+		000000000000000000000093 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				ENABLE_HARDENED_RUNTIME = NO;
+				EXECUTABLE_NAME = AMTStudio;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Support/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.amtstudio.editor;
+				PRODUCT_MODULE_NAME = AMTStudio;
+				PRODUCT_NAME = "AMT Studio";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_CONCURRENCY = complete;
+			};
+			name = Release;
+		};
+		000000000000000000000094 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.amtstudio.editor.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				TEST_TARGET_NAME = AMTStudio;
+			};
+			name = Debug;
+		};
+		000000000000000000000095 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.amtstudio.editor.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				TEST_TARGET_NAME = AMTStudio;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		000000000000000000000080 /* Build configuration list for PBXProject "AMTStudio" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				000000000000000000000090 /* Debug */,
+				000000000000000000000091 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		000000000000000000000081 /* Build configuration list for PBXNativeTarget "AMTStudio" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				000000000000000000000092 /* Debug */,
+				000000000000000000000093 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		000000000000000000000082 /* Build configuration list for PBXNativeTarget "AMTStudioAppUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				000000000000000000000094 /* Debug */,
+				000000000000000000000095 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 000000000000000000000001 /* Project object */;
+}

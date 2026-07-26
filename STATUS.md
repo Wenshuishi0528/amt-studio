@@ -2,9 +2,30 @@
 
 Current gate: Gate 4 not passed; deterministic fusion v1 was rejected
 Current task: `tasks/009_MAC_APP_SHELL.md` in progress; Task 009A and the
-model-independent Task 009B1 review surfaces are verified
-Next task: Task 009B2 backend/import integration remains blocked by Gate 4
+model-independent Task 009B1 review surfaces plus Task 009B2A formal UI flow
+are verified
+Next task: Task 009B2B backend/import integration remains blocked by Gate 4
 Current branch: `main`
+
+Verified for Task 009B2A:
+
+- a committed Xcode project builds the production macOS sources and a formal
+  UI-test bundle without adding an app-side model runtime;
+- the UI fixture is generated at runtime under a non-ASCII path, uses only a
+  synthetic three-second WAV, and does not read or replace the user's recent
+  project preference;
+- the formal UI test opens and auto-selects the unique canonical candidate,
+  observes the real waveform, piano roll, and confidence controls, advances
+  and pauses playback, navigates the low-confidence queue, edits a note,
+  exercises undo/redo, relaunches the process, and confirms history restore;
+- `make mac-ui-test` passes one XCUITest with zero failures. Repository-level
+  `make check` separately passes 216 Python and 17 Swift tests, with one
+  expected private-integration skip;
+- the single focused review found no P0/P1; both P2 evidence/reproducibility
+  findings were fixed by asserting a loaded non-empty waveform and making the
+  documented command independent of the preceding working directory;
+- this verification submitted no Slurm job, ran no inference, and did not
+  change Gate 4 or the Mac/Hyak compute boundary.
 
 Verified for Task 009B1:
 
@@ -52,8 +73,9 @@ Verified for Task 009A:
 - repository-level `make check` passes all 216 Python tests and the Swift
   suite;
 - the focused review found no P0; all implementation-safety P1 findings were
-  fixed, while formal XCUITest remains an explicit 009B gap. Swift format lint,
-  app plist/signature checks, and `git diff --check` pass.
+  fixed. Swift format lint, app plist/signature checks, and `git diff --check`
+  pass. The previously explicit formal-XCUITest gap is now closed by
+  Task 009B2A.
 
 Verified on the user's Mac:
 

@@ -1,7 +1,8 @@
 # Task 009: Native macOS application shell
 
-Status: in progress — Task 009A editor shell and Task 009B1 model-independent
-review surfaces verified; backend integration remains blocked by Gate 4
+Status: in progress — Task 009A editor shell, Task 009B1 model-independent
+review surfaces, and Task 009B2A formal UI-flow verification are complete;
+backend integration remains blocked by Gate 4
 
 ## Objective
 
@@ -41,7 +42,24 @@ Implemented:
 This slice reads existing project artifacts only. It does not import audio,
 launch a worker, contact Hyak, or promote a transcription route.
 
-## Task 009B2: gated backend work
+## Task 009B2A: formal UI-flow verification
+
+Implemented:
+
+- a committed Xcode application target and UI-test bundle that build the same
+  production Swift sources;
+- a runtime-generated project under a non-ASCII path with canonical audio,
+  two notes, one low source confidence, and one explicitly unknown confidence;
+- end-to-end interaction coverage for project open, unique-track selection,
+  real waveform, playback advancement, review navigation, note editing,
+  undo/redo, process restart, and restored edit history;
+- `--no-recent-project` isolation so the fixture neither reads nor replaces
+  the user's remembered project.
+
+The fixture contains only a generated three-second PCM waveform. No private
+audio, model artifact, inference process, or Hyak job is involved.
+
+## Task 009B2B: gated backend work
 
 Not started:
 
@@ -49,7 +67,6 @@ Not started:
 - a versioned local job API;
 - background inference progress and cancellation;
 - model-pack/worker discovery and failure states;
-- formal XCUITest coverage;
 - MusicXML after notation tests.
 
 These items cannot silently select the rejected fusion route or move model
@@ -65,7 +82,8 @@ compute onto the Mac. Research inference remains on Hyak compute nodes.
 - Model/application unit tests cover failure, move/resize projection,
   edit/undo/redo, restart, and export: **passed**.
 - Real waveform and confidence queue behavior: **passed for 009B1**.
-- Formal XCUITest and import/job failure: **pending in 009B2**.
+- Formal XCUITest editor flow: **passed for 009B2A**.
+- Import/job failure behavior: **pending in gated 009B2B**.
 
 ## Evidence
 
@@ -130,3 +148,27 @@ compute onto the Mac. Research inference remains on Hyak compute nodes.
 - Final `make check` passes all 216 Python tests plus 17 Swift tests, with the
   one private integration test skipped by design. Strict Swift formatting,
   app packaging, plist/signature validation, and `git diff --check` pass.
+
+### Task 009B2A evidence
+
+- Xcode 26.1.1 built a real macOS application target plus
+  `AMTStudioAppUITests`; `make mac-ui-test` executed one formal UI test with
+  zero failures.
+- The UI test generated a three-second WAV and a complete canonical project at
+  runtime under a path containing Chinese text and spaces. The fixture was
+  removed after the test and no private media entered Git.
+- XCUITest observed the verified project and unique candidate track, real
+  waveform with 2,048 decoded samples, piano roll, and source-confidence
+  filter; playback advanced the transport slider before being paused.
+- XCUITest navigated the one low-confidence note while leaving the
+  no-confidence note outside the queue, edited its onset, exercised undo and
+  redo, terminated the app, relaunched it, and confirmed both project and undo
+  history restoration.
+- The UI-test launch flag disables recent-project read/write, so the automated
+  fixture does not replace the user's actual recent project.
+- Repository-level `make check` still passes 216 Python tests plus 17 Swift
+  tests with one expected private-integration skip. The XCUITest remains a
+  separate explicit target because it requires full Xcode and a GUI session.
+- The single focused `/review` found no P0/P1. Its two P2 findings were fixed:
+  the UI test now waits for a non-empty decoded-waveform state, and the README
+  returns to the repository root before invoking `make mac-ui-test`.

@@ -4,8 +4,8 @@
 
 ## 一句话状态
 
-Task 001–008 已完成，Task 009A 原生既有项目编辑器与 Task 009B1 的真实波形、
-置信度待复核界面已完成。两套专业标注
+Task 001–008 已完成，Task 009A 原生既有项目编辑器、Task 009B1 的真实波形/
+置信度待复核界面，以及 Task 009B2A 正式 UI 流程测试已完成。两套专业标注
 benchmark 与新的 singer-disjoint Task 007
 开发/盲测集均已按先冻结、后评分的顺序完成。GAME 仍是主旋律最强基线；
 deterministic fusion v1 因 onset+pitch 明显回退而拒绝，不进入默认路线。ADR 0005
@@ -13,9 +13,10 @@ deterministic fusion v1 因 onset+pitch 明显回退而拒绝，不进入默认�
 仍不可用；Gate 4 没有通过。Task 008 的 Hyak 批处理、续跑、缓存、索引和持久化
 同步已经验证，但不改变模型质量结论。Task 009A 只负责打开、试听、修改和导出
 现有 canonical 项目，不含导入或模型推理；Task 009B1 也只读取已有 canonical
-音频和音符。Task 009B2 的后台/模型集成仍受 Gate 4 阻塞。
+音频和音符。Task 009B2A 只补齐真实应用交互验证；Task 009B2B 的后台/模型集成
+仍受 Gate 4 阻塞。
 
-Task 009B1 是当前最终任务提交（用 `git log -1 --oneline` 查看）。当前开发
+Task 009B2A 是当前最终任务切片（用 `git log -1 --oneline` 查看）。当前开发
 分支是 `main`。
 
 ## 项目目标与硬边界
@@ -87,9 +88,15 @@ SHA-256 校验。选择 GAME 后是 391 个音符、4:25 时间线；播放游�
 
 真实项目的四条 current canonical 轨均没有提供非空 confidence；因此 GAME
 显示 `0 / 0` 并明确列出 391 个未知项，这是正确的缺失状态，不是“没有低置信度
-错误”的质量结论。音频导入、后台任务 progress/cancel、worker/model pack 和
-正式 XCUITest 仍属于 009B2；不要为了补齐 UI 而在 Mac 上启动研究模型或默认
-采用被拒绝的 fusion。
+错误”的质量结论。
+
+`make mac-ui-test` 现在会用 Xcode 26.1.1 构建生产应用源码和正式 UI-test bundle。
+测试在含中文和空格的临时路径生成三秒 WAV 与 canonical fixture，实际完成打开
+项目、真实波形、播放推进、低置信度导航、音符编辑、撤销/重做以及退出重开后的
+历史恢复；测试结束即删除 fixture，并通过 `--no-recent-project` 隔离用户的最近
+项目偏好。音频导入、后台任务 progress/cancel、worker/model pack 仍属于受
+Gate 4 阻塞的 009B2B；不要为了补齐后台而在 Mac 上启动研究模型或默认采用被
+拒绝的 fusion。
 
 ## 当前已验证结果
 

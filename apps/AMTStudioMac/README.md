@@ -35,6 +35,19 @@ a review queue for confidence values already provided by the selected track.
 Missing confidence stays explicitly unknown and is not treated as low
 confidence. These features do not run inference or contact Hyak.
 
+Task 009B2A adds a formal XCUITest target around the production Swift sources.
+It generates a synthetic project at runtime, isolates the user's recent-project
+preference, and covers project open, waveform/playback, confidence review,
+editing, undo/redo, and restart restoration:
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+make mac-ui-test
+```
+
+This target requires full Xcode and a logged-in macOS GUI session. It is kept
+separate from the portable repository-level `make check`.
+
 Audio import, background inference progress/cancellation, worker/model-pack
-integration, and formal XCUITest remain gated and are not embedded in this
-package.
+integration, and production inference remain gated and are not embedded in
+this package.

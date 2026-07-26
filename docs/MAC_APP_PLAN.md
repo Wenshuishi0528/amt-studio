@@ -19,14 +19,19 @@ Task 009B1 now replaces the note-density placeholder with a cancellable,
 fixed-size waveform decoded from the existing canonical audio and adds a
 selected-track confidence review queue. Missing confidence is excluded and
 uncalibrated source-model values are not compared across tracks. The future
-local job API, audio import, progress/cancellation, model-pack discovery, and
-formal XCUITest suite remain gated by backend quality. Build the development
-app with:
+Task 009B2A Xcode target now formally verifies the existing editor flow with a
+runtime-generated synthetic project and no inference. The future local job API,
+audio import, progress/cancellation, and model-pack discovery remain gated by
+backend quality. Build the development app with:
 
 ```bash
 make mac-app
 open -n "apps/AMTStudioMac/dist/AMT Studio.app"
 ```
+
+Run the full-Xcode UI flow separately with `make mac-ui-test`; it covers open,
+waveform/playback, confidence review, editing, undo/redo, and restart
+restoration while isolating the user's remembered project.
 
 ## Main windows
 

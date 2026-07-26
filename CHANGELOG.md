@@ -4,6 +4,39 @@ This project records changes by numbered research task until formal semantic
 versions and releases begin. Dates and commit identifiers refer to the local
 Git history.
 
+## Task 009B2A — Formal macOS UI-flow verification — 2026-07-25
+
+Commit: this slice's final commit
+
+### Added
+
+- Added a committed Xcode application target and XCUITest bundle that compile
+  the production Swift sources.
+- Added a runtime-generated non-ASCII canonical fixture containing synthetic
+  PCM audio, a low-confidence note, and a note with unknown confidence.
+- Added a `make mac-ui-test` entry point and isolated test launches from the
+  user's recent-project preference.
+
+### Verified
+
+- The formal UI test opens the project, observes the real waveform, piano roll,
+  and confidence controls, advances playback, navigates review, edits a note,
+  exercises undo/redo, relaunches, and confirms persistent history.
+- `make mac-ui-test` passes one UI test with zero failures. Separate final
+  `make check` passes 216 Python plus 17 Swift tests with one expected private
+  integration skip.
+- The single focused review found no P0/P1. Both P2 findings were fixed by
+  waiting for decoded waveform samples and making the README command
+  working-directory safe.
+- No private media, local inference, Hyak compute, worker, or model pack was
+  used.
+
+### Limitations
+
+- This closes the formal editor-flow test gap only. Import, background job
+  progress/cancellation, worker/model-pack discovery, production inference,
+  and MusicXML remain gated.
+
 ## Task 009B1 — Existing-project waveform and review queue — 2026-07-25
 
 Commit: this slice's final commit

@@ -1,5 +1,8 @@
-import AMTStudioUI
 import SwiftUI
+
+#if canImport(AMTStudioUI)
+  import AMTStudioUI
+#endif
 
 @main
 struct AMTStudioApplication: App {
@@ -15,8 +18,13 @@ struct AMTStudioApplication: App {
     } else {
       initialProjectURL = nil
     }
+    let persistRecentProject = !arguments.contains("--no-recent-project")
     _model = StateObject(
-      wrappedValue: AppModel(initialProjectURL: initialProjectURL)
+      wrappedValue: AppModel(
+        initialProjectURL: initialProjectURL,
+        restoreRecent: persistRecentProject,
+        persistRecentProject: persistRecentProject
+      )
     )
   }
 

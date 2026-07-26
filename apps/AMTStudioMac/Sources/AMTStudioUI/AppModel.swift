@@ -1,5 +1,8 @@
-import AMTStudioCore
 import Foundation
+
+#if canImport(AMTStudioCore)
+  import AMTStudioCore
+#endif
 
 @MainActor
 public final class AppModel: ObservableObject {
@@ -14,15 +17,18 @@ public final class AppModel: ObservableObject {
   public let transport = AudioTransport()
 
   private let defaults: UserDefaults
+  private let persistRecentProject: Bool
   private let recentProjectKey = "AMTStudio.recentProjectPath"
   private var pendingInitialProjectURL: URL?
 
   public init(
     defaults: UserDefaults = .standard,
     initialProjectURL: URL? = nil,
-    restoreRecent: Bool = true
+    restoreRecent: Bool = true,
+    persistRecentProject: Bool = true
   ) {
     self.defaults = defaults
+    self.persistRecentProject = persistRecentProject
     if let initialProjectURL {
       pendingInitialProjectURL = initialProjectURL
     } else if restoreRecent,
@@ -84,7 +90,9 @@ public final class AppModel: ObservableObject {
       editor = nil
       selectedNoteID = nil
       transport.stop()
-      defaults.set(catalog.rootURL.path, forKey: recentProjectKey)
+      if persistRecentProject {
+        defaults.set(catalog.rootURL.path, forKey: recentProjectKey)
+      }
       statusMessage = "已读取项目；请选择 canonical bundle"
       errorMessage = nil
 

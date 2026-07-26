@@ -1,4 +1,4 @@
-.PHONY: bootstrap doctor test lint format mac-check mac-app check
+.PHONY: bootstrap doctor test lint format mac-check mac-ui-test mac-app check
 
 bootstrap:
 	./scripts/bootstrap_mac.sh
@@ -21,6 +21,18 @@ mac-check:
 		swift test --package-path apps/AMTStudioMac; \
 	else \
 		echo "AMTStudioMac tests skipped: macOS Swift toolchain required"; \
+	fi
+
+mac-ui-test:
+	@if [ "$$(uname -s)" = "Darwin" ] && command -v xcodebuild >/dev/null 2>&1; then \
+		xcodebuild \
+			-project apps/AMTStudioMac/AMTStudio.xcodeproj \
+			-scheme AMTStudio \
+			-destination "platform=macOS" \
+			-derivedDataPath apps/AMTStudioMac/.build/xcode-derived-data \
+			test; \
+	else \
+		echo "AMTStudio XCUITest skipped: macOS Xcode required"; \
 	fi
 
 mac-app:

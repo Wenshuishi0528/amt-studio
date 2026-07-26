@@ -1,7 +1,10 @@
-import AMTStudioCore
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
+
+#if canImport(AMTStudioCore)
+  import AMTStudioCore
+#endif
 
 public struct ContentView: View {
   @ObservedObject private var model: AppModel
@@ -284,6 +287,7 @@ private struct WorkspaceView: View {
           ),
           in: 0...timelineDuration
         )
+        .accessibilityIdentifier("transport-position")
         Text(formatTime(timelineDuration))
           .monospacedDigit()
 
@@ -419,6 +423,15 @@ private struct AudioWaveformView: View {
     .background(.quaternary.opacity(0.35))
     .accessibilityElement(children: .combine)
     .accessibilityLabel("原曲真实音频波形")
+    .accessibilityValue(
+      isLoading
+        ? "正在加载"
+        : errorMessage != nil
+          ? "加载失败"
+          : samples.isEmpty
+            ? "无采样"
+            : "已加载 \(samples.count) 个采样"
+    )
     .accessibilityIdentifier("audio-waveform")
   }
 }
@@ -501,7 +514,6 @@ private struct ConfidenceReviewPanel: View {
       }
     }
     .padding(12)
-    .accessibilityIdentifier("confidence-review")
   }
 }
 
@@ -841,11 +853,13 @@ private struct NoteInspector: View {
           ),
           in: 0...127
         )
+        .accessibilityIdentifier("note-pitch-stepper")
         TextField(
           "起点（秒）",
           value: $onset,
           format: .number.precision(.fractionLength(3))
         )
+        .accessibilityIdentifier("note-onset")
         .onSubmit {
           var updated = note
           updated.onsetSec = onset
@@ -856,6 +870,7 @@ private struct NoteInspector: View {
           value: $offset,
           format: .number.precision(.fractionLength(3))
         )
+        .accessibilityIdentifier("note-offset")
         .onSubmit {
           var updated = note
           updated.offsetSec = offset
