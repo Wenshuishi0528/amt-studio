@@ -2,6 +2,9 @@
 
 A quality-first, local-first research and product framework for automatic music transcription.
 
+> Current limitations and the project owner's real-world observations are
+> documented in [KNOWN_ISSUES.md](KNOWN_ISSUES.md) in both English and Chinese.
+
 ## Goal
 
 Input a stereo song and produce:
@@ -64,7 +67,24 @@ amt-studio/
 
 ## Current status
 
-Tasks 001–005 are complete and Task 006 is ready to begin. See `STATUS.md` for
-verified evidence, `HANDOFF.md` for the current Mac/Hyak operating state and
-next-task entry point, and `CHANGELOG.md` for task-level history. No
-transcription-accuracy claim is made before human reference annotations exist.
+Tasks 001–008, the existing-project macOS editor, waveform/confidence review,
+and formal UI-flow tests are implemented. The current app can open, audition,
+edit, reopen, and export existing canonical projects, but automatic
+song-import-to-model execution is not yet a finished consumer workflow.
+
+The strongest currently useful full-song baseline is MuScriptor's complete
+multi-track output. On the owner's private test song, the main vocal melody was
+subjectively useful and concentrated in the `voice` track, while some
+accompaniment tracks still appeared incomplete, misclassified, or
+hallucinated. This listening judgment is not a formal accuracy score.
+
+See `STATUS.md` for verified evidence, `HANDOFF.md` for the current Mac/Hyak
+operating state, `CHANGELOG.md` for task-level history, and
+`KNOWN_ISSUES.md` for the bilingual problem statement.
+
+## Public repository boundary
+
+This public repository contains source code, schemas, tests, and documentation
+only. It does not include private songs, datasets, model weights, credentials,
+or private generated transcriptions. No open-source license has been selected;
+see `LICENSE_NOT_SELECTED.md`.
