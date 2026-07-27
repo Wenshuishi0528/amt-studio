@@ -4,6 +4,31 @@ This project records changes by numbered research task until formal semantic
 versions and releases begin. Dates and commit identifiers refer to the local
 Git history.
 
+## Task 009B2Q — Instrument-constrained gap decoding — 2026-07-26
+
+Commit: this task's final commit
+
+### Fixed
+
+- Changed automatic voice-gap recovery from an unconstrained full-arrangement
+  decode followed by `voice` filtering to MuScriptor's native
+  `--instruments voice` constrained decode.
+- Changed user-selected recovery to pass the selected track's instrument into
+  the same decoding allowlist. This preserves generic accompaniment recovery
+  without mixing accompaniment notes into the main melody.
+- Recorded the allowlist in recovery requests while retaining immutable source
+  bundles, child native output, and prior result versions.
+
+### Verified
+
+- The prior completed five-gap result contains 16 real additions, but three
+  selected spans returned zero and the missing audible melody was absent from
+  every unconstrained output track. The issue was therefore the recovery
+  decoding route, not bundle loading or piano-roll rendering.
+- Focused tests pass 15 cases. Full `make check` passes 267 Python and 36 Swift
+  tests with three expected environment-gated skips. No replacement model job
+  was submitted during this fix.
+
 ## Task 009B2P — Per-track tail cleanup — 2026-07-26
 
 Commit: this task's final commit

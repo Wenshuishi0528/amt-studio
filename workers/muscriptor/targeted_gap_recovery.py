@@ -551,6 +551,7 @@ def run_selected_recovery(
         "source_bundle_id": spec.source_bundle_id,
         "source_track_id": spec.source_voice_track_id,
         "source_instrument": instrument,
+        "instrument_allowlist": [instrument],
         "config_path": gap_probe._relative(config_path, project_dir),
         "config_sha256": sha256_file(config_path),
         "canonical_audio_sha256": sha256_file(canonical_audio),
@@ -599,24 +600,15 @@ def run_selected_recovery(
             )
             child_run_id = f"{spec.probe_id}-{window.window_id}"
             exit_code = run_baseline.main(
-                [
-                    "--project",
-                    str(project_dir),
-                    "--audio",
-                    str(clip_path),
-                    "--worker-env",
-                    str(worker_env),
-                    "--weight-provenance",
-                    str(weight_provenance),
-                    "--run-id",
-                    child_run_id,
-                    "--beam-size",
-                    "4",
-                    "--device",
-                    device,
-                    "--prelude-forcing",
-                    "--skip-midi",
-                ]
+                gap_probe._directed_child_arguments(
+                    project_dir=project_dir,
+                    clip_path=clip_path,
+                    worker_env=worker_env,
+                    weight_provenance=weight_provenance,
+                    child_run_id=child_run_id,
+                    device=device,
+                    instrument=instrument,
+                )
             )
             child_dir = project_dir / "runs" / child_run_id
             child_manifest = child_dir / "run_manifest.json"

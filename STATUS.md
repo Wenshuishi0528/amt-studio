@@ -1,15 +1,35 @@
 # Project status
 
-Current product milestone: Task 009B2P canonical product clipping and adaptive
-per-track tail cleanup are implemented while Hyak remains the default
+Current product milestone: Task 009B2Q instrument-constrained gap decoding is
+implemented while Hyak remains the default
 Research status: Gate 4 remains not passed for the rejected fusion routes; no
 new dataset, fusion, retuning, or training work is in the product critical path
-Current task: future model spill is automatically excluded from product UI,
-preview, and MIDI export; every track is independently checked for a safe
-instrument-aware tail cleanup candidate
-Next task: the owner may review orange per-track tail badges and confirm only
-the tracks whose endings sound wrong
+Current task: automatic and user-selected gap recovery now constrain MuScriptor
+during decoding to the requested instrument instead of filtering an
+unconstrained arrangement afterward
+Next task: rerun only the owner-confirmed missing melody spans and listen to the
+new constrained candidate before considering source separation
 Current branch: `main`
+
+Implemented and code-verified for Task 009B2Q:
+
+- completed Job `37751981` was successful, but its previous unconstrained
+  selected-gap route added only 16 `voice` notes: two at
+  `129.571–130.271` seconds and fourteen at `209.261–215.261` seconds. Three
+  selected spans returned zero candidates;
+- owner listening establishes that the missing melody is not present in the
+  accompaniment tracks either. Those correctly transcribed accompaniment
+  notes must therefore not be copied into the main melody;
+- MuScriptor exposes a native `--instruments` allowlist. Both automatic
+  voice-gap recovery and user-selected recovery now pass the requested
+  instrument during model generation. The selected-track path remains generic
+  for guitar, bass, and other canonical instrument labels;
+- recovery requests record the allowlist; prior source bundles and result
+  versions remain immutable. This is a directed-decoding fix, not a claim that
+  every clear melody will now be recovered;
+- focused tests pass 15 cases. Full `make check` passes 267 Python and 36 Swift
+  tests with three expected environment-gated skips. No replacement Hyak or
+  local inference job was submitted.
 
 Implemented and verified for Task 009B2P:
 

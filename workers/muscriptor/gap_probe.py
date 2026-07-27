@@ -1282,6 +1282,38 @@ def _execution_source_record(
     }
 
 
+def _directed_child_arguments(
+    *,
+    project_dir: Path,
+    clip_path: Path,
+    worker_env: Path,
+    weight_provenance: Path,
+    child_run_id: str,
+    device: str,
+    instrument: str,
+) -> list[str]:
+    return [
+        "--project",
+        str(project_dir),
+        "--audio",
+        str(clip_path),
+        "--worker-env",
+        str(worker_env),
+        "--weight-provenance",
+        str(weight_provenance),
+        "--run-id",
+        child_run_id,
+        "--beam-size",
+        "4",
+        "--device",
+        device,
+        "--prelude-forcing",
+        "--instruments",
+        instrument,
+        "--skip-midi",
+    ]
+
+
 def run_probe(
     project_dir: Path,
     config_path: Path,
@@ -1356,7 +1388,7 @@ def run_probe(
             "beam_size": 4,
             "prelude_forcing": True,
             "skip_midi": True,
-            "instrument_allowlist": None,
+            "instrument_allowlist": ["voice"],
             "sampling": False,
             "device": device,
         },
@@ -1420,24 +1452,15 @@ def run_probe(
             )
             child_run_id = f"{spec.probe_id}-{window.window_id}"
             exit_code = run_baseline.main(
-                [
-                    "--project",
-                    str(project_dir),
-                    "--audio",
-                    str(clip_path),
-                    "--worker-env",
-                    str(worker_env),
-                    "--weight-provenance",
-                    str(weight_provenance),
-                    "--run-id",
-                    child_run_id,
-                    "--beam-size",
-                    "4",
-                    "--device",
-                    device,
-                    "--prelude-forcing",
-                    "--skip-midi",
-                ]
+                _directed_child_arguments(
+                    project_dir=project_dir,
+                    clip_path=clip_path,
+                    worker_env=worker_env,
+                    weight_provenance=weight_provenance,
+                    child_run_id=child_run_id,
+                    device=device,
+                    instrument="voice",
+                )
             )
             child_dir = project_dir / "runs" / child_run_id
             child_manifest = child_dir / "run_manifest.json"

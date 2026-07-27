@@ -8,6 +8,7 @@ from pathlib import Path
 from amt_core.events import NoteEvent, read_jsonl, write_jsonl
 from amt_core.utils import atomic_write_json, sha256_file
 from workers.muscriptor.gap_probe import ProbeWindow, TargetInterval
+from workers.muscriptor.gap_probe import _directed_child_arguments
 from workers.muscriptor.targeted_gap_recovery import (
     TargetedGapRecoveryError,
     build_recovery_bundle,
@@ -145,6 +146,22 @@ def _fixture_project(root: Path) -> tuple[Path, dict]:
 
 
 class TargetedGapRecoveryTests(unittest.TestCase):
+    def test_selected_track_decode_uses_its_instrument_allowlist(self) -> None:
+        arguments = _directed_child_arguments(
+            project_dir=Path("/project"),
+            clip_path=Path("/project/clip.flac"),
+            worker_env=Path("/worker"),
+            weight_provenance=Path("/weights.json"),
+            child_run_id="gap-child",
+            device="cuda",
+            instrument="clean_electric_guitar",
+        )
+        index = arguments.index("--instruments")
+        self.assertEqual(
+            arguments[index + 1],
+            "clean_electric_guitar",
+        )
+
     def test_selected_gaps_are_one_request_with_bounded_windows(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             project, _canonical = _fixture_project(Path(temporary))

@@ -12,7 +12,9 @@ while retaining Hyak as the default. Task 009B2L adds beat-aware editing,
 manual note creation, and song-level result acceptance. Task 009B2M–O add
 selectable gap recovery, launch repair, conservative sustain cleanup, and one
 canonical product timeline. Task 009B2P applies that boundary to every product
-consumer and adds instrument-aware cleanup on every track.
+consumer and adds instrument-aware cleanup on every track. Task 009B2Q fixes
+gap recovery to constrain MuScriptor during decoding instead of discarding
+non-target instruments only after an unconstrained decode.
 
 ## Objective
 
@@ -182,6 +184,36 @@ Verification:
   environment-gated skips. This implementation started no compute; the
   owner-triggered corrected five-gap request is running separately as Job
   `37751981` and was not altered.
+
+## Task 009B2Q: instrument-constrained gap decoding
+
+Implemented:
+
+- automatic voice-gap recovery now passes `--instruments voice` into
+  MuScriptor, so the model is constrained while generating notes rather than
+  producing a full arrangement and discarding every non-voice event afterward;
+- user-selected recovery passes the selected canonical track's instrument as
+  the same allowlist, retaining the generic guitar, bass, and other-track path;
+- the parent request and immutable child run record the instrument allowlist.
+  Source bundles and previous recovery results remain unchanged.
+
+Current-song diagnosis:
+
+- completed Job `37751981` used the previous unconstrained route. It produced
+  16 accepted voice candidates: two at `129.571–130.271` seconds and fourteen
+  at `209.261–215.261` seconds. Three selected gaps returned zero;
+- the child model did not place the owner-audible missing melody on any output
+  track. Correct accompaniment output is therefore not a melody substitute;
+- this change fixes the directed-decoding contract but does not claim the
+  constrained rerun will recover every note. A new selected-gap run is needed
+  to measure that result before considering a separated-vocal fallback.
+
+Verification:
+
+- focused automatic and selected-gap tests pass 15 cases, including exact
+  `voice` and accompaniment allowlists;
+- full `make check` passes 267 Python and 36 Swift tests with three expected
+  environment-gated skips. No Hyak or local model job was submitted.
 
 ## Task 009B2O: canonical timeline repair
 

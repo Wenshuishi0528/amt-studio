@@ -13,6 +13,7 @@ from workers.muscriptor.gap_probe import (
     GapProbeError,
     ProbeWindow,
     TargetInterval,
+    _directed_child_arguments,
     build_automatic_bundle,
     build_coverage_report,
     build_review_bundle,
@@ -88,6 +89,20 @@ def _spec_path(root: Path) -> Path:
 
 
 class MuScriptorGapProbeTests(unittest.TestCase):
+    def test_gap_child_decode_is_constrained_to_voice(self) -> None:
+        arguments = _directed_child_arguments(
+            project_dir=Path("/project"),
+            clip_path=Path("/project/clip.flac"),
+            worker_env=Path("/worker"),
+            weight_provenance=Path("/weights.json"),
+            child_run_id="gap-child",
+            device="cuda",
+            instrument="voice",
+        )
+        index = arguments.index("--instruments")
+        self.assertEqual(arguments[index + 1], "voice")
+        self.assertEqual(arguments.count("--instruments"), 1)
+
     def test_spec_is_explicit_and_rejects_overlapping_targets(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
