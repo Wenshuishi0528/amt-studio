@@ -1107,6 +1107,7 @@ private struct WorkspaceView: View {
   let transport: AudioTransport
   let editor: EditorProject
   let theme: AMTTheme
+  @State private var pianoRollDisplayMode: PianoRollDisplayMode = .allTracks
 
   var body: some View {
     HSplitView {
@@ -1124,14 +1125,34 @@ private struct WorkspaceView: View {
         )
         .frame(height: 90)
         Divider()
-        PianoRollView(
-          notes: editor.notes,
-          transport: transport,
-          duration: timelineDuration,
-          selectedNoteID: $model.selectedNoteID,
-          onCommit: model.commit,
+        PianoRollModeBar(
+          mode: $pianoRollDisplayMode,
+          trackCount: overviewTracks.count,
+          selectedTrackLabel: editor.selectedTrack.label,
+          isLoadingSelection: model.isLoadingSelection,
           theme: theme
         )
+        Divider()
+        if pianoRollDisplayMode == .allTracks {
+          AllTracksPianoRollView(
+            tracks: overviewTracks,
+            notesByTrack: overviewNotesByTrack,
+            selectedTrackID: editor.selectedTrack.id,
+            transport: transport,
+            duration: timelineDuration,
+            theme: theme,
+            onSelectTrack: model.chooseTrack
+          )
+        } else {
+          PianoRollView(
+            notes: editor.notes,
+            transport: transport,
+            duration: timelineDuration,
+            selectedNoteID: $model.selectedNoteID,
+            onCommit: model.commit,
+            theme: theme
+          )
+        }
       }
       .frame(minWidth: 760)
       .background(theme.canvas)
@@ -1149,6 +1170,19 @@ private struct WorkspaceView: View {
       editor.snapshot.notes.map(\.offsetSec).max() ?? 1,
       1
     )
+  }
+
+  private var overviewTracks: [EditorTrack] {
+    model.visibleTrackChoices
+  }
+
+  private var overviewNotesByTrack: [String: [EditorNote]] {
+    var notesByTrack = Dictionary(
+      grouping: model.snapshot?.notes ?? [],
+      by: \.trackID
+    )
+    notesByTrack[editor.selectedTrack.id] = editor.notes
+    return notesByTrack
   }
 
   @ViewBuilder
@@ -1484,6 +1518,407 @@ private struct ConfidenceReviewPanel: View {
       }
     }
     .padding(12)
+  }
+}
+
+private enum PianoRollDisplayMode: String, CaseIterable, Identifiable {
+  case allTracks
+  case currentTrack
+
+  var id: String { rawValue }
+
+  var label: String {
+    switch self {
+    case .allTracks: "全部音轨"
+    case .currentTrack: "当前音轨"
+    }
+  }
+}
+
+private struct PianoRollModeBar: View {
+  @Binding var mode: PianoRollDisplayMode
+  let trackCount: Int
+  let selectedTrackLabel: String
+  let isLoadingSelection: Bool
+  let theme: AMTTheme
+
+  var body: some View {
+    HStack(spacing: 12) {
+      Picker("卷帘视图", selection: $mode) {
+        ForEach(PianoRollDisplayMode.allCases) { option in
+          Text(option.label).tag(option)
+        }
+      }
+      .labelsHidden()
+      .pickerStyle(.segmented)
+      .frame(width: 230)
+      .accessibilityIdentifier("piano-roll-display-mode")
+
+      if mode == .allTracks {
+        Text("\(trackCount) 条产品音轨按行显示；点一行即可选中")
+          .font(.caption)
+          .foregroundStyle(theme.mutedText)
+      } else {
+        Text("当前正在精细编辑：\(selectedTrackLabel)")
+          .font(.caption)
+          .foregroundStyle(theme.mutedText)
+          .lineLimit(1)
+      }
+
+      Spacer()
+
+      if isLoadingSelection {
+        ProgressView("正在切换音轨…")
+          .controlSize(.small)
+          .font(.caption)
+      }
+
+      Button(
+        mode == .allTracks ? "编辑所选音轨" : "返回全部音轨",
+        systemImage: mode == .allTracks ? "pencil.and.outline" : "rectangle.grid.1x2"
+      ) {
+        mode = mode == .allTracks ? .currentTrack : .allTracks
+      }
+      .buttonStyle(.bordered)
+      .disabled(isLoadingSelection)
+      .accessibilityIdentifier("toggle-piano-roll-detail")
+    }
+    .padding(.horizontal, 12)
+    .frame(height: 44)
+    .background(theme.raisedSurface)
+  }
+}
+
+private struct AllTracksPianoRollView: View {
+  let tracks: [EditorTrack]
+  let notesByTrack: [String: [EditorNote]]
+  let selectedTrackID: String
+  let transport: AudioTransport
+  let duration: Double
+  let theme: AMTTheme
+  let onSelectTrack: (String) -> Void
+
+  private let labelWidth = 210.0
+
+  var body: some View {
+    GeometryReader { proxy in
+      let timelineWidth = max(360, proxy.size.width - labelWidth - 24)
+      VStack(spacing: 0) {
+        HStack(spacing: 0) {
+          Text("音轨")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(theme.mutedText)
+            .frame(width: labelWidth, alignment: .leading)
+            .padding(.leading, 12)
+          MultiTrackTimeRuler(
+            duration: duration,
+            theme: theme
+          )
+          .frame(width: timelineWidth, height: 30)
+        }
+        .frame(height: 30)
+        .background(theme.surface)
+
+        ScrollView(.vertical) {
+          LazyVStack(spacing: 7) {
+            ForEach(Array(tracks.enumerated()), id: \.element.id) {
+              index, track in
+              TrackOverviewRow(
+                track: track,
+                notes: notesByTrack[track.id] ?? [],
+                isSelected: track.id == selectedTrackID,
+                transport: transport,
+                duration: duration,
+                labelWidth: labelWidth,
+                timelineWidth: timelineWidth,
+                color: trackColor(track, index: index),
+                theme: theme,
+                onSelect: { onSelectTrack(track.id) }
+              )
+            }
+          }
+          .padding(.vertical, 8)
+          .padding(.trailing, 8)
+        }
+      }
+    }
+    .background(theme.canvas)
+    .accessibilityElement(children: .contain)
+    .accessibilityLabel("全部音轨卷帘")
+    .accessibilityValue("\(tracks.count) 条音轨")
+    .accessibilityIdentifier("piano-roll")
+  }
+
+  private func trackColor(_ track: EditorTrack, index: Int) -> Color {
+    let instrument = track.instrument?.lowercased() ?? ""
+    if instrument == "voice" || track.id.contains("voice") {
+      return theme.active
+    }
+    if instrument.contains("drum") {
+      return .orange
+    }
+    let palette: [Color] =
+      theme.mode == .precision
+      ? [theme.accent, .mint, .cyan, .green, .yellow]
+      : [theme.accent, theme.active, .cyan, .purple, .pink]
+    return palette[index % palette.count]
+  }
+}
+
+private struct MultiTrackTimeRuler: View {
+  let duration: Double
+  let theme: AMTTheme
+
+  var body: some View {
+    GeometryReader { proxy in
+      ZStack {
+        ForEach(0..<5, id: \.self) { index in
+          let fraction = Double(index) / 4
+          let x = min(
+            proxy.size.width - 24,
+            max(24, proxy.size.width * fraction)
+          )
+          VStack(spacing: 2) {
+            Text(formatTime(duration * fraction))
+              .font(.caption2.monospacedDigit())
+              .foregroundStyle(theme.mutedText)
+            Rectangle()
+              .fill(theme.border)
+              .frame(width: 1, height: 6)
+          }
+          .position(x: x, y: 15)
+        }
+      }
+    }
+  }
+}
+
+private struct TrackOverviewRow: View {
+  let track: EditorTrack
+  let notes: [EditorNote]
+  let isSelected: Bool
+  let transport: AudioTransport
+  let duration: Double
+  let labelWidth: Double
+  let timelineWidth: Double
+  let color: Color
+  let theme: AMTTheme
+  let onSelect: () -> Void
+
+  var body: some View {
+    Button(action: onSelect) {
+      HStack(spacing: 0) {
+        HStack(spacing: 10) {
+          ZStack {
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+              .fill(color.opacity(isSelected ? 0.24 : 0.12))
+            Image(systemName: trackIcon)
+              .font(.system(size: 15, weight: .semibold))
+              .foregroundStyle(color)
+          }
+          .frame(width: 34, height: 34)
+
+          VStack(alignment: .leading, spacing: 3) {
+            Text(MelodyTrackSelector.displayLabel(for: track))
+              .font(.callout.weight(isSelected ? .semibold : .regular))
+              .lineLimit(1)
+            Text("\(track.instrument ?? "未知乐器") · \(notes.count) 音符")
+              .font(.caption2.monospacedDigit())
+              .foregroundStyle(theme.mutedText)
+              .lineLimit(1)
+          }
+          Spacer(minLength: 6)
+          if isSelected {
+            Image(systemName: "checkmark.circle.fill")
+              .foregroundStyle(color)
+          }
+        }
+        .padding(.horizontal, 10)
+        .frame(width: labelWidth, height: 66)
+
+        TrackNoteLane(
+          notes: notes,
+          transport: transport,
+          duration: duration,
+          color: color,
+          theme: theme
+        )
+        .frame(width: timelineWidth, height: 66)
+      }
+      .background(
+        isSelected
+          ? color.opacity(0.075)
+          : theme.surface.opacity(0.72)
+      )
+      .overlay {
+        RoundedRectangle(cornerRadius: 8, style: .continuous)
+          .stroke(
+            isSelected ? color.opacity(0.82) : theme.border,
+            lineWidth: isSelected ? 1.5 : 1
+          )
+      }
+      .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .accessibilityLabel(
+      "\(MelodyTrackSelector.displayLabel(for: track))，\(notes.count) 个音符"
+    )
+    .accessibilityValue(isSelected ? "已选择" : "未选择")
+    .accessibilityHint("点按选择这条音轨，然后可进入当前音轨精细编辑")
+    .accessibilityIdentifier("overview-track-\(track.id)")
+  }
+
+  private var trackIcon: String {
+    let instrument = track.instrument?.lowercased() ?? ""
+    if instrument == "voice" || track.id.contains("voice") {
+      return "music.microphone"
+    }
+    if instrument.contains("drum") {
+      return "drum"
+    }
+    if instrument.contains("piano") || instrument.contains("keyboard") {
+      return "pianokeys"
+    }
+    if instrument.contains("guitar") || instrument.contains("bass") {
+      return "guitars"
+    }
+    if instrument.contains("flute") || instrument.contains("sax") {
+      return "music.note"
+    }
+    return "waveform.path"
+  }
+}
+
+private struct TrackNoteLane: View {
+  let notes: [EditorNote]
+  let transport: AudioTransport
+  let duration: Double
+  let color: Color
+  let theme: AMTTheme
+
+  var body: some View {
+    GeometryReader { proxy in
+      let pitchBounds = MultiTrackRollLayout.pitchBounds(notes)
+      Canvas { context, size in
+        for index in 0...4 {
+          let x = size.width * Double(index) / 4
+          context.stroke(
+            Path(CGRect(x: x, y: 0, width: 0.5, height: size.height)),
+            with: .color(theme.border),
+            lineWidth: 0.5
+          )
+        }
+        for note in notes {
+          let frame = MultiTrackRollLayout.noteFrame(
+            onset: note.onsetSec,
+            offset: note.offsetSec,
+            pitch: note.pitchMIDI,
+            duration: duration,
+            size: size,
+            minimumPitch: pitchBounds.lowerBound,
+            maximumPitch: pitchBounds.upperBound
+          )
+          let noteColor: Color
+          if let confidence = note.confidence, confidence < 0.5 {
+            noteColor = .orange
+          } else {
+            noteColor = color
+          }
+          context.fill(
+            Path(roundedRect: frame, cornerRadius: 1.5),
+            with: .color(noteColor.opacity(0.90))
+          )
+        }
+      }
+      .allowsHitTesting(false)
+
+      MultiTrackPlayhead(
+        transport: transport,
+        duration: duration
+      )
+      .allowsHitTesting(false)
+    }
+  }
+}
+
+private struct MultiTrackPlayhead: View {
+  @ObservedObject var transport: AudioTransport
+  let duration: Double
+
+  var body: some View {
+    GeometryReader { proxy in
+      Rectangle()
+        .fill(.red.opacity(0.82))
+        .frame(width: 1, height: proxy.size.height)
+        .position(
+          x: MultiTrackRollLayout.normalizedTime(
+            transport.currentTime,
+            duration: duration
+          ) * proxy.size.width,
+          y: proxy.size.height / 2
+        )
+    }
+  }
+}
+
+enum MultiTrackRollLayout {
+  static func normalizedTime(_ time: Double, duration: Double) -> Double {
+    guard time.isFinite, duration.isFinite, duration > 0 else { return 0 }
+    return min(1, max(0, time / duration))
+  }
+
+  static func normalizedPitch(
+    _ pitch: Double,
+    minimumPitch: Double,
+    maximumPitch: Double
+  ) -> Double {
+    guard pitch.isFinite, minimumPitch.isFinite, maximumPitch.isFinite,
+      maximumPitch > minimumPitch
+    else {
+      return 0.5
+    }
+    return min(
+      1,
+      max(0, (maximumPitch - pitch) / (maximumPitch - minimumPitch))
+    )
+  }
+
+  static func pitchBounds(_ notes: [EditorNote]) -> ClosedRange<Double> {
+    let pitches = notes.map(\.pitchMIDI).filter(\.isFinite)
+    guard let minimumPitch = pitches.min(), let maximumPitch = pitches.max()
+    else {
+      return 48...84
+    }
+    if maximumPitch - minimumPitch < 1 {
+      return (minimumPitch - 1)...(maximumPitch + 1)
+    }
+    return minimumPitch...maximumPitch
+  }
+
+  static func noteFrame(
+    onset: Double,
+    offset: Double,
+    pitch: Double,
+    duration: Double,
+    size: CGSize,
+    minimumPitch: Double,
+    maximumPitch: Double
+  ) -> CGRect {
+    let start = normalizedTime(onset, duration: duration)
+    let end = normalizedTime(max(onset, offset), duration: duration)
+    let x = start * max(0, size.width)
+    let proposedWidth = (end - start) * max(0, size.width)
+    let width = min(max(1.5, proposedWidth), max(1.5, size.width - x))
+    let usableHeight = max(1, size.height - 12)
+    let y =
+      4
+      + normalizedPitch(
+        pitch,
+        minimumPitch: minimumPitch,
+        maximumPitch: maximumPitch
+      ) * usableHeight
+    return CGRect(x: x, y: y, width: width, height: 4)
   }
 }
 

@@ -30,6 +30,17 @@ final class AMTStudioAppUITests: XCTestCase {
       pianoRoll.waitForExistence(timeout: 8),
       "应用没有自动打开唯一音轨的编辑器"
     )
+    XCTAssertTrue(
+      app.descendants(matching: .any)["piano-roll-display-mode"].exists,
+      "应用没有显示全部音轨与当前音轨的切换"
+    )
+    let detailToggle = app.buttons["toggle-piano-roll-detail"]
+    XCTAssertTrue(detailToggle.exists)
+    detailToggle.click()
+    XCTAssertTrue(
+      app.descendants(matching: .any)["piano-roll"].waitForExistence(timeout: 3),
+      "切换到当前音轨后卷帘没有保留"
+    )
     let waveform = app.descendants(matching: .any)["audio-waveform"]
     XCTAssertTrue(
       waitForLabel(waveform, prefix: "已加载"),

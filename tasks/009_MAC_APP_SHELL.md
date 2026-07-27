@@ -550,3 +550,31 @@ Remaining non-blocking review notes:
 - `make check` passes 257 Python and 26 Swift tests with three expected
   environment-gated Swift skips. `swift-format --strict`, release signing,
   plist validation, and `git diff --check` pass.
+
+### Task 009B2J evidence
+
+- The signed release app opened the real completed Japanese-named project and
+  rendered all eight normal product tracks as vertically stacked piano-roll
+  lanes. Each lane showed its real note count and full-song note distribution;
+  one shared red playhead aligned every lane to the decoded waveform timeline.
+- Selecting a lane changes the current track without rewriting source events.
+  The explicit detail action returns to the existing editable piano roll, so
+  note drag, left/right resize handles, inspector editing, undo, and redo are
+  retained rather than duplicated in the dense overview.
+- Raw and gap-only voice diagnostic variants remain available through the
+  existing advanced switch but are excluded from the default overview. This
+  matches standard arrangement playback and export, which use at most one
+  melody representation.
+- A unit test checks full-song time clamping, pitch normalization, and note
+  geometry inside a lane. The XCUITest verifies the overview/detail switch and
+  then completes playback, edit, undo/redo, termination, and restart recovery.
+- The pre-existing appearance source file is now included in the Xcode project;
+  the formal UI-test target and Swift Package Manager therefore compile the
+  same theme-enabled application.
+- The public default branch was synchronized after replacing the remaining
+  tracked account-specific Hyak path with portable placeholders. Local Hyak
+  configuration, credentials, private media, and result bundles remain ignored.
+- `make check` passes 257 Python and 27 Swift tests with three expected
+  environment-gated Swift skips. Strict Swift formatting, `make mac-app`,
+  signature/plist validation, `git diff --check`, real-project visual QA, and
+  the standalone XCUITest pass.

@@ -18,6 +18,7 @@
 		000000000000000000000058 /* AMTStudioApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000038 /* AMTStudioApp.swift */; };
 		000000000000000000000059 /* AMTStudioAppUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000039 /* AMTStudioAppUITests.swift */; };
 		00000000000000000000005A /* PrivateBetaBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000003A /* PrivateBetaBackend.swift */; };
+		00000000000000000000005B /* AMTAppearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000003B /* AMTAppearance.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -45,6 +46,7 @@
 		000000000000000000000039 /* AMTStudioAppUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UITests/AMTStudioAppUITests.swift; sourceTree = "<group>"; };
 		000000000000000000000040 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Support/Info.plist; sourceTree = "<group>"; };
 		00000000000000000000003A /* PrivateBetaBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/AMTStudioUI/PrivateBetaBackend.swift; sourceTree = "<group>"; };
+		00000000000000000000003B /* AMTAppearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/AMTStudioUI/AMTAppearance.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -96,6 +98,7 @@
 				000000000000000000000036 /* AudioWaveformLoader.swift */,
 				000000000000000000000037 /* ContentView.swift */,
 				00000000000000000000003A /* PrivateBetaBackend.swift */,
+				00000000000000000000003B /* AMTAppearance.swift */,
 				000000000000000000000038 /* AMTStudioApp.swift */,
 			);
 			name = Sources;
@@ -226,6 +229,7 @@
 				000000000000000000000056 /* AudioWaveformLoader.swift in Sources */,
 				000000000000000000000057 /* ContentView.swift in Sources */,
 				00000000000000000000005A /* PrivateBetaBackend.swift in Sources */,
+				00000000000000000000005B /* AMTAppearance.swift in Sources */,
 				000000000000000000000058 /* AMTStudioApp.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

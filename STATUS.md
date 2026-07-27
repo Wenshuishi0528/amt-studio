@@ -1,14 +1,36 @@
 # Project status
 
-Current product milestone: Task 009B2I dual-theme product UI is implemented in
-the rebuilt and signed private Beta
+Current product milestone: Task 009B2J all-track piano-roll overview is
+implemented in the rebuilt and signed private Beta
 Research status: Gate 4 remains not passed for the rejected fusion routes; no
 new dataset, fusion, retuning, or training work is in the product critical path
 Current task: real new-song Job `37743206` completed successfully, including
 automatic gap recovery and final bundle retrieval; the result is open locally
-Next task: owner visual/use review of the completed result; do not start
-another model route solely because the previous interface looked unfinished
+Next task: owner visual/use review of the all-track overview and detailed-track
+editing switch; do not start another model route solely because the previous
+interface looked unfinished
 Current branch: `main`
+
+Implemented and verified for Task 009B2J:
+
+- the editor now opens a complete song-level piano-roll overview by default:
+  every normal product track occupies one vertically stacked row, with its
+  instrument, actual note count, full-song time distribution, and pitch
+  contour visible together;
+- clicking a row selects that track. `编辑所选音轨` switches to the existing
+  detailed piano roll, where note movement, edge resizing, inspector edits,
+  undo, and redo remain available; `返回全部音轨` restores the overview;
+- the overview follows the transport with a shared playhead and keeps raw and
+  gap-only voice diagnostics hidden unless the existing diagnostic switch is
+  enabled, so standard playback/export still contains only one melody variant;
+- the current default branch was synchronized to the public GitHub repository
+  after replacing the remaining tracked personal Hyak path with portable
+  placeholders. Credentials, private audio, results, and local Hyak config
+  remain ignored;
+- `make check` passes 257 Python and 27 Swift tests with three expected
+  environment-gated Swift skips. Strict Swift formatting, signed release
+  packaging, `git diff --check`, real-project visual QA, and the formal
+  XCUITest covering the overview/detail switch all pass.
 
 Implemented and verified for Task 009B2I:
 

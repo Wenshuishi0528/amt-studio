@@ -4,6 +4,42 @@ This project records changes by numbered research task until formal semantic
 versions and releases begin. Dates and commit identifiers refer to the local
 Git history.
 
+## Task 009B2J — All-track piano-roll overview — 2026-07-26
+
+Commit: this task's final commit
+
+### Added
+
+- Added a default full-song overview that renders every normal product track
+  as a separate vertically stacked piano-roll lane.
+- Added per-lane instrument labels, actual note counts, distinct track colors,
+  and a shared transport playhead.
+- Added a clear `全部音轨` / `当前音轨` switch. Selecting a lane and entering
+  the current-track view preserves the existing drag, resize, inspector,
+  undo, and redo workflow.
+
+### Changed
+
+- Kept raw and gap-only voice variants behind the existing diagnostic toggle,
+  avoiding duplicate melody lanes in the standard product view.
+- Registered the existing appearance source file in the Xcode project so the
+  formal UI-test target builds the same theme-enabled app as Swift Package
+  Manager and the release packager.
+- Synchronized the stable default branch to the public repository with portable
+  Hyak placeholders and no tracked personal account name, credential, private
+  audio, result bundle, or local Hyak configuration.
+
+### Verified
+
+- Opened the signed release app on the real completed eight-track project and
+  visually confirmed all lanes, note distributions, selection, time ruler,
+  and shared playhead.
+- The formal XCUITest opens the overview, switches to the current-track roll,
+  then passes playback, edit, undo/redo, and restart recovery.
+- `make check` passes 257 Python and 27 Swift tests with three expected skips.
+  Strict Swift formatting, release signing, `git diff --check`, and the
+  standalone XCUITest pass.
+
 ## Task 009B2I — Precision and Spectrum product UI — 2026-07-26
 
 Commit: this task's final commit

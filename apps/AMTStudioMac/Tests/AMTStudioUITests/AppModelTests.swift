@@ -171,6 +171,47 @@ final class AppModelTests: XCTestCase {
     XCTAssertEqual(resized.offsetSec, 1.6, accuracy: 0.000_001)
   }
 
+  func testAllTrackOverviewFitsTimeAndPitchIntoEachLane() {
+    XCTAssertEqual(
+      MultiTrackRollLayout.normalizedTime(-2, duration: 10),
+      0,
+      accuracy: 0.000_001
+    )
+    XCTAssertEqual(
+      MultiTrackRollLayout.normalizedTime(5, duration: 10),
+      0.5,
+      accuracy: 0.000_001
+    )
+    XCTAssertEqual(
+      MultiTrackRollLayout.normalizedTime(12, duration: 10),
+      1,
+      accuracy: 0.000_001
+    )
+    XCTAssertEqual(
+      MultiTrackRollLayout.normalizedPitch(
+        60,
+        minimumPitch: 48,
+        maximumPitch: 72
+      ),
+      0.5,
+      accuracy: 0.000_001
+    )
+
+    let frame = MultiTrackRollLayout.noteFrame(
+      onset: 2,
+      offset: 3,
+      pitch: 60,
+      duration: 10,
+      size: CGSize(width: 1_000, height: 66),
+      minimumPitch: 48,
+      maximumPitch: 72
+    )
+    XCTAssertEqual(frame.origin.x, 200, accuracy: 0.000_001)
+    XCTAssertEqual(frame.origin.y, 31, accuracy: 0.000_001)
+    XCTAssertEqual(frame.width, 100, accuracy: 0.000_001)
+    XCTAssertEqual(frame.height, 4, accuracy: 0.000_001)
+  }
+
   func testWaveformReadsPCMAndConfidenceQueueExcludesUnknownValues() async throws {
     let waveformURL = FileManager.default.temporaryDirectory
       .appendingPathComponent("AMT Studio 波形 \(UUID().uuidString).wav")
