@@ -4,6 +4,39 @@ This project records changes by numbered research task until formal semantic
 versions and releases begin. Dates and commit identifiers refer to the local
 Git history.
 
+## Task 009B2T — Organized library and visible tail repair — 2026-07-26
+
+Commit: this task's final commit
+
+### Added
+
+- Added project search and active/completed/incomplete grouping to the sidebar
+  music library.
+- Added per-project open, Finder reveal, and confirmed move-to-Trash actions.
+
+### Changed
+
+- Library recency now follows job-state and result-bundle updates instead of
+  relying only on the project directory timestamp.
+- Failed reruns stay in the incomplete/failed group even when a project retains
+  an older usable bundle.
+- Tail repair remains visible for every selected track and explains
+  already-cleaned or no-candidate states instead of disappearing.
+
+### Safety and verification
+
+- Project removal rereads live persisted job state and refuses active jobs,
+  unreadable/unknown states, symlinks, manifest mismatches, or targets outside
+  the private project root. Removing an open inactive project no longer clears
+  monitoring for an unrelated active job.
+- Local Job `37754413` is `COMPLETED / complete / succeeded`. The newest real
+  bundle opens successfully, and its clean-electric-guitar track still exposes
+  five tail groups with 51 fragments. Full `make check` passes 274 Python and
+  37 Swift tests with three expected environment-gated skips; the real-project
+  integration passes.
+- The single bounded review reported two P1 deletion-state defects and one
+  failed-rerun grouping defect; all three were fixed with regression coverage.
+
 ## Task 009B2S — Durable edits and bounded product postprocessing — 2026-07-26
 
 Commit: this task's final commit

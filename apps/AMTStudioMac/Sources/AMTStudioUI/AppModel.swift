@@ -169,14 +169,46 @@ public struct LocalProjectItem: Sendable, Equatable, Identifiable {
   }
 
   public var stateLabel: String {
-    switch jobState {
+    if hasFailedJob {
+      return "任务失败"
+    }
+    return switch jobState {
     case "RUNNING": "识别中"
     case "PENDING", "CONFIGURING": "排队中"
-    case "FAILED", "CANCELLED": "任务失败"
+    case "COMPLETING": "正在收尾"
     case "COMPLETED": hasResults ? "可打开" : "正在取回"
-    default: hasResults ? "可打开" : "尚无结果"
+    case nil: hasResults ? "可打开" : "尚无结果"
+    default: "任务状态待确认"
     }
   }
+
+  public var hasActiveJob: Bool {
+    guard let jobState else { return false }
+    return !Self.terminalStates.contains(jobState)
+  }
+
+  public var hasFailedJob: Bool {
+    guard let jobState else { return false }
+    return Self.terminalFailureStates.contains(jobState)
+  }
+
+  public var canMoveToTrash: Bool {
+    !hasActiveJob
+  }
+
+  fileprivate static let terminalFailureStates: Set<String> = [
+    "FAILED",
+    "CANCELLED",
+    "TIMEOUT",
+    "OUT_OF_MEMORY",
+    "NODE_FAIL",
+    "PREEMPTED",
+    "BOOT_FAIL",
+    "DEADLINE",
+  ]
+
+  fileprivate static let terminalStates =
+    terminalFailureStates.union(["COMPLETED"])
 }
 
 public enum TrailingCleanupKind: Sendable, Equatable {
@@ -219,6 +251,7 @@ public final class AppModel: ObservableObject {
   @Published public private(set) var trackVolumes: [String: Double] = [:]
   @Published public private(set) var midiMasterVolume = 1.0
   @Published public private(set) var libraryProjects: [LocalProjectItem] = []
+  @Published public private(set) var deletingProjectIDs = Set<String>()
   @Published public private(set) var isLoadingProject = false
   @Published public private(set) var isRefreshingLibrary = false
   @Published public private(set) var isLoadingSelection = false
@@ -353,6 +386,38 @@ public final class AppModel: ObservableObject {
         libraryProjects = []
       }
       isRefreshingLibrary = false
+    }
+  }
+
+  public func isDeletingProject(_ project: LocalProjectItem) -> Bool {
+    deletingProjectIDs.contains(project.id)
+  }
+
+  public func revealProject(_ project: LocalProjectItem) {
+    NSWorkspace.shared.activateFileViewerSelecting([project.url])
+  }
+
+  public func moveProjectToTrash(_ project: LocalProjectItem) {
+    guard project.canMoveToTrash else {
+      statusMessage = "正在排队或识别的项目不能删除；任务结束后再试"
+      return
+    }
+    guard !deletingProjectIDs.contains(project.id) else { return }
+    deletingProjectIDs.insert(project.id)
+    Task { [weak self] in
+      guard let self else { return }
+      do {
+        let root = try PrivateBetaBackend.locate().localProjectsRoot
+        let target = try LocalProjectLibrary.validatedTrashTarget(
+          project,
+          rootURL: root
+        )
+        try await Self.recycleProject(at: target)
+        self.finishProjectRemoval(project, target: target)
+      } catch {
+        self.present(error)
+      }
+      self.deletingProjectIDs.remove(project.id)
     }
   }
 
@@ -808,6 +873,24 @@ public final class AppModel: ObservableObject {
     let groups = trailingCleanupGroups
     guard !groups.isEmpty else { return nil }
     return cleanupSummary(track: track, groups: groups)
+  }
+
+  public var currentTrailingCleanupStatus: String {
+    guard let editor else {
+      return "请选择一条音轨后检查结尾。"
+    }
+    let tags = Set(editor.notes.flatMap(\.tags))
+    if tags.contains("automatic-sustain-cleanup")
+      || tags.contains("automatic-percussion-repeat-cleanup")
+    {
+      return "这一识别版本生成时已经自动处理过当前音轨的尾部；目前没有新的保守修复候选。"
+    }
+    if tags.contains("app-sustain-merge")
+      || tags.contains("app-percussion-repeat-collapse")
+    {
+      return "当前音轨的尾部修复已经保存；目前没有新的保守修复候选。"
+    }
+    return "已检查当前音轨，暂未发现符合保守规则的尾部延音碎片或重复打击。"
   }
 
   public func performTrailingCleanup() {
@@ -1928,6 +2011,65 @@ public final class AppModel: ObservableObject {
       return nil
     }
   }
+
+  private static func recycleProject(at url: URL) async throws {
+    try await withCheckedThrowingContinuation {
+      (continuation: CheckedContinuation<Void, Error>) in
+      NSWorkspace.shared.recycle([url]) { _, error in
+        if let error {
+          continuation.resume(throwing: error)
+        } else {
+          continuation.resume()
+        }
+      }
+    }
+  }
+
+  private func finishProjectRemoval(
+    _ project: LocalProjectItem,
+    target: URL
+  ) {
+    libraryProjects.removeAll { $0.id == project.id }
+    let resolvedTarget = target.standardizedFileURL.resolvingSymlinksInPath()
+    guard
+      catalog?.rootURL.standardizedFileURL.resolvingSymlinksInPath()
+        .path == resolvedTarget.path
+    else {
+      statusMessage = "已把“\(project.title)”移到废纸篓"
+      refreshProjectLibrary()
+      return
+    }
+
+    projectLoadTask?.cancel()
+    selectionLoadTask?.cancel()
+    midiPreviewRefresh?.cancel()
+    transport.stop()
+    discardMIDIPreviewArtifact()
+    catalog = nil
+    snapshot = nil
+    editor = nil
+    selectedNoteID = nil
+    melodyGaps = []
+    selectedGapIDs = []
+    trailingCleanupSummaries = [:]
+    lastSavedAt = nil
+    defaults.removeObject(forKey: recentProjectKey)
+    if betaProjectURL?.standardizedFileURL.resolvingSymlinksInPath().path
+      == resolvedTarget.path
+    {
+      betaMonitor?.cancel()
+      betaProjectURL = nil
+      betaJobID = nil
+      betaSlurmState = nil
+      betaPipelineStage = nil
+      betaTaskKind = nil
+      activeComputeMode = nil
+      clearActiveBetaProject()
+    }
+    statusMessage = "已把“\(project.title)”移到废纸篓"
+    errorMessage = nil
+    refreshProjectLibrary()
+  }
 }
 
 private struct MixerSettings: Codable {
@@ -2170,6 +2312,53 @@ private struct PreparedProject: Sendable {
 }
 
 enum LocalProjectLibrary {
+  static func validatedTrashTarget(
+    _ project: LocalProjectItem,
+    rootURL: URL
+  ) throws -> URL {
+    guard project.canMoveToTrash else {
+      throw LocalProjectLibraryError.activeJob
+    }
+    let root = rootURL.standardizedFileURL.resolvingSymlinksInPath()
+    let candidate = project.url.standardizedFileURL
+    let values = try candidate.resourceValues(
+      forKeys: [.isDirectoryKey, .isSymbolicLinkKey]
+    )
+    let target = candidate.resolvingSymlinksInPath()
+    guard values.isDirectory == true, values.isSymbolicLink != true,
+      target.path != root.path,
+      target.deletingLastPathComponent().path == root.path
+    else {
+      throw LocalProjectLibraryError.unsafeTarget
+    }
+    let manifestURL = target.appendingPathComponent("manifest.json")
+    guard
+      let manifest = try? JSONDecoder().decode(
+        ProjectManifest.self,
+        from: Data(contentsOf: manifestURL)
+      ),
+      manifest.projectID == project.projectID
+    else {
+      throw LocalProjectLibraryError.projectMismatch
+    }
+    let stateURL = target.appendingPathComponent(
+      "app/private_beta_job.json"
+    )
+    if FileManager.default.fileExists(atPath: stateURL.path) {
+      guard
+        let state = try? JSONDecoder().decode(
+          PrivateBetaJobState.self,
+          from: Data(contentsOf: stateURL)
+        ),
+        let slurmState = state.slurmState,
+        LocalProjectItem.terminalStates.contains(slurmState)
+      else {
+        throw LocalProjectLibraryError.activeJob
+      }
+    }
+    return target
+  }
+
   static func scan(rootURL: URL) throws -> [LocalProjectItem] {
     guard FileManager.default.fileExists(atPath: rootURL.path) else {
       return []
@@ -2220,23 +2409,73 @@ enum LocalProjectLibrary {
           PrivateBetaJobState.self,
           from: Data(contentsOf: stateURL)
         )
+      let modifiedAt =
+        [
+          values.contentModificationDate,
+          modificationDate(at: manifestURL),
+          modificationDate(at: stateURL),
+          newestBundleModificationDate(in: exportsURL),
+        ].compactMap { $0 }.max() ?? .distantPast
       projects.append(
         LocalProjectItem(
           projectID: manifest.projectID,
           title: manifest.title ?? manifest.projectID,
           url: child,
-          modifiedAt: values.contentModificationDate ?? .distantPast,
+          modifiedAt: modifiedAt,
           hasResults: hasResults,
           jobState: state?.slurmState
         )
       )
     }
     return projects.sorted {
+      if $0.hasActiveJob != $1.hasActiveJob {
+        return $0.hasActiveJob
+      }
+      if $0.hasResults != $1.hasResults {
+        return $0.hasResults
+      }
       if $0.modifiedAt == $1.modifiedAt {
         return $0.title.localizedStandardCompare($1.title)
           == .orderedAscending
       }
       return $0.modifiedAt > $1.modifiedAt
+    }
+  }
+
+  private static func modificationDate(at url: URL) -> Date? {
+    try? url.resourceValues(
+      forKeys: [.contentModificationDateKey]
+    ).contentModificationDate
+  }
+
+  private static func newestBundleModificationDate(in exportsURL: URL) -> Date? {
+    let bundles =
+      (try? FileManager.default.contentsOfDirectory(
+        at: exportsURL,
+        includingPropertiesForKeys: [.isDirectoryKey],
+        options: [.skipsHiddenFiles]
+      )) ?? []
+    return bundles.compactMap { bundle in
+      modificationDate(
+        at: bundle.appendingPathComponent("bundle_manifest.json")
+      )
+    }.max()
+  }
+}
+
+private enum LocalProjectLibraryError: LocalizedError {
+  case activeJob
+  case unsafeTarget
+  case projectMismatch
+
+  var errorDescription: String? {
+    switch self {
+    case .activeJob:
+      "正在排队或识别的项目不能删除"
+    case .unsafeTarget:
+      "拒绝删除音乐库之外的目录或符号链接"
+    case .projectMismatch:
+      "项目身份与目录不匹配，已拒绝删除"
     }
   }
 }

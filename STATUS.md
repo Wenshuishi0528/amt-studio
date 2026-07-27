@@ -1,15 +1,40 @@
 # Project status
 
-Current product milestone: Task 009B2S durable edits and non-destructive
-product postprocessing are implemented while Hyak remains the default
+Current product milestone: Task 009B2T organized music library, recoverable
+project deletion, and persistent tail-repair status are implemented while Hyak
+remains the default
 Research status: Gate 4 remains not passed for the rejected fusion routes; no
 new dataset, fusion, retuning, or training work is in the product critical path
-Current task: recovered melody is accompaniment-masked with one bounded
-residual fallback; generated accompaniment tracks receive instrument-aware
-tail cleanup; compatible edits follow a newer result version
-Next task: run one new-song result when the owner chooses, then listen only to
-the filtered/fallback melody spans and confirm the conservative cleanup
+Current task: completed Job `37754413` is locally available; the music library
+is searchable and grouped, old projects can be moved to Trash, and tail repair
+no longer disappears when the selected track has no candidate
+Next task: owner reviews the completed recovery result and may use the restored
+per-track tail repair on any orange-flagged accompaniment track
 Current branch: `main`
+
+Implemented and verified for Task 009B2T:
+
+- the left music library searches all projects, groups active/completed/
+  incomplete entries, and uses current job/result modification times;
+- each row has a compact action menu. Completed or inactive projects can be
+  moved to macOS Trash after confirmation; active Slurm states, symlinks,
+  mismatched manifests, and paths outside the private project root are refused;
+- deletion now fails closed for an unreadable or unknown persisted job state,
+  preserves monitoring when another project owns the active job, and keeps
+  failed reruns in the incomplete/failed group even if older results exist;
+- tail repair is always visible for a selected track. It now explains whether
+  the track was already cleaned, has no conservative candidate, or offers the
+  existing sustain/percussion cleanup action;
+- local state shows targeted-gap Job `37754413` as
+  `COMPLETED / complete / succeeded`. No reusable SSH master existed, so no
+  connection retry or remote action was attempted;
+- the newest real bundle opens on `voice_auto_enhanced`; the clean-electric-
+  guitar track still reports five groups and 51 fragments. Full `make check`
+  passes 274 Python and 37 Swift tests with three expected environment-gated
+  skips; the configured real-project integration also passes.
+- the single bounded review found two P1 deletion-state issues and one
+  user-facing failed-rerun grouping issue; all three are fixed with targeted
+  regression coverage.
 
 Implemented and verified for Task 009B2S:
 

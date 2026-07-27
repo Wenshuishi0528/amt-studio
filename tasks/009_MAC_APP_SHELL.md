@@ -19,7 +19,44 @@ the inspector task-focused by hiding empty confidence controls and collapsing
 diagnostic provenance. Task 009B2S makes compatible edits survive a newer
 result version, filters recovery candidates against accompaniment, performs at
 most one residual fallback, and derives instrument-aware tail cleanup while
-preserving raw events.
+preserving raw events. Task 009B2T organizes the local music library, adds
+recoverable project deletion, and keeps tail-repair status visible.
+
+## Task 009B2T: organized music library and persistent tail-repair entry
+
+Implemented:
+
+- the sidebar music library now searches all projects and groups them into
+  active, completed, and incomplete/failed sections instead of truncating one
+  undifferentiated recent list;
+- every project row exposes open, Finder reveal, and move-to-Trash actions.
+  Deletion is recoverable, requires confirmation, revalidates the manifest and
+  direct-child path, rejects symlinks/out-of-library targets, and requires the
+  latest persisted Slurm state to be explicitly terminal. Unreadable, unknown,
+  suspended, or requeued states fail closed;
+- deleting the open inactive project preserves polling and result retrieval
+  when another project owns the active task. Failed reruns remain under
+  incomplete/failed even if the project retains an older result bundle;
+- library ordering uses the newest manifest, job-state, or result-bundle time,
+  so a newly completed task does not remain buried by an old directory mtime;
+- the tail-repair panel is always present for a selected track. It distinguishes
+  a current repair candidate, an already saved/automatic repair, and a checked
+  track with no conservative candidate.
+
+Verification:
+
+- local state records Job `37754413` as
+  `COMPLETED / complete / succeeded` for targeted gap recovery; no live SSH
+  master was available, so no new Duo prompt or Slurm action was started;
+- the newest private bundle opens on `voice_auto_enhanced`. Its selected voice
+  has no conservative tail candidate, while `clean_electric_guitar` still
+  exposes five groups containing 51 fragments. The prior disappearing control
+  was therefore a UI visibility condition, not removal of the analyzer;
+- full `make check` passes 274 Python and 37 Swift tests with three expected
+  environment-gated skips; the configured real-project integration passes;
+- the single bounded review found two P1 deletion-state issues and one
+  user-facing failed-rerun grouping issue; all three are fixed with targeted
+  regression coverage.
 
 ## Task 009B2S: durable edits and bounded product postprocessing
 

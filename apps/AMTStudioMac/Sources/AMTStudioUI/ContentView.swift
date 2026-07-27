@@ -10,6 +10,8 @@ public struct ContentView: View {
   @ObservedObject private var model: AppModel
   @State private var isShowingAppearanceSettings = false
   @State private var isConfirmingGapRecovery = false
+  @State private var librarySearchText = ""
+  @State private var projectPendingDeletion: LocalProjectItem?
 
   public init(model: AppModel) {
     self.model = model
@@ -172,6 +174,30 @@ public struct ContentView: View {
         "会把所选 \(model.selectedMelodyGaps.count) 段合并为一个任务，只重算这些片段并生成新版本；当前识别版本不会被覆盖。"
       )
     }
+    .confirmationDialog(
+      "把项目移到废纸篓？",
+      isPresented: Binding(
+        get: { projectPendingDeletion != nil },
+        set: { if !$0 { projectPendingDeletion = nil } }
+      ),
+      titleVisibility: .visible
+    ) {
+      if let project = projectPendingDeletion {
+        Button("移到废纸篓", role: .destructive) {
+          model.moveProjectToTrash(project)
+          projectPendingDeletion = nil
+        }
+      }
+      Button("取消", role: .cancel) {
+        projectPendingDeletion = nil
+      }
+    } message: {
+      if let project = projectPendingDeletion {
+        Text(
+          "“\(project.title)”的原曲、识别版本和人工修改会一起移到 macOS 废纸篓，可从废纸篓恢复。正在运行的任务不会被允许删除。"
+        )
+      }
+    }
   }
 
   @ViewBuilder
@@ -183,58 +209,66 @@ public struct ContentView: View {
         )
         .listRowBackground(Color.clear)
 
-      Section("以前的音乐") {
-        if model.libraryProjects.isEmpty {
+      Section {
+        TextField("搜索音乐", text: $librarySearchText)
+          .textFieldStyle(.roundedBorder)
+          .accessibilityIdentifier("library-search")
+
+        if filteredLibraryProjects.isEmpty {
           if model.isRefreshingLibrary {
             ProgressView("正在读取本地音乐库…")
               .controlSize(.small)
+          } else if !librarySearchText.isEmpty {
+            Text("没有匹配的音乐")
+              .foregroundStyle(.secondary)
           } else {
             Text("还没有可打开的本地项目")
               .foregroundStyle(.secondary)
           }
         } else {
-          ForEach(Array(model.libraryProjects.prefix(12))) { project in
-            Button {
-              model.openProject(project.url)
-            } label: {
-              HStack(spacing: 8) {
-                Image(
-                  systemName: project.hasResults
-                    ? "music.note.house.fill"
-                    : "hourglass"
-                )
-                .foregroundStyle(
-                  model.catalog?.rootURL == project.url
-                    ? Color.accentColor
-                    : Color.secondary
-                )
-                VStack(alignment: .leading, spacing: 2) {
-                  Text(project.title)
-                    .lineLimit(1)
-                  Text(project.stateLabel)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                }
-                Spacer()
-                if model.catalog?.rootURL == project.url {
-                  Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.tint)
-                }
-              }
-              .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .disabled(model.isLoadingProject)
-            .listRowInsets(
-              EdgeInsets(top: 5, leading: 12, bottom: 5, trailing: 10)
+          if !activeLibraryProjects.isEmpty {
+            LibraryGroupLabel(
+              title: "正在处理",
+              count: activeLibraryProjects.count,
+              color: .orange
             )
-            .accessibilityIdentifier("library-\(project.projectID)")
+            ForEach(activeLibraryProjects) { project in
+              libraryRow(project)
+            }
+          }
+          if !readyLibraryProjects.isEmpty {
+            LibraryGroupLabel(
+              title: "最近完成",
+              count: readyLibraryProjects.count,
+              color: .green
+            )
+            ForEach(readyLibraryProjects) { project in
+              libraryRow(project)
+            }
+          }
+          if !unfinishedLibraryProjects.isEmpty {
+            LibraryGroupLabel(
+              title: "未完成或失败",
+              count: unfinishedLibraryProjects.count,
+              color: .secondary
+            )
+            ForEach(unfinishedLibraryProjects) { project in
+              libraryRow(project)
+            }
           }
         }
         Button("刷新音乐库", systemImage: "arrow.clockwise") {
           model.refreshProjectLibrary()
         }
         .disabled(model.isRefreshingLibrary)
+      } header: {
+        HStack {
+          Text("音乐库")
+          Spacer()
+          Text("\(model.libraryProjects.count) 首")
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(.secondary)
+        }
       }
 
       Section("项目") {
@@ -644,6 +678,55 @@ public struct ContentView: View {
     .contentMargins(.horizontal, 8, for: .scrollContent)
   }
 
+  private var filteredLibraryProjects: [LocalProjectItem] {
+    let query = librarySearchText.trimmingCharacters(
+      in: .whitespacesAndNewlines
+    )
+    guard !query.isEmpty else { return model.libraryProjects }
+    return model.libraryProjects.filter {
+      $0.title.localizedCaseInsensitiveContains(query)
+        || $0.projectID.localizedCaseInsensitiveContains(query)
+    }
+  }
+
+  private var activeLibraryProjects: [LocalProjectItem] {
+    filteredLibraryProjects.filter(\.hasActiveJob)
+  }
+
+  private var readyLibraryProjects: [LocalProjectItem] {
+    filteredLibraryProjects.filter {
+      !$0.hasActiveJob && !$0.hasFailedJob && $0.hasResults
+    }
+  }
+
+  private var unfinishedLibraryProjects: [LocalProjectItem] {
+    filteredLibraryProjects.filter {
+      !$0.hasActiveJob && ($0.hasFailedJob || !$0.hasResults)
+    }
+  }
+
+  @ViewBuilder
+  private func libraryRow(_ project: LocalProjectItem) -> some View {
+    LibraryProjectRow(
+      project: project,
+      isSelected: model.catalog?.rootURL.standardizedFileURL.path
+        == project.url.standardizedFileURL.path,
+      isBusy: model.isLoadingProject || model.isDeletingProject(project),
+      onOpen: {
+        model.openProject(project.url)
+      },
+      onReveal: {
+        model.revealProject(project)
+      },
+      onDelete: {
+        projectPendingDeletion = project
+      }
+    )
+    .listRowInsets(
+      EdgeInsets(top: 4, leading: 10, bottom: 4, trailing: 8)
+    )
+  }
+
   private var theme: AMTTheme {
     AMTTheme(mode: model.appearanceMode)
   }
@@ -803,6 +886,128 @@ public struct ContentView: View {
     if panel.runModal() == .OK, let url = panel.url {
       model.exportCurrentMixMIDI(to: url)
     }
+  }
+}
+
+private struct LibraryGroupLabel: View {
+  let title: String
+  let count: Int
+  let color: Color
+
+  var body: some View {
+    HStack(spacing: 6) {
+      Circle()
+        .fill(color)
+        .frame(width: 6, height: 6)
+      Text(title)
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(.secondary)
+      Spacer()
+      Text("\(count)")
+        .font(.caption2.monospacedDigit())
+        .foregroundStyle(.tertiary)
+    }
+    .padding(.top, 4)
+  }
+}
+
+private struct LibraryProjectRow: View {
+  let project: LocalProjectItem
+  let isSelected: Bool
+  let isBusy: Bool
+  let onOpen: () -> Void
+  let onReveal: () -> Void
+  let onDelete: () -> Void
+
+  var body: some View {
+    HStack(spacing: 6) {
+      Button(action: onOpen) {
+        HStack(spacing: 9) {
+          Image(systemName: projectIcon)
+            .frame(width: 22)
+            .foregroundStyle(projectColor)
+          VStack(alignment: .leading, spacing: 3) {
+            Text(project.title)
+              .lineLimit(1)
+              .font(.subheadline.weight(isSelected ? .semibold : .regular))
+            HStack(spacing: 5) {
+              Text(project.stateLabel)
+              Text("·")
+              Text(project.modifiedAt, style: .relative)
+            }
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+          }
+          Spacer(minLength: 2)
+          if isSelected {
+            Image(systemName: "checkmark.circle.fill")
+              .foregroundStyle(.tint)
+          } else if isBusy {
+            ProgressView()
+              .controlSize(.small)
+          }
+        }
+        .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+      .disabled(isBusy)
+      .accessibilityIdentifier("library-\(project.projectID)")
+
+      Menu {
+        Button("打开", systemImage: "arrow.right.circle", action: onOpen)
+          .disabled(isBusy)
+        Button(
+          "在 Finder 中显示",
+          systemImage: "folder",
+          action: onReveal
+        )
+        Divider()
+        Button(
+          project.canMoveToTrash ? "移到废纸篓" : "任务进行中，不能删除",
+          systemImage: "trash",
+          role: .destructive,
+          action: onDelete
+        )
+        .disabled(!project.canMoveToTrash || isBusy)
+      } label: {
+        Image(systemName: "ellipsis")
+          .frame(width: 24, height: 28)
+          .contentShape(Rectangle())
+      }
+      .menuStyle(.borderlessButton)
+      .menuIndicator(.hidden)
+      .accessibilityLabel("\(project.title) 更多操作")
+      .accessibilityIdentifier("library-actions-\(project.projectID)")
+    }
+  }
+
+  private var projectIcon: String {
+    if project.hasActiveJob {
+      return "waveform.path.ecg"
+    }
+    if project.hasResults {
+      return "music.note.house.fill"
+    }
+    if project.jobState.map({ ["FAILED", "CANCELLED"].contains($0) }) == true {
+      return "exclamationmark.triangle.fill"
+    }
+    return "hourglass"
+  }
+
+  private var projectColor: Color {
+    if isSelected {
+      return .accentColor
+    }
+    if project.hasActiveJob {
+      return .orange
+    }
+    if project.hasResults {
+      return .green
+    }
+    if project.jobState.map({ ["FAILED", "CANCELLED"].contains($0) }) == true {
+      return .red
+    }
+    return .secondary
   }
 }
 
@@ -1434,7 +1639,7 @@ private struct WorkspaceView: View {
           .accessibilityIdentifier("add-note-empty-inspector")
         }
       }
-      if model.currentTrailingCleanupSummary != nil {
+      if model.editor != nil {
         Divider()
         TrailingCleanupPanel(model: model)
       }
@@ -1861,9 +2066,20 @@ private struct TrailingCleanupPanel: View {
         )
         .font(.caption2)
         .foregroundStyle(.secondary)
+      } else {
+        Label("尾部修复", systemImage: "checkmark.seal")
+          .font(.subheadline.weight(.semibold))
+          .foregroundStyle(.secondary)
+        Text(model.currentTrailingCleanupStatus)
+          .font(.caption)
+          .foregroundStyle(.secondary)
+        Text("切换音轨后这里会重新检查；发现候选时会出现“合并为延长音”或“折叠重复打击”按钮。")
+          .font(.caption2)
+          .foregroundStyle(.tertiary)
       }
     }
     .padding(12)
+    .accessibilityIdentifier("trailing-cleanup-panel")
     .confirmationDialog(
       model.currentTrailingCleanupSummary?.kind == .percussionRepeats
         ? "折叠当前鼓轨的结尾重复打击？"

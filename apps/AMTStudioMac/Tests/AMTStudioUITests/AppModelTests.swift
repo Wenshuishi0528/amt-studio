@@ -492,12 +492,138 @@ final class AppModelTests: XCTestCase {
       ],
       to: project.appendingPathComponent("manifest.json")
     )
+    let activeProject = root.appendingPathComponent("正在识别的歌")
+    try FileManager.default.createDirectory(
+      at: activeProject.appendingPathComponent("app"),
+      withIntermediateDirectories: true
+    )
+    try writeFixtureJSON(
+      [
+        "schema_version": 1,
+        "project_id": "active-song",
+        "title": "正在识别的歌",
+        "canonical_audio": [
+          "path": "audio/canonical/mix.flac",
+          "sha256": String(repeating: "b", count: 64),
+        ],
+      ],
+      to: activeProject.appendingPathComponent("manifest.json")
+    )
+    try writeFixtureJSON(
+      [
+        "job_id": "fixture-job",
+        "slurm_state": "RUNNING",
+        "pipeline_stage": "full_transcription",
+      ],
+      to: activeProject.appendingPathComponent("app/private_beta_job.json")
+    )
 
     let items = try LocalProjectLibrary.scan(rootURL: root)
 
-    XCTAssertEqual(items.count, 1)
-    XCTAssertEqual(items[0].title, "以前的歌")
-    XCTAssertEqual(items[0].stateLabel, "尚无结果")
+    XCTAssertEqual(items.count, 2)
+    XCTAssertEqual(items[0].title, "正在识别的歌")
+    XCTAssertTrue(items[0].hasActiveJob)
+    XCTAssertFalse(items[0].canMoveToTrash)
+    XCTAssertEqual(items[1].title, "以前的歌")
+    XCTAssertEqual(items[1].stateLabel, "尚无结果")
+    XCTAssertTrue(items[1].canMoveToTrash)
+    XCTAssertEqual(
+      try LocalProjectLibrary.validatedTrashTarget(
+        items[1],
+        rootURL: root
+      ).path,
+      project.path
+    )
+
+    let outside = LocalProjectItem(
+      projectID: items[1].projectID,
+      title: items[1].title,
+      url: root.deletingLastPathComponent(),
+      modifiedAt: .distantPast,
+      hasResults: false,
+      jobState: nil
+    )
+    XCTAssertThrowsError(
+      try LocalProjectLibrary.validatedTrashTarget(outside, rootURL: root)
+    )
+    XCTAssertThrowsError(
+      try LocalProjectLibrary.validatedTrashTarget(items[0], rootURL: root)
+    )
+    let staleCompletedView = LocalProjectItem(
+      projectID: items[0].projectID,
+      title: items[0].title,
+      url: items[0].url,
+      modifiedAt: items[0].modifiedAt,
+      hasResults: false,
+      jobState: "COMPLETED"
+    )
+    XCTAssertTrue(staleCompletedView.canMoveToTrash)
+    XCTAssertThrowsError(
+      try LocalProjectLibrary.validatedTrashTarget(
+        staleCompletedView,
+        rootURL: root
+      )
+    )
+    try writeFixtureJSON(
+      [
+        "job_id": "fixture-job",
+        "slurm_state": "SUSPENDED",
+        "pipeline_stage": "queued",
+      ],
+      to: activeProject.appendingPathComponent("app/private_beta_job.json")
+    )
+    XCTAssertThrowsError(
+      try LocalProjectLibrary.validatedTrashTarget(
+        staleCompletedView,
+        rootURL: root
+      )
+    )
+    try Data("not-json".utf8).write(
+      to: activeProject.appendingPathComponent("app/private_beta_job.json")
+    )
+    XCTAssertThrowsError(
+      try LocalProjectLibrary.validatedTrashTarget(
+        staleCompletedView,
+        rootURL: root
+      )
+    )
+    try writeFixtureJSON(
+      [
+        "job_id": "fixture-job",
+        "slurm_state": "TIMEOUT",
+        "pipeline_stage": "failed",
+      ],
+      to: activeProject.appendingPathComponent("app/private_beta_job.json")
+    )
+    XCTAssertEqual(
+      try LocalProjectLibrary.validatedTrashTarget(
+        staleCompletedView,
+        rootURL: root
+      ).path,
+      activeProject.path
+    )
+    let failedWithResults = LocalProjectItem(
+      projectID: "failed-rerun",
+      title: "失败重算",
+      url: project,
+      modifiedAt: .distantPast,
+      hasResults: true,
+      jobState: "TIMEOUT"
+    )
+    XCTAssertTrue(failedWithResults.hasFailedJob)
+    XCTAssertFalse(failedWithResults.hasActiveJob)
+    XCTAssertEqual(failedWithResults.stateLabel, "任务失败")
+    let suspendedItem = LocalProjectItem(
+      projectID: "suspended",
+      title: "暂停任务",
+      url: project,
+      modifiedAt: .distantPast,
+      hasResults: true,
+      jobState: "SUSPENDED"
+    )
+    XCTAssertTrue(suspendedItem.hasActiveJob)
+    XCTAssertFalse(suspendedItem.canMoveToTrash)
+    XCTAssertEqual(suspendedItem.stateLabel, "任务状态待确认")
   }
 
   func testOpenEditUndoRedoExportAndRestart() async throws {
