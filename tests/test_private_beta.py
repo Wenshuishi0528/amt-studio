@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
+import sys
 import tempfile
 import unittest
 import unicodedata
@@ -22,6 +24,35 @@ from workers.muscriptor import run_baseline
 
 
 class PrivateBetaTests(unittest.TestCase):
+    def test_console_entrypoint_can_load_repository_workers(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        script = """
+import pathlib
+import sys
+
+repo_root = pathlib.Path(sys.argv[1]).resolve()
+if str(repo_root) in sys.path:
+    raise SystemExit("fixture unexpectedly inherited the repository root")
+from amt_core.private_beta import _ensure_repository_imports
+_ensure_repository_imports(repo_root)
+import workers.muscriptor.targeted_gap_recovery
+print("worker import ok")
+"""
+        environment = os.environ.copy()
+        environment.pop("PYTHONPATH", None)
+        with tempfile.TemporaryDirectory() as temporary:
+            result = subprocess.run(
+                [sys.executable, "-c", script, str(repo_root)],
+                cwd=temporary,
+                env=environment,
+                check=False,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "worker import ok")
+
     def test_project_directory_is_worker_project_identity(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

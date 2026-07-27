@@ -54,6 +54,7 @@ enum PrivateBetaBackendError: Error, LocalizedError {
   case repositoryNotFound
   case uvNotFound
   case hyakLoginRequired(String)
+  case operationFailed(String)
   case invalidResponse(String)
 
   var errorDescription: String? {
@@ -63,6 +64,8 @@ enum PrivateBetaBackendError: Error, LocalizedError {
     case .uvNotFound:
       "找不到 uv。请确认 /opt/homebrew/bin/uv 已安装。"
     case .hyakLoginRequired(let detail):
+      detail
+    case .operationFailed(let detail):
       detail
     case .invalidResponse(let detail):
       "后台返回无法读取：\(detail)"

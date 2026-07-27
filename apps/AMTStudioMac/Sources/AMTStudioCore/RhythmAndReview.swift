@@ -180,6 +180,96 @@ public enum RhythmTimeline {
   }
 }
 
+public struct SustainFragmentGroup: Sendable, Equatable, Identifiable {
+  public let pitchMIDI: Double
+  public let noteIDs: [String]
+  public let onsetSec: Double
+  public let offsetSec: Double
+
+  public var id: String {
+    "\(pitchMIDI)-\(noteIDs.first ?? "empty")"
+  }
+
+  public var fragmentCount: Int { noteIDs.count }
+}
+
+public enum SustainFragmentAnalyzer {
+  public static func trailingGroups(
+    notes: [EditorNote],
+    timelineEnd: Double,
+    maximumGap: Double = 0.03,
+    shortDurationThreshold: Double = 0.35
+  ) -> [SustainFragmentGroup] {
+    guard timelineEnd.isFinite, timelineEnd > 0 else { return [] }
+    let effectiveEnd = max(
+      timelineEnd,
+      notes.map(\.offsetSec).max() ?? timelineEnd
+    )
+    var result: [SustainFragmentGroup] = []
+    for pitchNotes in Dictionary(grouping: notes, by: \.pitchMIDI).values {
+      let ordered = pitchNotes.sorted {
+        ($0.onsetSec, $0.offsetSec, $0.id)
+          < ($1.onsetSec, $1.offsetSec, $1.id)
+      }
+      var chain: [EditorNote] = []
+      var chainEnd = -Double.infinity
+      for note in ordered {
+        if !chain.isEmpty, note.onsetSec > chainEnd + maximumGap {
+          if let candidate = candidate(
+            chain,
+            effectiveEnd: effectiveEnd,
+            shortDurationThreshold: shortDurationThreshold
+          ) {
+            result.append(candidate)
+          }
+          chain = []
+          chainEnd = -Double.infinity
+        }
+        chain.append(note)
+        chainEnd = max(chainEnd, note.offsetSec)
+      }
+      if let candidate = candidate(
+        chain,
+        effectiveEnd: effectiveEnd,
+        shortDurationThreshold: shortDurationThreshold
+      ) {
+        result.append(candidate)
+      }
+    }
+    return result.sorted {
+      ($0.onsetSec, $0.pitchMIDI, $0.id)
+        < ($1.onsetSec, $1.pitchMIDI, $1.id)
+    }
+  }
+
+  private static func candidate(
+    _ notes: [EditorNote],
+    effectiveEnd: Double,
+    shortDurationThreshold: Double
+  ) -> SustainFragmentGroup? {
+    guard let first = notes.first, let last = notes.last,
+      notes.count >= 4,
+      last.offsetSec >= effectiveEnd - 0.5,
+      first.onsetSec >= effectiveEnd - 30,
+      last.offsetSec - first.onsetSec >= 2
+    else {
+      return nil
+    }
+    let shortCount = notes.lazy.filter {
+      $0.offsetSec - $0.onsetSec <= shortDurationThreshold
+    }.count
+    guard shortCount >= 3, shortCount * 2 >= notes.count else {
+      return nil
+    }
+    return SustainFragmentGroup(
+      pitchMIDI: first.pitchMIDI,
+      noteIDs: notes.map(\.id),
+      onsetSec: first.onsetSec,
+      offsetSec: notes.map(\.offsetSec).max() ?? last.offsetSec
+    )
+  }
+}
+
 public struct ProjectReviewIssue: Sendable, Equatable, Identifiable {
   public enum Kind: String, Sendable, Hashable {
     case lowConfidence

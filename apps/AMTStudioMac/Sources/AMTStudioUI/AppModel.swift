@@ -748,6 +748,48 @@ public final class AppModel: ObservableObject {
     return "\(issues.count) 项 · 低置信度 \(low) · 过短 \(short)"
   }
 
+  public var trailingSustainFragmentGroups: [SustainFragmentGroup] {
+    guard let editor else { return [] }
+    let timelineEnd = max(
+      snapshot?.manifest.canonicalAudio.metadata?.durationSec ?? 0,
+      editor.notes.map(\.offsetSec).max() ?? 0
+    )
+    return SustainFragmentAnalyzer.trailingGroups(
+      notes: editor.notes,
+      timelineEnd: timelineEnd
+    )
+  }
+
+  public var trailingSustainFragmentSummary: String? {
+    let groups = trailingSustainFragmentGroups
+    guard !groups.isEmpty else { return nil }
+    let fragments = groups.reduce(0) { $0 + $1.fragmentCount }
+    return "检测到结尾 \(groups.count) 个音高被切成 \(fragments) 个连续片段"
+  }
+
+  public func mergeTrailingSustainFragments() {
+    do {
+      guard var editor else { return }
+      let groups = trailingSustainFragmentGroups
+      guard !groups.isEmpty else {
+        statusMessage = "当前音轨没有符合条件的结尾延音碎片"
+        return
+      }
+      let fragmentCount = groups.reduce(0) { $0 + $1.fragmentCount }
+      let merged = try editor.mergeSustainFragments(groups)
+      try editor.save()
+      self.editor = editor
+      selectedNoteID = merged.first?.id
+      statusMessage =
+        "已把 \(fragmentCount) 个结尾碎片合并为 \(merged.count) 个延长音；可撤销"
+      errorMessage = nil
+      updateMelodyCoverage()
+      refreshMIDIPreview()
+    } catch {
+      present(error)
+    }
+  }
+
   private func updateMelodyCoverage() {
     guard let snapshot, let track = editor?.selectedTrack else {
       melodyGaps = []
@@ -1526,7 +1568,7 @@ public final class AppModel: ObservableObject {
           response.error ?? "Hyak 登录已过期"
         )
       }
-      throw PrivateBetaBackendError.invalidResponse(
+      throw PrivateBetaBackendError.operationFailed(
         response.error ?? "未知后台错误"
       )
     }

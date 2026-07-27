@@ -4,6 +4,44 @@ This project records changes by numbered research task until formal semantic
 versions and releases begin. Dates and commit identifiers refer to the local
 Git history.
 
+## Task 009B2N — Gap launch repair and trailing sustain cleanup — 2026-07-26
+
+Commit: this task's final commit
+
+### Fixed
+
+- Fixed the installed private-Beta console entry point failing to import the
+  repository-owned `workers` package before selected-gap submission.
+- Converted worker-loading failures to bounded JSON and separated normal
+  backend operation errors from malformed-response diagnostics, preventing raw
+  Python tracebacks from being presented as the primary user message.
+
+### Added
+
+- Added conservative detection of same-pitch contiguous fragments at the end
+  of the selected track.
+- Added an owner-confirmed `合并为延长音` action that merges all detected
+  pitch chains as one saved, undoable edit without changing canonical model
+  output.
+
+### Verified
+
+- The failed UI attempt occurred before Slurm submission. Existing Job
+  `37746586` remains terminal and no recovery request or replacement job was
+  created.
+- The current song's `clean_electric_guitar` track has five trailing pitch
+  groups containing 121 contiguous events. From `270.12` seconds, the same
+  five-note chord is split at `0.23`-second intervals.
+- A real-project integration check detects exactly five groups and 121
+  fragments. `make check` passes 264 Python and 31 Swift tests with three
+  expected environment-gated skips.
+
+### Limitations
+
+- A repeated articulation can resemble a fragmented sustain. Cleanup therefore
+  requires owner confirmation, applies only to conservative trailing chains,
+  remains undoable, and is never written into the original MuScriptor JSONL.
+
 ## Task 009B2M — User-selected targeted gap recovery — 2026-07-26
 
 Commit: this task's final commit

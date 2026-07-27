@@ -41,6 +41,12 @@ def _utc_now() -> str:
     return datetime.now(UTC).isoformat()
 
 
+def _ensure_repository_imports(repo_root: Path) -> None:
+    root = str(repo_root.expanduser().resolve())
+    if root not in sys.path:
+        sys.path.insert(0, root)
+
+
 def _run(
     argv: list[str],
     *,
@@ -901,15 +907,20 @@ def start_job(
 def _prepare_gap_recovery_request(
     project_dir: Path,
     *,
+    repo_root: Path,
     run_id: str,
     source_bundle_id: str,
     source_track_id: str,
     intervals: list[tuple[float, float]],
 ) -> Path:
-    from workers.muscriptor.targeted_gap_recovery import (
-        TargetedGapRecoveryError,
-        plan_selected_gaps,
-    )
+    _ensure_repository_imports(repo_root)
+    try:
+        from workers.muscriptor.gap_probe import spec_as_dict
+        from workers.muscriptor.targeted_gap_recovery import plan_selected_gaps
+    except ImportError as exc:
+        raise PrivateBetaError(
+            "无法加载空缺重算组件；请确认 App 与仓库来自同一版本"
+        ) from exc
 
     project_dir = project_dir.expanduser().resolve()
     _require_safe_identifier(run_id, label="recovery run")
@@ -929,7 +940,6 @@ def _prepare_gap_recovery_request(
     if request_path.exists() or request_path.is_symlink():
         raise PrivateBetaError("空缺重算请求标识发生冲突，请重试")
     request_path.parent.mkdir(parents=True, exist_ok=True)
-    from workers.muscriptor.gap_probe import spec_as_dict
 
     atomic_write_json(request_path, spec_as_dict(spec))
     return request_path
@@ -973,6 +983,7 @@ def start_gap_recovery_job(
     bundle_id = f"{run_id}-multitrack"
     request_path = _prepare_gap_recovery_request(
         project_dir,
+        repo_root=repo_root,
         run_id=run_id,
         source_bundle_id=source_bundle_id,
         source_track_id=source_track_id,
@@ -1073,6 +1084,7 @@ def start_local_gap_recovery_job(
     bundle_id = f"{run_id}-multitrack"
     request_path = _prepare_gap_recovery_request(
         project_dir,
+        repo_root=repo_root,
         run_id=run_id,
         source_bundle_id=source_bundle_id,
         source_track_id=source_track_id,
@@ -1209,11 +1221,12 @@ def _run_local_gap_recovery_pipeline(
 
 
 def _run_local_pipeline(project_dir: Path, *, repo_root: Path) -> int:
+    repo_root = repo_root.expanduser().resolve()
+    _ensure_repository_imports(repo_root)
     from .bundle import build_muscriptor_multitrack_bundle
     from workers.muscriptor import gap_probe, run_baseline
 
     project_dir = project_dir.expanduser().resolve()
-    repo_root = repo_root.expanduser().resolve()
     state = _load_state(project_dir)
     if state["backend"] != "local":
         raise PrivateBetaError("本机 worker 拒绝非本机任务状态")

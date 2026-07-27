@@ -237,6 +237,80 @@ public struct EditorProject: Sendable {
     try append(kind: .split, before: [original], after: [left, right])
   }
 
+  @discardableResult
+  public mutating func mergeSustainFragments(
+    _ groups: [SustainFragmentGroup]
+  ) throws -> [EditorNote] {
+    guard !groups.isEmpty else { return [] }
+    let current = Dictionary(
+      uniqueKeysWithValues: try materializedNotes().map { ($0.id, $0) }
+    )
+    var usedIDs = Set<String>()
+    var before: [EditorNote] = []
+    var merged: [EditorNote] = []
+    for group in groups {
+      guard group.noteIDs.count >= 2,
+        group.noteIDs.allSatisfy({ usedIDs.insert($0).inserted })
+      else {
+        throw AMTProjectError.invalidEvent("延音合并包含重复或不足的音符")
+      }
+      let notes = try group.noteIDs.map { id in
+        guard let note = current[id] else {
+          throw AMTProjectError.invalidEvent("找不到延音碎片 \(id)")
+        }
+        return note
+      }.sorted {
+        ($0.onsetSec, $0.offsetSec, $0.id)
+          < ($1.onsetSec, $1.offsetSec, $1.id)
+      }
+      guard let first = notes.first,
+        notes.allSatisfy({
+          $0.trackID == selectedTrack.id
+            && abs($0.pitchMIDI - first.pitchMIDI) < 0.001
+        })
+      else {
+        throw AMTProjectError.invalidEvent("只能合并当前音轨内的同音碎片")
+      }
+      var chainEnd = first.offsetSec
+      for note in notes.dropFirst() {
+        guard note.onsetSec <= chainEnd + 0.03 else {
+          throw AMTProjectError.invalidEvent("延音碎片之间存在明显空隙")
+        }
+        chainEnd = max(chainEnd, note.offsetSec)
+      }
+      let confidence =
+        notes.contains(where: { $0.confidence == nil })
+        ? nil
+        : notes.compactMap(\.confidence).min()
+      let sourceIDs = Set(
+        notes.flatMap { [$0.id] + $0.sourceEventIDs }
+      ).sorted()
+      let tags = Set(notes.flatMap(\.tags) + ["app-sustain-merge"]).sorted()
+      before.append(contentsOf: notes)
+      merged.append(
+        EditorNote(
+          id: "app-sustain-merge-\(UUID().uuidString.lowercased())",
+          trackID: first.trackID,
+          sourceTrackID: first.sourceTrackID,
+          instrument: first.instrument,
+          onsetSec: first.onsetSec,
+          offsetSec: chainEnd,
+          pitchMIDI: first.pitchMIDI,
+          velocity: first.velocity,
+          confidence: confidence,
+          isMainMelodyCandidate: first.isMainMelodyCandidate,
+          sourceRunID: "amt-studio-manual-edit",
+          sourceModel: "manual",
+          sourceEventIDs: sourceIDs,
+          tags: tags,
+          extra: first.extra
+        )
+      )
+    }
+    try append(kind: .merge, before: before, after: merged)
+    return merged
+  }
+
   public mutating func undo() throws {
     guard let headOperationID,
       let head = operations.first(where: { $0.id == headOperationID })

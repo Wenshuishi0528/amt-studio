@@ -1,15 +1,41 @@
 # Project status
 
-Current product milestone: Task 009B2M user-selected targeted gap recovery is
-implemented while Hyak remains the default
+Current product milestone: Task 009B2N gap-submission repair and conservative
+trailing-sustain cleanup are implemented while Hyak remains the default
 Research status: Gate 4 remains not passed for the rejected fusion routes; no
 new dataset, fusion, retuning, or training work is in the product critical path
-Current task: the completed new-song result now exposes every current-track
-gap as an individually selectable recovery target; no recovery job was
-submitted on the owner's behalf
-Next task: the owner may select the two large voice gaps, or any other subset,
-and submit one targeted Hyak job from the app
+Current task: the owner-reported `workers` import failure is fixed, and the
+current song's fragmented ending chord is detected as an undoable correction
+candidate; no recovery job was submitted on the owner's behalf
+Next task: the owner may retry the selected-gap Hyak action and, after choosing
+the clean-electric-guitar track, confirm the offered trailing-sustain merge
 Current branch: `main`
+
+Implemented and code-verified for Task 009B2N:
+
+- the App correctly launched the installed `amt-private-beta` console entry
+  point from the repository, but Python used the executable directory rather
+  than the repository as its import root. The gap planner therefore failed on
+  `workers` before any Slurm submission. The backend now explicitly installs
+  its already-validated repository root before importing repository workers;
+- worker-import failure is also converted to bounded JSON, and normal backend
+  operation errors no longer appear as an unreadable raw traceback dialog;
+- the failed owner attempt left Job `37746586` in its prior terminal
+  `succeeded` state and created neither a replacement Job ID nor a recovery
+  request;
+- the real `clean_electric_guitar` ending contains five synchronized pitch
+  chains. They cover 121 contiguous events, and from `270.12` seconds the
+  model repeats the same five-note chord every `0.23` seconds. This is model
+  fragmentation rather than a piano-roll drawing artifact;
+- the current-track review panel now offers a conservative
+  `合并为延长音` action only when at least four same-pitch, contiguous notes
+  reach the song tail, span at least two seconds, and are predominantly short.
+  The owner must confirm it; all groups merge as one saved, undoable edit while
+  canonical MuScriptor JSONL remains unchanged;
+- the current song is detected as five pitch groups and 121 fragments. A
+  real-project integration check passes without changing the project, and
+  `make check` passes 264 Python and 31 Swift tests with three expected
+  environment-gated skips. No Hyak or local inference job was started.
 
 Implemented and code-verified for Task 009B2M:
 

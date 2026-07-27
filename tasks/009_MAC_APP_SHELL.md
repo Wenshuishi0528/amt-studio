@@ -146,6 +146,41 @@ Verification boundary:
   MuScriptor pass succeeded before the job continued into bundle/gap
   processing. No job was submitted, cancelled, or altered for this task.
 
+## Task 009B2N: gap launch repair and trailing sustain cleanup
+
+Implemented:
+
+- private-Beta startup now adds the validated repository root before dynamic
+  worker imports, so the installed console entry point does not depend on its
+  executable directory or inherited `PYTHONPATH`;
+- import failures become bounded backend JSON, while readable operation errors
+  are distinguished from malformed backend output in the Mac UI;
+- the current-track review analyzes only conservative trailing same-pitch
+  chains. An owner-confirmed action replaces each chain with one long note in
+  a single reversible `.merge` operation, preserving all source event IDs and
+  leaving canonical files untouched.
+
+Current-song evidence:
+
+- the failed click stopped at local request preparation with
+  `ModuleNotFoundError`; Job `37746586` and its succeeded result were not
+  replaced, and no recovery request was written;
+- `clean_electric_guitar` has five ending pitch chains containing 121 events.
+  The last portion repeats pitches `46, 58, 62, 65, 70` every `0.23` seconds
+  from `270.12` through `274.96`, matching the owner-confirmed sustained ending
+  fragmentation rather than a drawing-only issue;
+- the shipped detector reports exactly five groups and 121 fragments on this
+  private result. It requires a tail-reaching chain, at least four notes, at
+  least two seconds, a maximum 30 ms join gap, and predominantly short notes.
+
+Verification:
+
+- focused worker-import, gap-planning, conservative-detection, merge/undo, and
+  source-preservation tests pass;
+- the configured real-project test passes without saving a correction;
+- full `make check` passes 264 Python and 31 Swift tests with three expected
+  environment-gated skips. No compute job or model inference was started.
+
 ## Task 009B2M: user-selected targeted gap recovery
 
 Implemented:

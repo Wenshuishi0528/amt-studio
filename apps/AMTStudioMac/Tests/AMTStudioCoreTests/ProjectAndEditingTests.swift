@@ -4,6 +4,85 @@ import XCTest
 @testable import AMTStudioCore
 
 final class ProjectAndEditingTests: XCTestCase {
+  func testTrailingSustainAnalyzerIsConservative() {
+    let sustainedChord = [58.0, 62.0].flatMap { pitch in
+      (0..<8).map { index in
+        testNote(
+          id: "\(Int(pitch))-\(index)",
+          onset: 8 + Double(index) * 0.25,
+          offset: 8 + Double(index + 1) * 0.25,
+          pitch: pitch
+        )
+      }
+    }
+    let groups = SustainFragmentAnalyzer.trailingGroups(
+      notes: sustainedChord,
+      timelineEnd: 10
+    )
+    XCTAssertEqual(groups.count, 2)
+    XCTAssertEqual(groups.map(\.fragmentCount), [8, 8])
+
+    let separatedRepeats = (0..<8).map { index in
+      testNote(
+        id: "repeat-\(index)",
+        onset: 8 + Double(index) * 0.25,
+        offset: 8.15 + Double(index) * 0.25,
+        pitch: 65
+      )
+    }
+    XCTAssertTrue(
+      SustainFragmentAnalyzer.trailingGroups(
+        notes: separatedRepeats,
+        timelineEnd: 10
+      ).isEmpty
+    )
+    XCTAssertTrue(
+      SustainFragmentAnalyzer.trailingGroups(
+        notes: sustainedChord,
+        timelineEnd: 20
+      ).isEmpty
+    )
+  }
+
+  func testSustainMergeIsOneUndoableEdit() throws {
+    let fixture = try FixtureProject()
+    defer { fixture.remove() }
+    let snapshot = try ProjectLoader.open(projectURL: fixture.root)
+    var editor = try EditorProject(
+      snapshot: snapshot,
+      bundleID: "bundle-a",
+      selectedTrackID: "candidate-a"
+    )
+    let fragments = (0..<4).map { index in
+      testNote(
+        id: "fragment-\(index)",
+        onset: 10 + Double(index) * 0.25,
+        offset: 10 + Double(index + 1) * 0.25,
+        pitch: 60
+      )
+    }
+    for fragment in fragments {
+      try editor.create(fragment)
+    }
+    let beforeMergeCount = editor.notes.count
+    let merged = try editor.mergeSustainFragments([
+      SustainFragmentGroup(
+        pitchMIDI: 60,
+        noteIDs: fragments.map(\.id),
+        onsetSec: 10,
+        offsetSec: 11
+      )
+    ])
+
+    XCTAssertEqual(merged.count, 1)
+    XCTAssertEqual(merged[0].onsetSec, 10)
+    XCTAssertEqual(merged[0].offsetSec, 11)
+    XCTAssertEqual(Set(merged[0].sourceEventIDs), Set(fragments.map(\.id)))
+    XCTAssertEqual(editor.notes.count, beforeMergeCount - 3)
+    try editor.undo()
+    XCTAssertEqual(editor.notes.count, beforeMergeCount)
+  }
+
   func testRhythmTimelineUsesDetectedBeatsAndLabelsReviewIssues() throws {
     var events: [[String: Any]] = []
     for index in 0..<12 {
@@ -150,6 +229,27 @@ final class ProjectAndEditingTests: XCTestCase {
       selectedTrackID: trackID
     )
     XCTAssertEqual(editor.notes.count, expectedCount)
+    if let expectedGroupText = environment[
+      "AMT_STUDIO_REAL_SUSTAIN_GROUPS"
+    ], let expectedGroups = Int(expectedGroupText) {
+      let timelineEnd = max(
+        snapshot.manifest.canonicalAudio.metadata?.durationSec ?? 0,
+        editor.notes.map(\.offsetSec).max() ?? 0
+      )
+      let groups = SustainFragmentAnalyzer.trailingGroups(
+        notes: editor.notes,
+        timelineEnd: timelineEnd
+      )
+      XCTAssertEqual(groups.count, expectedGroups)
+      if let expectedFragmentText = environment[
+        "AMT_STUDIO_REAL_SUSTAIN_FRAGMENTS"
+      ], let expectedFragments = Int(expectedFragmentText) {
+        XCTAssertEqual(
+          groups.reduce(0) { $0 + $1.fragmentCount },
+          expectedFragments
+        )
+      }
+    }
     let configuredOutput = environment["AMT_STUDIO_REAL_MIDI_OUTPUT"]
     let output =
       configuredOutput.map(URL.init(fileURLWithPath:))
@@ -523,6 +623,31 @@ final class ProjectAndEditingTests: XCTestCase {
     wrongTrack.trackID = "another-track"
     XCTAssertThrowsError(try editor.create(wrongTrack))
   }
+}
+
+private func testNote(
+  id: String,
+  onset: Double,
+  offset: Double,
+  pitch: Double
+) -> EditorNote {
+  EditorNote(
+    id: id,
+    trackID: "candidate-a",
+    sourceTrackID: "candidate-a",
+    instrument: "clean_electric_guitar",
+    onsetSec: onset,
+    offsetSec: offset,
+    pitchMIDI: pitch,
+    velocity: 80,
+    confidence: nil,
+    isMainMelodyCandidate: false,
+    sourceRunID: "fixture-run",
+    sourceModel: "fixture-model",
+    sourceEventIDs: [],
+    tags: [],
+    extra: [:]
+  )
 }
 
 private func countOccurrences(of needle: Data, in haystack: Data) -> Int {

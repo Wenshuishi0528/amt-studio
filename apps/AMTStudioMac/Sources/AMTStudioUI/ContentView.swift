@@ -1758,6 +1758,7 @@ private struct ConfidenceReviewPanel: View {
 
 private struct ResultReviewPanel: View {
   @ObservedObject var model: AppModel
+  @State private var isConfirmingSustainMerge = false
 
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
@@ -1781,8 +1782,36 @@ private struct ResultReviewPanel: View {
       Text("这里只提示低置信度和异常短音；它们是复核线索，不会被自动删除。")
         .font(.caption2)
         .foregroundStyle(.secondary)
+      if let summary = model.trailingSustainFragmentSummary {
+        Divider()
+        Label("结尾疑似延音碎片", systemImage: "waveform.path")
+          .font(.subheadline.weight(.semibold))
+          .foregroundStyle(.orange)
+        Text(summary)
+          .font(.caption)
+        Button("合并为延长音", systemImage: "arrow.triangle.merge") {
+          isConfirmingSustainMerge = true
+        }
+        .buttonStyle(.borderedProminent)
+        .accessibilityIdentifier("merge-trailing-sustain-fragments")
+        Text("只处理当前音轨结尾首尾相接的同音片段；原始识别不变，操作可撤销。")
+          .font(.caption2)
+          .foregroundStyle(.secondary)
+      }
     }
     .padding(12)
+    .confirmationDialog(
+      "把结尾碎片合并为延长音？",
+      isPresented: $isConfirmingSustainMerge,
+      titleVisibility: .visible
+    ) {
+      Button("合并并保存") {
+        model.mergeTrailingSustainFragments()
+      }
+      Button("取消", role: .cancel) {}
+    } message: {
+      Text("真实的轮指或重复弹奏也可能长得相似；这里只按你的确认写入一条可撤销修正，不会修改模型原始音轨。")
+    }
   }
 }
 
