@@ -1,14 +1,38 @@
 # Project status
 
-Current product milestone: Task 009B2H Unicode-safe job recovery and explicit
-whole-version MIDI export are implemented in the rebuilt private Beta
+Current product milestone: Task 009B2I dual-theme product UI is implemented in
+the rebuilt and signed private Beta
 Research status: Gate 4 remains not passed for the rejected fusion routes; no
 new dataset, fusion, retuning, or training work is in the product critical path
-Current task: real new-song Job `37743206` is running the full-transcription
-stage; the Mac app is polling the same job without resubmission
-Next task: let Job `37743206` finish, verify the fetched bundle, then use the
-visible whole-version export on that result; do not start another model route
+Current task: real new-song Job `37743206` completed successfully, including
+automatic gap recovery and final bundle retrieval; the result is open locally
+Next task: owner visual/use review of the completed result; do not start
+another model route solely because the previous interface looked unfinished
 Current branch: `main`
+
+Implemented and verified for Task 009B2I:
+
+- the default Precision mode now uses a restrained graphite, teal, and lime
+  signal-lab treatment; Settings can enable a separate Spectrum mode using
+  midnight navy, cyan, and violet;
+- both modes share the same project, model state, and controls. Appearance
+  persists locally and never reloads a song, submits a Hyak job, or changes
+  MIDI output;
+- the running-job empty state is replaced by a truthful five-stage view for
+  upload/queue, full transcription, gap inspection, automatic recovery, and
+  packaging. It shows no fabricated percentage or ETA;
+- the toolbar is reduced to seven focused controls. Project operations are
+  grouped under `项目`; `导出` names `整个识别版本（完整多轨 MIDI）` first,
+  followed by current-track and audible-mix exports;
+- the real decoded waveform and piano-roll notes inherit the active theme,
+  while the sidebar and library keep the same clear information hierarchy;
+- Job `37743206` is locally recorded as `COMPLETED / succeeded`, with
+  `pipeline_stage=complete`, `slurm_exit_code=0:0`, a fetched 12-file bundle,
+  and successful automatic recovery;
+- `make check` passes 257 Python and 26 Swift tests with three expected
+  environment-gated Swift skips. Strict Swift formatting, signed release
+  packaging, plist/signature validation, `git diff --check`, and dual-mode
+  visual QA pass.
 
 Implemented and verified for Task 009B2H:
 

@@ -531,3 +531,22 @@ Remaining non-blocking review notes:
 - The single focused `/review` found no P0/P1. Its two P2 findings were fixed:
   the UI test now waits for a non-empty decoded-waveform state, and the README
   returns to the repository root before invoking `make mac-ui-test`.
+
+### Task 009B2I evidence
+
+- Real Job `37743206` is locally sealed as `COMPLETED / succeeded`,
+  `pipeline_stage=complete`, and `slurm_exit_code=0:0`; its final canonical
+  bundle and automatic gap-recovery report are present. No duplicate job or
+  new inference was submitted for the UI work.
+- A fresh user defaults to Precision mode. A focused unit test switches to
+  Spectrum, reconstructs `AppModel`, and verifies persistence without a
+  project or active Job ID appearing.
+- The signed app opened the real completed Japanese-named project in a
+  1400 x 900 point window. Precision and Spectrum were both rendered and
+  switched in the Appearance sheet without project reload.
+- The final visual comparison is recorded in `design-qa.md`. The first pass
+  identified toolbar density and system-blue rendering as P2 issues; the
+  consolidated menus and theme-bound waveform/note colors removed both.
+- `make check` passes 257 Python and 26 Swift tests with three expected
+  environment-gated Swift skips. `swift-format --strict`, release signing,
+  plist validation, and `git diff --check` pass.

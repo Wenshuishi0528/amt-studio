@@ -4,6 +4,39 @@ This project records changes by numbered research task until formal semantic
 versions and releases begin. Dates and commit identifiers refer to the local
 Git history.
 
+## Task 009B2I — Precision and Spectrum product UI — 2026-07-26
+
+Commit: this task's final commit
+
+### Added
+
+- Added a restrained Precision theme as the default and a Spectrum theme
+  selectable from a dedicated Appearance sheet.
+- Added a truthful five-stage Hyak progress view for upload/queue, full-song
+  transcription, gap inspection, automatic recovery, and packaging.
+- Added local appearance persistence with explicit copy that theme changes do
+  not reload projects, rerun Hyak, or alter MIDI.
+
+### Changed
+
+- Consolidated the toolbar into focused Project and Export menus. The first
+  export item now explicitly says `整个识别版本（完整多轨 MIDI）`.
+- Applied theme tokens to the shell, library, sidebar, real waveform, and
+  piano-roll notes while retaining native macOS controls and SF Symbols.
+- Preserved one shared layout and functionality set across both modes; the
+  Spectrum option adds static color and contrast rather than heavy animation
+  or blur.
+
+### Verified
+
+- Confirmed real Job `37743206` as `COMPLETED / succeeded` with exit `0:0`,
+  automatic gap recovery, and the final bundle fetched locally.
+- Switched both appearance modes in the signed app, relaunched to verify
+  persistence, and restored Precision as the current mode.
+- `make check` passes 257 Python and 26 Swift tests with three expected skips.
+  Strict Swift formatting, release signing, plist validation,
+  `git diff --check`, and documented dual-mode design QA pass.
+
 ## Task 009B2H — Unicode-safe jobs and explicit version export — 2026-07-26
 
 Commit: this task's final commit

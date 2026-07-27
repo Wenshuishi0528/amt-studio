@@ -8,6 +8,7 @@ import UniformTypeIdentifiers
 
 public struct ContentView: View {
   @ObservedObject private var model: AppModel
+  @State private var isShowingAppearanceSettings = false
 
   public init(model: AppModel) {
     self.model = model
@@ -55,38 +56,39 @@ public struct ContentView: View {
         }
         .disabled(model.betaProjectURL == nil || model.isBetaBusy)
         .accessibilityIdentifier("refresh-beta-job")
-        Button("打开项目", systemImage: "folder") {
-          openProjectPanel()
+        Menu("项目", systemImage: "folder") {
+          Button("打开已有项目", systemImage: "folder") {
+            openProjectPanel()
+          }
+          .disabled(model.isLoadingProject)
+          Button("在 Finder 中显示结果", systemImage: "folder.badge.gearshape") {
+            model.revealCurrentProject()
+          }
+          .disabled(model.catalog == nil)
+          Divider()
+          Button("保存当前修改", systemImage: "tray.and.arrow.down") {
+            model.save()
+          }
+          .disabled(model.editor == nil)
         }
-        .disabled(model.isLoadingProject)
-        .accessibilityIdentifier("open-project")
-        Button("结果文件夹", systemImage: "folder.badge.gearshape") {
-          model.revealCurrentProject()
-        }
-        .disabled(model.catalog == nil)
-        .accessibilityIdentifier("reveal-project")
-        Button("保存修改", systemImage: "tray.and.arrow.down") {
-          model.save()
-        }
-        .disabled(model.editor == nil)
-        .help("保存项目选择与音符修改；不会创建 MIDI 文件")
-        .accessibilityIdentifier("save-project")
-        Button("导出整版 MIDI", systemImage: "square.and.arrow.down") {
-          exportArrangementPanel()
-        }
-        .disabled(model.snapshot == nil || model.isLoadingSelection)
-        .help("把当前识别版本的伴奏和一条主旋律导出为一个多轨 MIDI 文件")
-        .accessibilityIdentifier("export-version-midi")
-        Menu("其他导出", systemImage: "ellipsis.circle") {
+        .accessibilityIdentifier("project-actions")
+        Menu("导出", systemImage: "square.and.arrow.down") {
+          Button("整个识别版本（完整多轨 MIDI）") {
+            exportArrangementPanel()
+          }
+          .disabled(model.snapshot == nil || model.isLoadingSelection)
+          Divider()
           Button("当前编辑音轨") {
             exportTrackPanel()
           }
+          .disabled(model.editor == nil)
           Button("当前混音（静音与音量生效）") {
             exportMixPanel()
           }
+          .disabled(model.editor == nil)
         }
-        .disabled(model.editor == nil)
-        .accessibilityIdentifier("other-midi-exports")
+        .help("导出完整多轨、当前音轨或当前可听混音")
+        .accessibilityIdentifier("export-actions")
         Button("撤销", systemImage: "arrow.uturn.backward") {
           model.undo()
         }
@@ -97,8 +99,16 @@ public struct ContentView: View {
         }
         .disabled(model.editor?.canRedo != true)
         .accessibilityIdentifier("redo-edit")
+        Button("外观", systemImage: "slider.horizontal.3") {
+          isShowingAppearanceSettings = true
+        }
+        .help("切换精密模式或炫酷模式")
+        .accessibilityIdentifier("appearance-settings")
       }
     }
+    .background(theme.canvasGradient)
+    .tint(theme.accent)
+    .preferredColorScheme(.dark)
     .alert(
       "AMT Studio",
       isPresented: Binding(
@@ -117,11 +127,20 @@ public struct ContentView: View {
       model.refreshProjectLibrary()
       model.openInitialProjectIfNeeded()
     }
+    .sheet(isPresented: $isShowingAppearanceSettings) {
+      AppearanceSettingsView(model: model)
+    }
   }
 
   @ViewBuilder
   private var sidebar: some View {
     List {
+      AMTBrandHeader(theme: theme)
+        .listRowInsets(
+          EdgeInsets(top: 18, leading: 14, bottom: 16, trailing: 14)
+        )
+        .listRowBackground(Color.clear)
+
       Section("以前的音乐") {
         if model.libraryProjects.isEmpty {
           if model.isRefreshingLibrary {
@@ -164,6 +183,9 @@ public struct ContentView: View {
             }
             .buttonStyle(.plain)
             .disabled(model.isLoadingProject)
+            .listRowInsets(
+              EdgeInsets(top: 5, leading: 12, bottom: 5, trailing: 10)
+            )
             .accessibilityIdentifier("library-\(project.projectID)")
           }
         }
@@ -450,9 +472,21 @@ public struct ContentView: View {
       }
       .frame(maxWidth: .infinity, alignment: .leading)
       .padding(10)
-      .background(.bar)
+      .background(theme.raisedSurface.opacity(0.96))
+      .overlay(alignment: .top) {
+        Rectangle()
+          .fill(theme.border)
+          .frame(height: 1)
+      }
       .accessibilityIdentifier("status-message")
     }
+    .scrollContentBackground(.hidden)
+    .background(theme.sidebar)
+    .contentMargins(.horizontal, 8, for: .scrollContent)
+  }
+
+  private var theme: AMTTheme {
+    AMTTheme(mode: model.appearanceMode)
   }
 
   private var hyakActionTitle: String {
@@ -506,14 +540,11 @@ public struct ContentView: View {
       WorkspaceView(
         model: model,
         transport: model.transport,
-        editor: editor
+        editor: editor,
+        theme: theme
       )
     } else if model.hasActiveBetaJob {
-      EmptyStateView(
-        icon: "hourglass",
-        title: "Hyak 正在识别",
-        message: "Job \(model.betaJobID ?? "准备中") 会在远端依次完成整曲识别、条件式自动补漏和打包；应用会自动取回结果。"
-      )
+      JobProgressView(model: model, theme: theme)
     } else if let snapshot = model.snapshot {
       EmptyStateView(
         icon: "music.note.list",
@@ -530,6 +561,7 @@ public struct ContentView: View {
       LibraryHomeView(
         projects: model.libraryProjects,
         isBusy: model.isBetaBusy || model.hasActiveBetaJob,
+        theme: theme,
         onTranscribe: importAudioPanel,
         onOpenProject: openProjectPanel,
         onSelectProject: model.openProject
@@ -603,9 +635,355 @@ public struct ContentView: View {
   }
 }
 
+private struct AMTBrandHeader: View {
+  let theme: AMTTheme
+
+  var body: some View {
+    HStack(spacing: 11) {
+      ZStack {
+        RoundedRectangle(cornerRadius: 8, style: .continuous)
+          .fill(theme.accentGradient.opacity(0.18))
+        Image(systemName: "waveform.path")
+          .font(.system(size: 19, weight: .semibold))
+          .foregroundStyle(theme.accentGradient)
+      }
+      .frame(width: 38, height: 38)
+      VStack(alignment: .leading, spacing: 2) {
+        Text("AMT Studio")
+          .font(.system(size: 17, weight: .semibold, design: .rounded))
+        Text(
+          theme.mode == .precision
+            ? "PRECISION SIGNAL LAB"
+            : "SPECTRUM SIGNAL LAB"
+        )
+        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+        .tracking(1.1)
+        .foregroundStyle(theme.mutedText)
+      }
+    }
+  }
+}
+
+private struct AppearanceSettingsView: View {
+  @ObservedObject var model: AppModel
+  @Environment(\.dismiss) private var dismiss
+
+  var body: some View {
+    let theme = AMTTheme(mode: model.appearanceMode)
+    VStack(alignment: .leading, spacing: 22) {
+      HStack {
+        VStack(alignment: .leading, spacing: 5) {
+          Text("外观")
+            .font(.system(size: 24, weight: .bold, design: .rounded))
+          Text("两种模式共用完全相同的功能、项目和识别结果。")
+            .foregroundStyle(theme.mutedText)
+        }
+        Spacer()
+        Button("完成") {
+          dismiss()
+        }
+        .keyboardShortcut(.defaultAction)
+      }
+
+      HStack(spacing: 14) {
+        ForEach(AMTAppearanceMode.allCases) { mode in
+          let candidateTheme = AMTTheme(mode: mode)
+          Button {
+            model.setAppearanceMode(mode)
+          } label: {
+            VStack(alignment: .leading, spacing: 13) {
+              HStack {
+                Image(
+                  systemName: mode == .precision
+                    ? "scope"
+                    : "sparkles"
+                )
+                .font(.title2)
+                .foregroundStyle(candidateTheme.accentGradient)
+                Spacer()
+                Image(
+                  systemName: model.appearanceMode == mode
+                    ? "checkmark.circle.fill"
+                    : "circle"
+                )
+                .foregroundStyle(
+                  model.appearanceMode == mode
+                    ? candidateTheme.accent
+                    : candidateTheme.quietText
+                )
+              }
+              VStack(alignment: .leading, spacing: 5) {
+                Text(mode.label)
+                  .font(.headline)
+                Text(mode.detail)
+                  .font(.caption)
+                  .foregroundStyle(candidateTheme.mutedText)
+                  .fixedSize(horizontal: false, vertical: true)
+              }
+              HStack(spacing: 5) {
+                ForEach(0..<4, id: \.self) { index in
+                  Capsule()
+                    .fill(
+                      index == 0
+                        ? candidateTheme.accent
+                        : index == 3
+                          ? candidateTheme.active
+                          : candidateTheme.raisedSurface
+                    )
+                    .frame(height: 6)
+                }
+              }
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, minHeight: 172, alignment: .topLeading)
+            .background(candidateTheme.surface)
+            .overlay {
+              RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(
+                  model.appearanceMode == mode
+                    ? candidateTheme.accent
+                    : candidateTheme.border,
+                  lineWidth: model.appearanceMode == mode ? 2 : 1
+                )
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+          }
+          .buttonStyle(.plain)
+          .accessibilityIdentifier("appearance-\(mode.rawValue)")
+        }
+      }
+
+      Label(
+        "外观切换不会重载歌曲、重新提交 Hyak 作业或改变任何 MIDI。",
+        systemImage: "checkmark.shield"
+      )
+      .font(.callout)
+      .foregroundStyle(theme.mutedText)
+    }
+    .padding(26)
+    .frame(width: 570)
+    .background(theme.canvasGradient)
+    .preferredColorScheme(.dark)
+  }
+}
+
+private struct JobProgressView: View {
+  @ObservedObject var model: AppModel
+  let theme: AMTTheme
+
+  private let phases = [
+    ("arrow.up.circle", "上传并排队"),
+    ("waveform", "整曲识别"),
+    ("scope", "检查缺口"),
+    ("wand.and.stars", "自动补漏"),
+    ("shippingbox", "打包结果"),
+  ]
+
+  var body: some View {
+    ZStack {
+      theme.canvasGradient
+      VStack(alignment: .leading, spacing: 28) {
+        HStack(alignment: .top) {
+          VStack(alignment: .leading, spacing: 8) {
+            Text("CURRENT SESSION")
+              .font(.system(size: 11, weight: .bold, design: .monospaced))
+              .tracking(1.6)
+              .foregroundStyle(theme.accent)
+            Text(projectTitle)
+              .font(.system(size: 30, weight: .bold, design: .rounded))
+              .lineLimit(2)
+            Text(stageDescription)
+              .font(.title3)
+              .foregroundStyle(theme.mutedText)
+          }
+          Spacer()
+          VStack(alignment: .trailing, spacing: 7) {
+            Label(
+              model.betaSlurmState ?? "准备中",
+              systemImage: "circle.fill"
+            )
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(theme.active)
+            Text("JOB \(model.betaJobID ?? "—")")
+              .font(.caption.monospaced())
+              .foregroundStyle(theme.mutedText)
+          }
+        }
+
+        VStack(alignment: .leading, spacing: 18) {
+          Text("处理流程")
+            .font(.headline)
+          HStack(alignment: .top, spacing: 0) {
+            ForEach(Array(phases.enumerated()), id: \.offset) { index, phase in
+              VStack(spacing: 9) {
+                ZStack {
+                  Circle()
+                    .fill(phaseFill(index))
+                  Circle()
+                    .stroke(phaseBorder(index), lineWidth: 1)
+                  Image(systemName: phase.0)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(phaseForeground(index))
+                }
+                .frame(width: 38, height: 38)
+                Text(phase.1)
+                  .font(.caption.weight(index == currentPhase ? .semibold : .regular))
+                  .foregroundStyle(
+                    index <= currentPhase ? Color.white : theme.quietText
+                  )
+                  .multilineTextAlignment(.center)
+                  .fixedSize(horizontal: false, vertical: true)
+              }
+              .frame(maxWidth: .infinity)
+              if index < phases.count - 1 {
+                Rectangle()
+                  .fill(index < currentPhase ? theme.accent : theme.border)
+                  .frame(maxWidth: 70, minHeight: 1, maxHeight: 1)
+                  .padding(.top, 19)
+              }
+            }
+          }
+          .padding(.vertical, 10)
+        }
+        .padding(22)
+        .background(theme.surface)
+        .overlay {
+          RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .stroke(theme.border, lineWidth: 1)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+        HStack(spacing: 12) {
+          Button("刷新任务", systemImage: "arrow.clockwise") {
+            model.refreshBetaJob()
+          }
+          .buttonStyle(.borderedProminent)
+          .disabled(model.isBetaBusy)
+          Button("检查 Hyak", systemImage: "network") {
+            model.checkHyakConnection()
+          }
+          .buttonStyle(.bordered)
+          .disabled(model.hyakConnectionState == .checking)
+          Spacer()
+          Label(
+            "完成后自动取回，不需要重新上传",
+            systemImage: "arrow.down.to.line.compact"
+          )
+          .font(.callout)
+          .foregroundStyle(theme.mutedText)
+        }
+
+        Spacer()
+
+        HStack(spacing: 20) {
+          Label(connectionLabel, systemImage: connectionIcon)
+          Divider()
+            .frame(height: 16)
+          Text("Job \(model.betaJobID ?? "—")")
+            .monospaced()
+          Divider()
+            .frame(height: 16)
+          Text(stageDescription)
+            .lineLimit(1)
+          Spacer()
+          Label("结果尚未就绪", systemImage: "square.and.arrow.down")
+            .foregroundStyle(theme.quietText)
+        }
+        .font(.caption)
+        .foregroundStyle(theme.mutedText)
+        .padding(.horizontal, 14)
+        .frame(height: 42)
+        .background(theme.raisedSurface)
+        .overlay {
+          RoundedRectangle(cornerRadius: 8, style: .continuous)
+            .stroke(theme.border, lineWidth: 1)
+        }
+      }
+      .frame(maxWidth: 980, alignment: .leading)
+      .padding(42)
+    }
+  }
+
+  private var projectTitle: String {
+    model.catalog?.manifest.title
+      ?? model.betaProjectURL?.lastPathComponent
+      ?? "正在识别的新歌曲"
+  }
+
+  private var currentPhase: Int {
+    switch model.betaPipelineStage {
+    case "full_transcription": 1
+    case "gap_planning": 2
+    case "automatic_gap_recovery": 3
+    case "packaging", "complete": 4
+    default:
+      ["RUNNING", "COMPLETING"].contains(model.betaSlurmState ?? "") ? 1 : 0
+    }
+  }
+
+  private var stageDescription: String {
+    switch model.betaPipelineStage {
+    case "full_transcription": "正在识别完整多轨"
+    case "gap_planning": "正在检查主旋律覆盖"
+    case "automatic_gap_recovery": "正在定向补回主旋律长缺口"
+    case "packaging": "识别完成，正在校验并打包结果"
+    case "complete": "结果已经完成"
+    default:
+      model.betaSlurmState == "PENDING"
+        ? "GPU 作业已排队，等待资源"
+        : "正在准备远端任务"
+    }
+  }
+
+  private var connectionLabel: String {
+    switch model.hyakConnectionState {
+    case .connected: "Hyak 已连接"
+    case .checking: "正在检查连接"
+    case .loginRequired: "需要重新登录"
+    case .unknown: "连接尚未检查"
+    }
+  }
+
+  private var connectionIcon: String {
+    switch model.hyakConnectionState {
+    case .connected: "network.badge.shield.half.filled"
+    case .checking: "arrow.triangle.2.circlepath"
+    case .loginRequired: "network.slash"
+    case .unknown: "network"
+    }
+  }
+
+  private func phaseFill(_ index: Int) -> Color {
+    if index < currentPhase {
+      return theme.accent.opacity(0.18)
+    }
+    if index == currentPhase {
+      return theme.active.opacity(0.22)
+    }
+    return theme.raisedSurface
+  }
+
+  private func phaseBorder(_ index: Int) -> Color {
+    index == currentPhase
+      ? theme.active
+      : index < currentPhase
+        ? theme.accent.opacity(0.8)
+        : theme.border
+  }
+
+  private func phaseForeground(_ index: Int) -> Color {
+    index == currentPhase
+      ? theme.active
+      : index < currentPhase
+        ? theme.accent
+        : theme.quietText
+  }
+}
+
 private struct LibraryHomeView: View {
   let projects: [LocalProjectItem]
   let isBusy: Bool
+  let theme: AMTTheme
   let onTranscribe: () -> Void
   let onOpenProject: () -> Void
   let onSelectProject: (URL) -> Void
@@ -614,11 +992,15 @@ private struct LibraryHomeView: View {
     ScrollView {
       VStack(alignment: .leading, spacing: 26) {
         VStack(alignment: .leading, spacing: 8) {
-          Label("AMT Studio", systemImage: "waveform")
-            .font(.system(size: 34, weight: .bold))
+          Text("SIGNAL TO SCORE")
+            .font(.system(size: 11, weight: .bold, design: .monospaced))
+            .tracking(1.6)
+            .foregroundStyle(theme.accent)
+          Label("AMT Studio", systemImage: "waveform.path")
+            .font(.system(size: 34, weight: .bold, design: .rounded))
           Text("把一首歌变成可以试听、分轨和编辑的 MIDI。模型在 Hyak GPU 运行，Mac 负责项目与编辑。")
             .font(.title3)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(theme.mutedText)
         }
 
         HStack(spacing: 16) {
@@ -677,8 +1059,12 @@ private struct LibraryHomeView: View {
                   }
                   .padding(14)
                   .frame(maxWidth: .infinity, minHeight: 82)
-                  .background(.quaternary.opacity(0.45))
-                  .clipShape(RoundedRectangle(cornerRadius: 12))
+                  .background(theme.surface)
+                  .overlay {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                      .stroke(theme.border, lineWidth: 1)
+                  }
+                  .clipShape(RoundedRectangle(cornerRadius: 10))
                 }
                 .buttonStyle(.plain)
               }
@@ -691,12 +1077,13 @@ private struct LibraryHomeView: View {
           systemImage: "checkmark.shield"
         )
         .font(.callout)
-        .foregroundStyle(.secondary)
+        .foregroundStyle(theme.mutedText)
       }
       .frame(maxWidth: 920, alignment: .leading)
       .padding(44)
       .frame(maxWidth: .infinity, alignment: .top)
     }
+    .background(theme.canvasGradient)
   }
 }
 
@@ -719,6 +1106,7 @@ private struct WorkspaceView: View {
   @ObservedObject var model: AppModel
   let transport: AudioTransport
   let editor: EditorProject
+  let theme: AMTTheme
 
   var body: some View {
     HSplitView {
@@ -731,7 +1119,8 @@ private struct WorkspaceView: View {
         Divider()
         AudioWaveformPanel(
           transport: transport,
-          timelineDuration: timelineDuration
+          timelineDuration: timelineDuration,
+          theme: theme
         )
         .frame(height: 90)
         Divider()
@@ -740,14 +1129,18 @@ private struct WorkspaceView: View {
           transport: transport,
           duration: timelineDuration,
           selectedNoteID: $model.selectedNoteID,
-          onCommit: model.commit
+          onCommit: model.commit,
+          theme: theme
         )
       }
       .frame(minWidth: 760)
+      .background(theme.canvas)
 
       inspector
         .frame(minWidth: 260, idealWidth: 300, maxWidth: 360)
+        .background(theme.surface)
     }
+    .background(theme.canvas)
   }
 
   private var timelineDuration: Double {
@@ -903,6 +1296,7 @@ private struct TransportControlsView: View {
 private struct AudioWaveformPanel: View {
   @ObservedObject var transport: AudioTransport
   let timelineDuration: Double
+  let theme: AMTTheme
 
   var body: some View {
     AudioWaveformView(
@@ -911,7 +1305,8 @@ private struct AudioWaveformPanel: View {
       errorMessage: transport.waveformErrorMessage,
       currentTime: transport.currentTime,
       audioDuration: transport.duration,
-      timelineDuration: timelineDuration
+      timelineDuration: timelineDuration,
+      tintColor: theme.accent
     )
   }
 }
@@ -923,6 +1318,7 @@ private struct AudioWaveformView: View {
   let currentTime: Double
   let audioDuration: Double
   let timelineDuration: Double
+  let tintColor: Color
 
   var body: some View {
     GeometryReader { _ in
@@ -957,7 +1353,7 @@ private struct AudioWaveformView: View {
             path.addLine(to: CGPoint(x: x, y: y))
           }
           path.closeSubpath()
-          context.fill(path, with: .color(.accentColor.opacity(0.42)))
+          context.fill(path, with: .color(tintColor.opacity(0.50)))
         }
         let cursorX =
           min(
@@ -1097,6 +1493,7 @@ private struct PianoRollView: View {
   let duration: Double
   @Binding var selectedNoteID: String?
   let onCommit: (EditorNote) -> Void
+  let theme: AMTTheme
 
   private let pointsPerSecond = 28.0
   private let pointsPerSemitone = 14.0
@@ -1143,7 +1540,8 @@ private struct PianoRollView: View {
               pointsPerSecond: pointsPerSecond,
               pointsPerSemitone: pointsPerSemitone,
               selectedNoteID: $selectedNoteID,
-              onCommit: onCommit
+              onCommit: onCommit,
+              theme: theme
             )
             .frame(
               width: segmentDuration * pointsPerSecond,
@@ -1173,6 +1571,7 @@ private struct PianoRollSegment: View {
   let pointsPerSemitone: Double
   @Binding var selectedNoteID: String?
   let onCommit: (EditorNote) -> Void
+  let theme: AMTTheme
 
   var body: some View {
     ZStack(alignment: .topLeading) {
@@ -1186,7 +1585,8 @@ private struct PianoRollSegment: View {
           pointsPerSemitone: pointsPerSemitone,
           selected: note.id == selectedNoteID,
           onSelect: { selectedNoteID = note.id },
-          onCommit: onCommit
+          onCommit: onCommit,
+          theme: theme
         )
       }
     }
@@ -1328,6 +1728,7 @@ private struct NoteBlock: View {
   let selected: Bool
   let onSelect: () -> Void
   let onCommit: (EditorNote) -> Void
+  let theme: AMTTheme
 
   @GestureState private var bodyDrag = CGSize.zero
   @GestureState private var leftDrag = CGSize.zero
@@ -1377,7 +1778,7 @@ private struct NoteBlock: View {
         .accessibilityLabel("调整音符终点")
     }
     .frame(width: adjustedWidth, height: max(10, pointsPerSemitone - 2))
-    .shadow(color: selected ? .accentColor.opacity(0.7) : .clear, radius: 3)
+    .shadow(color: selected ? theme.accent.opacity(0.72) : .clear, radius: 3)
     .position(x: x, y: y)
     .onTapGesture(perform: onSelect)
     .accessibilityElement(children: .combine)
@@ -1389,12 +1790,12 @@ private struct NoteBlock: View {
 
   private var noteColor: Color {
     guard let confidence = note.confidence else {
-      return .indigo.opacity(0.82)
+      return theme.active.opacity(0.86)
     }
     if confidence < 0.5 {
       return .orange.opacity(0.9)
     }
-    return .blue.opacity(0.86)
+    return theme.accent.opacity(0.88)
   }
 
   private var moveGesture: some Gesture {

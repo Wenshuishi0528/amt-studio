@@ -97,6 +97,24 @@ final class AppModelTests: XCTestCase {
     XCTAssertNil(model.snapshot)
     XCTAssertNil(model.editor)
     XCTAssertEqual(model.statusMessage, "请选择一个已有 AMT Studio 项目")
+    XCTAssertEqual(model.appearanceMode, .precision)
+  }
+
+  func testAppearanceModePersistsWithoutChangingProjectState() throws {
+    let suiteName = "AMTStudioUITests.\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let model = AppModel(defaults: defaults, restoreRecent: false)
+
+    model.setAppearanceMode(.spectrum)
+
+    XCTAssertEqual(model.appearanceMode, .spectrum)
+    XCTAssertNil(model.catalog)
+    XCTAssertNil(model.betaJobID)
+    let reopened = AppModel(defaults: defaults, restoreRecent: false)
+    XCTAssertEqual(reopened.appearanceMode, .spectrum)
+    XCTAssertNil(reopened.catalog)
+    XCTAssertNil(reopened.betaJobID)
   }
 
   func testTransportErrorsAreVisibleAndShortNotesKeepMoveHitArea() {

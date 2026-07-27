@@ -157,6 +157,8 @@ public final class AppModel: ObservableObject {
   @Published public private(set) var isLoadingSelection = false
   @Published public private(set) var melodyGaps: [MelodyGap] = []
   @Published public private(set) var showMelodyVersions = false
+  @Published public private(set) var appearanceMode: AMTAppearanceMode =
+    .precision
 
   public let transport = AudioTransport()
 
@@ -167,6 +169,7 @@ public final class AppModel: ObservableObject {
   private let originalVolumeKey = "AMTStudio.originalVolume"
   private let midiMasterVolumeKey = "AMTStudio.midiMasterVolume"
   private let projectBookmarksKey = "AMTStudio.projectBookmarks"
+  private let appearanceModeKey = "AMTStudio.appearanceMode"
   private var pendingInitialProjectURL: URL?
   private var betaMonitor: Task<Void, Never>?
   private var connectionMonitor: Task<Void, Never>?
@@ -193,6 +196,9 @@ public final class AppModel: ObservableObject {
     transport.setOriginalVolume(originalVolume)
     midiMasterVolume =
       defaults.object(forKey: midiMasterVolumeKey) as? Double ?? 1
+    appearanceMode =
+      defaults.string(forKey: appearanceModeKey)
+      .flatMap(AMTAppearanceMode.init(rawValue:)) ?? .precision
     if let initialProjectURL {
       pendingInitialProjectURL = initialProjectURL
     } else if restoreRecent,
@@ -423,6 +429,12 @@ public final class AppModel: ObservableObject {
     midiMasterVolume = bounded
     defaults.set(bounded, forKey: midiMasterVolumeKey)
     scheduleMIDIPreviewRefresh()
+  }
+
+  public func setAppearanceMode(_ mode: AMTAppearanceMode) {
+    guard appearanceMode != mode else { return }
+    appearanceMode = mode
+    defaults.set(mode.rawValue, forKey: appearanceModeKey)
   }
 
   public func toggleMute(_ id: String) {
