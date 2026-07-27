@@ -509,6 +509,7 @@ public struct BundleManifest: Decodable, Sendable, Equatable {
   public let canonicalAudioSHA256: String
   public let status: String
   public let outputs: [ArtifactRecord]
+  public let claims: [String: JSONValue]?
   public let limitations: [String]
 
   enum CodingKeys: String, CodingKey {
@@ -518,6 +519,7 @@ public struct BundleManifest: Decodable, Sendable, Equatable {
     case canonicalAudioSHA256 = "canonical_audio_sha256"
     case status
     case outputs
+    case claims
     case limitations
   }
 }
@@ -527,16 +529,104 @@ public struct CanonicalBundleChoice: Sendable, Equatable, Identifiable {
   public let directoryURL: URL
   public let canonicalProjectURL: URL
   public let manifest: BundleManifest
+  public let modifiedAt: Date
+  public let isDefaultEligible: Bool
+  public let defaultExclusionReason: String?
 
   public init(
     id: String,
     directoryURL: URL,
     canonicalProjectURL: URL,
-    manifest: BundleManifest
+    manifest: BundleManifest,
+    modifiedAt: Date,
+    isDefaultEligible: Bool,
+    defaultExclusionReason: String?
   ) {
     self.id = id
     self.directoryURL = directoryURL
     self.canonicalProjectURL = canonicalProjectURL
     self.manifest = manifest
+    self.modifiedAt = modifiedAt
+    self.isDefaultEligible = isDefaultEligible
+    self.defaultExclusionReason = defaultExclusionReason
+  }
+}
+
+public struct MainMelodyDefaultAssessment: Sendable, Equatable {
+  public let isEligible: Bool
+  public let reason: String?
+  public let sourceNoteCount: Int?
+  public let enhancedNoteCount: Int?
+  public let maximumAddedNoteCount: Int?
+}
+
+public enum MainMelodyDefaultPolicy {
+  public static func assess(
+    trackCounts: [String: Int],
+    automaticAdmissionDecision: String? = nil
+  ) -> MainMelodyDefaultAssessment {
+    if let approved = trackCounts["voice_enhanced"], approved > 0 {
+      return MainMelodyDefaultAssessment(
+        isEligible: true,
+        reason: nil,
+        sourceNoteCount: trackCounts["voice_raw"],
+        enhancedNoteCount: approved,
+        maximumAddedNoteCount: nil
+      )
+    }
+    if automaticAdmissionDecision == "rejected_excessive_voice_growth" {
+      return MainMelodyDefaultAssessment(
+        isEligible: false,
+        reason: "自动增强主旋律未通过生成时的数量准入，已保留为诊断版本",
+        sourceNoteCount: trackCounts["voice_raw"],
+        enhancedNoteCount: trackCounts["voice_auto_enhanced"],
+        maximumAddedNoteCount: nil
+      )
+    }
+    if automaticAdmissionDecision == "accepted_conservative_voice_growth" {
+      return MainMelodyDefaultAssessment(
+        isEligible: true,
+        reason: nil,
+        sourceNoteCount: trackCounts["voice_raw"],
+        enhancedNoteCount: trackCounts["voice_auto_enhanced"],
+        maximumAddedNoteCount: nil
+      )
+    }
+    guard let enhanced = trackCounts["voice_auto_enhanced"] else {
+      return MainMelodyDefaultAssessment(
+        isEligible: true,
+        reason: nil,
+        sourceNoteCount: trackCounts["voice_raw"],
+        enhancedNoteCount: nil,
+        maximumAddedNoteCount: nil
+      )
+    }
+    guard let source = trackCounts["voice_raw"] else {
+      return MainMelodyDefaultAssessment(
+        isEligible: false,
+        reason: "自动增强版本缺少可核对的原始 voice，已保留为诊断版本",
+        sourceNoteCount: nil,
+        enhancedNoteCount: enhanced,
+        maximumAddedNoteCount: nil
+      )
+    }
+    let maximumAdded = max(32, source / 10)
+    guard enhanced - source <= maximumAdded else {
+      return MainMelodyDefaultAssessment(
+        isEligible: false,
+        reason:
+          "自动增强主旋律从 \(source) 增至 \(enhanced) 个音符，超过自动准入上限，已保留为诊断版本",
+        sourceNoteCount: source,
+        enhancedNoteCount: enhanced,
+        maximumAddedNoteCount: maximumAdded
+      )
+    }
+    return MainMelodyDefaultAssessment(
+      isEligible: true,
+      reason: nil,
+      sourceNoteCount: source,
+      enhancedNoteCount: enhanced,
+      maximumAddedNoteCount: maximumAdded
+    )
   }
 }

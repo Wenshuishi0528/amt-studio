@@ -4,6 +4,7 @@ import unittest
 
 from amt_core.events import NoteEvent
 from amt_core.product_postprocess import (
+    automatic_voice_candidate_admission,
     clean_trailing_fragments,
     residual_melody_gaps,
     soft_mask_melody_candidates,
@@ -38,6 +39,25 @@ def _event(
 
 
 class ProductPostprocessTests(unittest.TestCase):
+    def test_automatic_voice_growth_rejects_note_explosion(self) -> None:
+        accepted = automatic_voice_candidate_admission(
+            source_note_count=322,
+            candidate_note_count=16,
+        )
+        rejected = automatic_voice_candidate_admission(
+            source_note_count=338,
+            candidate_note_count=841,
+        )
+
+        self.assertTrue(accepted["accepted_for_automatic_merge"])
+        self.assertEqual(accepted["maximum_candidate_note_count"], 32)
+        self.assertFalse(rejected["accepted_for_automatic_merge"])
+        self.assertEqual(
+            rejected["decision"],
+            "rejected_excessive_voice_growth",
+        )
+        self.assertTrue(rejected["candidate_preserved_for_diagnosis"])
+
     def test_trailing_sustain_cleanup_is_derived_and_keeps_source_provenance(
         self,
     ) -> None:

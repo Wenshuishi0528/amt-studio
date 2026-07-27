@@ -254,12 +254,35 @@ public enum ProjectLoader {
         canonicalRecord.path,
         bundleURL: directoryURL
       )
+      let canonical: CanonicalProject = try decodeJSON(canonicalURL)
+      let automaticAdmissionDecision: String?
+      if case .string(let decision)? =
+        bundle.claims?["automatic_candidate_admission"]
+      {
+        automaticAdmissionDecision = decision
+      } else {
+        automaticAdmissionDecision = nil
+      }
+      let defaultAssessment = MainMelodyDefaultPolicy.assess(
+        trackCounts: Dictionary(
+          canonical.tracks.map {
+            ($0.trackID, $0.eventCount)
+          },
+          uniquingKeysWith: { first, _ in first }
+        ),
+        automaticAdmissionDecision: automaticAdmissionDecision
+      )
       result.append(
         CanonicalBundleChoice(
           id: directoryURL.lastPathComponent,
           directoryURL: directoryURL,
           canonicalProjectURL: canonicalURL,
-          manifest: bundle
+          manifest: bundle,
+          modifiedAt: (try? manifestURL.resourceValues(
+            forKeys: [.contentModificationDateKey]
+          ).contentModificationDate) ?? .distantPast,
+          isDefaultEligible: defaultAssessment.isEligible,
+          defaultExclusionReason: defaultAssessment.reason
         )
       )
     }

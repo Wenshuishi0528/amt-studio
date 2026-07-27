@@ -13,6 +13,7 @@ from typing import Any
 from amt_core.events import NoteEvent, read_jsonl, write_jsonl
 from amt_core.midi import export_performance_midi
 from amt_core.product_postprocess import (
+    automatic_voice_candidate_admission,
     clean_trailing_fragments,
     soft_mask_melody_candidates,
 )
@@ -315,6 +316,8 @@ def build_recovery_bundle(
     candidates: list[NoteEvent],
     run_manifest_path: Path,
     output_dir: Path,
+    product_candidates: list[NoteEvent] | None = None,
+    product_admission: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     project_dir = project_dir.expanduser().resolve()
     run_manifest_path = run_manifest_path.expanduser().resolve(strict=True)
@@ -342,7 +345,10 @@ def build_recovery_bundle(
         else None
     )
     tempo, meter = gap_probe._rhythm_points(source_canonical)
-    merged = [*source_events, *candidates]
+    admitted_candidates = (
+        candidates if product_candidates is None else product_candidates
+    )
+    merged = [*source_events, *admitted_candidates]
     merged.sort(
         key=lambda event: (
             event.onset_sec,
@@ -383,8 +389,8 @@ def build_recovery_bundle(
                     )
                 )
                 candidate_model = (
-                    candidates[0].source_model
-                    if candidates
+                    admitted_candidates[0].source_model
+                    if admitted_candidates
                     else "no-candidate"
                 )
                 record["provenance"] = {
@@ -451,6 +457,42 @@ def build_recovery_bundle(
             if record.get("role") != "diagnostic_candidate":
                 midi_tracks[str(track_id)] = events
 
+        if candidates and not admitted_candidates:
+            existing_track_ids = {
+                str(record.get("track_id")) for record in records
+            }
+            diagnostic_track_id = "target_gap_candidate"
+            suffix = 2
+            while diagnostic_track_id in existing_track_ids:
+                diagnostic_track_id = f"target_gap_candidate_{suffix}"
+                suffix += 1
+            diagnostic_path = tracks_dir / f"{diagnostic_track_id}.jsonl"
+            write_jsonl(diagnostic_path, candidates)
+            records.append(
+                {
+                    "track_id": diagnostic_track_id,
+                    "label": "补漏候选（未自动合入）",
+                    "role": "diagnostic_candidate",
+                    "instrument": instrument,
+                    "event_count": len(candidates),
+                    "source_events_path": str(
+                        (
+                            output_dir
+                            / "tracks"
+                            / diagnostic_path.name
+                        ).relative_to(project_dir)
+                    ),
+                    "provenance": {
+                        "source_run_id": spec.probe_id,
+                        "source_model": candidates[0].source_model,
+                        "run_manifest_sha256": parent_hash,
+                        "normalized_artifact_sha256": sha256_file(
+                            diagnostic_path
+                        ),
+                    },
+                }
+            )
+
         melodic_count = sum(track_id != "drums" for track_id in midi_tracks)
         if melodic_count <= 15:
             midi_report = export_performance_midi(
@@ -477,6 +519,14 @@ def build_recovery_bundle(
                 "targeted_source_track_id": spec.source_voice_track_id,
                 "selected_gap_count": len(spec.windows),
                 "recovered_candidate_note_count": len(candidates),
+                "merged_recovered_candidate_note_count": len(
+                    admitted_candidates
+                ),
+                "automatic_candidate_admission": (
+                    product_admission["decision"]
+                    if product_admission is not None
+                    else "not_recorded"
+                ),
                 "accuracy_claimed": False,
                 "source_bundle_overwritten": False,
                 "accompaniment_soft_mask_performed": instrument == "voice",
@@ -551,6 +601,7 @@ def build_recovery_bundle(
                 ),
                 "An empty selected span may be intentional silence.",
                 "Main-melody candidates are soft-filtered against preserved accompaniment events.",
+                "Rejected selected-gap candidates remain available as a diagnostic track and are not merged.",
                 "Automatic sustain cleanup is conservative and excludes percussion from sustain merging.",
                 "No accuracy claim or owner approval is inferred.",
             ],
@@ -644,7 +695,7 @@ def run_selected_recovery(
         "source_instrument": instrument,
         "instrument_allowlist": [instrument],
         "accompaniment_soft_mask": main_melody,
-        "residual_fallback_max_passes": 1 if main_melody else 0,
+        "residual_fallback_max_passes": 0,
         "config_path": gap_probe._relative(config_path, project_dir),
         "config_sha256": sha256_file(config_path),
         "canonical_audio_sha256": sha256_file(canonical_audio),
@@ -756,36 +807,11 @@ def run_selected_recovery(
             normalized_dir / "target_gap_candidates.raw.jsonl",
             raw_candidates,
         )
-        fallback_windows: tuple[gap_probe.ProbeWindow, ...] = ()
         fallback_candidates: list[NoteEvent] = []
         mask_report: dict[str, Any] | None = None
         if main_melody:
-            directed_candidates, _directed_mask = soft_mask_melody_candidates(
-                raw_candidates,
-                accompaniment_events,
-                probe_id=f"{spec.probe_id}:directed",
-            )
-            fallback_windows = gap_probe.plan_residual_fallback_windows(
-                spec,
-                directed_candidates,
-            )
-            if fallback_windows:
-                fallback_candidates, fallback_records = (
-                    gap_probe.run_residual_fallbacks(
-                        project_dir=project_dir,
-                        canonical_audio=canonical_audio,
-                        run_dir=run_dir,
-                        probe_id=spec.probe_id,
-                        windows=fallback_windows,
-                        worker_env=worker_env,
-                        weight_provenance=weight_provenance,
-                        ffmpeg=ffmpeg,
-                        device=device,
-                    )
-                )
-                manifest["child_runs"].extend(fallback_records)
             candidates, mask_report = soft_mask_melody_candidates(
-                [*raw_candidates, *fallback_candidates],
+                raw_candidates,
                 accompaniment_events,
                 probe_id=spec.probe_id,
             )
@@ -804,11 +830,27 @@ def run_selected_recovery(
         )
         write_jsonl(normalized_dir / "target_gap_candidates.jsonl", candidates)
         report = _coverage_report(spec, candidates)
+        product_admission = (
+            automatic_voice_candidate_admission(
+                source_note_count=len(source_events),
+                candidate_note_count=len(candidates),
+            )
+            if main_melody
+            else {
+                "decision": "not_applicable_to_accompaniment",
+                "accepted_for_automatic_merge": True,
+                "candidate_preserved_for_diagnosis": True,
+                "accuracy_claimed": False,
+            }
+        )
         report["raw_directed_candidate_note_count"] = len(raw_candidates)
         report["raw_fallback_candidate_note_count"] = len(fallback_candidates)
-        report["residual_fallback_window_count"] = len(fallback_windows)
-        report["residual_fallback_max_passes"] = 1 if main_melody else 0
+        report["residual_fallback_window_count"] = 0
+        report["residual_fallback_max_passes"] = 0
         report["accompaniment_soft_mask"] = mask_report
+        report["product_admission"] = product_admission
+        if not product_admission["accepted_for_automatic_merge"]:
+            report["decision"] = "candidates_preserved_but_not_merged"
         atomic_write_json(
             normalized_dir / "recovery_report.json",
             report,
@@ -836,6 +878,12 @@ def run_selected_recovery(
             source_canonical=source_canonical,
             source_events=source_events,
             candidates=candidates,
+            product_candidates=(
+                candidates
+                if product_admission["accepted_for_automatic_merge"]
+                else []
+            ),
+            product_admission=product_admission,
             run_manifest_path=run_dir / "run_manifest.json",
             output_dir=output_dir,
         )

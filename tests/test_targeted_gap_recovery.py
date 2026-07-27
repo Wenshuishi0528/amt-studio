@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from amt_core.events import NoteEvent, read_jsonl, write_jsonl
+from amt_core.product_postprocess import automatic_voice_candidate_admission
 from amt_core.utils import atomic_write_json, sha256_file
 from workers.muscriptor.gap_probe import ProbeWindow, TargetInterval
 from workers.muscriptor.gap_probe import _directed_child_arguments
@@ -317,6 +318,79 @@ class TargetedGapRecoveryTests(unittest.TestCase):
                 "source-bundle",
             )
             self.assertEqual(manifest["status"], "succeeded")
+
+    def test_rejected_voice_candidates_remain_a_diagnostic_track(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            project, canonical = _fixture_project(Path(temporary))
+            spec = plan_selected_gaps(
+                project,
+                probe_id="targeted-recovery-rejected",
+                source_bundle_id="source-bundle",
+                source_track_id="voice",
+                intervals=[(10, 30)],
+            )
+            source_path = project / "exports/source-bundle/tracks/voice.jsonl"
+            candidates = [
+                _event(
+                    f"candidate-{index}",
+                    instrument="voice",
+                    onset=10 + index * 0.5,
+                    offset=10.2 + index * 0.5,
+                    pitch=60 + index % 5,
+                )
+                for index in range(33)
+            ]
+            admission = automatic_voice_candidate_admission(
+                source_note_count=2,
+                candidate_note_count=len(candidates),
+            )
+            run_manifest = (
+                project
+                / "runs/targeted-recovery-rejected/run_manifest.json"
+            )
+            run_manifest.parent.mkdir(parents=True)
+            atomic_write_json(
+                run_manifest,
+                {"schema_version": 1, "status": "succeeded"},
+            )
+            output = (
+                project
+                / "exports/targeted-recovery-rejected-multitrack"
+            )
+            build_recovery_bundle(
+                project,
+                spec=spec,
+                source_canonical=canonical,
+                source_events=read_jsonl(source_path),
+                candidates=candidates,
+                product_candidates=[],
+                product_admission=admission,
+                run_manifest_path=run_manifest,
+                output_dir=output,
+            )
+            output_canonical = json.loads(
+                (output / "canonical_project.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            counts = {
+                track["track_id"]: track["event_count"]
+                for track in output_canonical["tracks"]
+            }
+            self.assertEqual(counts["voice"], 2)
+            self.assertEqual(counts["target_gap_candidate"], 33)
+            self.assertEqual(
+                output_canonical["claims"][
+                    "automatic_candidate_admission"
+                ],
+                "rejected_excessive_voice_growth",
+            )
+            self.assertEqual(
+                output_canonical["claims"][
+                    "merged_recovered_candidate_note_count"
+                ],
+                0,
+            )
 
 
 if __name__ == "__main__":

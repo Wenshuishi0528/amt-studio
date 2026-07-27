@@ -40,6 +40,16 @@ final class AppModelTests: XCTestCase {
     ] {
       XCTAssertEqual(model.editor?.selectedTrack.id, expectedTrack)
     }
+    if let expectedBundle = ProcessInfo.processInfo.environment[
+      "AMT_STUDIO_REAL_EXPECT_BUNDLE"
+    ] {
+      XCTAssertEqual(model.selectedBundleID, expectedBundle)
+    }
+    if let expectedNoteText = ProcessInfo.processInfo.environment[
+      "AMT_STUDIO_REAL_EXPECT_NOTE_COUNT"
+    ], let expectedNoteCount = Int(expectedNoteText) {
+      XCTAssertEqual(model.editor?.notes.count, expectedNoteCount)
+    }
     if let cleanupTrack = ProcessInfo.processInfo.environment[
       "AMT_STUDIO_REAL_CLEANUP_TRACK"
     ] {
@@ -469,6 +479,47 @@ final class AppModelTests: XCTestCase {
       ),
       Set(["voice_raw"])
     )
+  }
+
+  func testExcessiveAutomaticVoiceGrowthIsDiagnosticOnly() {
+    let accepted = MainMelodyDefaultPolicy.assess(
+      trackCounts: [
+        "voice_raw": 322,
+        "voice_auto_enhanced": 338,
+      ]
+    )
+    let rejected = MainMelodyDefaultPolicy.assess(
+      trackCounts: [
+        "voice_raw": 322,
+        "voice_auto_enhanced": 1_179,
+      ]
+    )
+    let ownerApproved = MainMelodyDefaultPolicy.assess(
+      trackCounts: [
+        "voice_raw": 322,
+        "voice_auto_enhanced": 1_179,
+        "voice_enhanced": 400,
+      ]
+    )
+    let cumulativeAccepted = MainMelodyDefaultPolicy.assess(
+      trackCounts: [
+        "voice_raw": 322,
+        "voice_auto_enhanced": 358,
+      ],
+      automaticAdmissionDecision: "accepted_conservative_voice_growth"
+    )
+    let explicitRejected = MainMelodyDefaultPolicy.assess(
+      trackCounts: ["voice": 338, "target_gap_candidate": 841],
+      automaticAdmissionDecision: "rejected_excessive_voice_growth"
+    )
+
+    XCTAssertTrue(accepted.isEligible)
+    XCTAssertFalse(rejected.isEligible)
+    XCTAssertEqual(rejected.maximumAddedNoteCount, 32)
+    XCTAssertNotNil(rejected.reason)
+    XCTAssertTrue(ownerApproved.isEligible)
+    XCTAssertTrue(cumulativeAccepted.isEligible)
+    XCTAssertFalse(explicitRejected.isEligible)
   }
 
   func testLocalProjectLibraryFindsPreviousSongsWithoutOpeningThem() throws {

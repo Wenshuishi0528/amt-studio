@@ -575,6 +575,39 @@ class MuScriptorGapProbeTests(unittest.TestCase):
                     (project / track["source_events_path"]).is_file()
                 )
 
+            rejected_output = (
+                project / "exports" / "automatic-gap-v1-rejected-product"
+            )
+            build_automatic_bundle(
+                project,
+                spec=spec,
+                source_voice_path=source_voice,
+                source_canonical=source_canonical,
+                source_events=source_events,
+                candidate_path=candidate_path,
+                candidates=candidates,
+                product_candidates=[],
+                parent_manifest_path=parent_manifest,
+                output_dir=rejected_output,
+            )
+            rejected_canonical = json.loads(
+                (rejected_output / "canonical_project.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            rejected_counts = {
+                track["track_id"]: track["event_count"]
+                for track in rejected_canonical["tracks"]
+            }
+            self.assertEqual(
+                rejected_counts["voice_auto_enhanced"],
+                len(source_events),
+            )
+            self.assertEqual(
+                rejected_counts["voice_gap_candidate"],
+                len(candidates),
+            )
+
     def test_run_requires_slurm_before_touching_project(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

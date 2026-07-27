@@ -18,6 +18,7 @@ from amt_core.canonical import MeterPoint, TempoPoint
 from amt_core.events import NoteEvent, read_jsonl, write_jsonl
 from amt_core.midi import export_performance_midi
 from amt_core.product_postprocess import (
+    automatic_voice_candidate_admission,
     clean_trailing_fragments,
     residual_melody_gaps,
     soft_mask_melody_candidates,
@@ -1190,6 +1191,7 @@ def build_automatic_bundle(
     source_events: list[NoteEvent],
     candidate_path: Path,
     candidates: list[NoteEvent],
+    product_candidates: list[NoteEvent] | None = None,
     parent_manifest_path: Path,
     output_dir: Path,
 ) -> dict[str, Any]:
@@ -1233,9 +1235,16 @@ def build_automatic_bundle(
         else None
     )
     tempo, meter = _rhythm_points(source_canonical)
+    admitted_candidates = (
+        candidates if product_candidates is None else product_candidates
+    )
+    product_admission = automatic_voice_candidate_admission(
+        source_note_count=len(source_events),
+        candidate_note_count=len(candidates),
+    )
     enhanced = derive_automatic_voice(
         source_events,
-        candidates,
+        admitted_candidates,
         probe_id=spec.probe_id,
     )
     parent_hash = sha256_file(parent_manifest_path)
@@ -1432,7 +1441,8 @@ def build_automatic_bundle(
             "claims": {
                 "all_muscriptor_instruments_preserved": True,
                 "automatic_gap_recovery_performed": bool(spec.windows),
-                "automatic_merge_performed": bool(candidates),
+                "automatic_merge_performed": bool(admitted_candidates),
+                "automatic_candidate_admission": product_admission["decision"],
                 "preferred_candidate_selected": True,
                 "accuracy_claimed": False,
                 "owner_approved_derivation_performed": False,
@@ -1480,7 +1490,7 @@ def build_automatic_bundle(
             "limitations": [
                 "Automatic long-gap detection cannot prove that singing is present.",
                 "voice_gap_candidate is a same-model recovery candidate, not a verified correction.",
-                "voice_auto_enhanced is preferred for convenience but makes no accuracy claim.",
+                "voice_auto_enhanced includes recovery candidates only when conservative growth admission passes.",
                 "Recovered melody candidates are soft-filtered against preserved accompaniment events.",
                 "The original voice and every MuScriptor accompaniment track remain preserved.",
                 "Automatic sustain cleanup is conservative and excludes percussion from sustain merging.",
@@ -1703,7 +1713,7 @@ def run_probe(
             "instrument_allowlist": ["voice"],
             "sampling": False,
             "device": device,
-            "residual_fallback_max_passes": 1 if automatic_enhanced else 0,
+            "residual_fallback_max_passes": 0,
         },
         "execution_backend": execution_backend,
         "automatic_merge_performed": False,
@@ -1822,38 +1832,15 @@ def run_probe(
             normalized_dir / "voice_gap_candidate.raw.jsonl",
             raw_candidates,
         )
-        directed_candidates, _directed_mask = soft_mask_melody_candidates(
+        candidates, mask_report = soft_mask_melody_candidates(
             raw_candidates,
             accompaniment_events,
-            probe_id=f"{spec.probe_id}:directed",
-        )
-        fallback_windows = (
-            plan_residual_fallback_windows(spec, directed_candidates)
-            if automatic_enhanced
-            else ()
+            probe_id=spec.probe_id,
         )
         fallback_candidates: list[NoteEvent] = []
-        if fallback_windows:
-            fallback_candidates, fallback_records = run_residual_fallbacks(
-                project_dir=project_dir,
-                canonical_audio=canonical_audio,
-                run_dir=run_dir,
-                probe_id=spec.probe_id,
-                windows=fallback_windows,
-                worker_env=worker_env,
-                weight_provenance=weight_provenance,
-                ffmpeg=ffmpeg,
-                device=device,
-            )
-            manifest["child_runs"].extend(fallback_records)
         write_jsonl(
             normalized_dir / "voice_gap_fallback.raw.jsonl",
             fallback_candidates,
-        )
-        candidates, mask_report = soft_mask_melody_candidates(
-            [*raw_candidates, *fallback_candidates],
-            accompaniment_events,
-            probe_id=spec.probe_id,
         )
         candidates.sort(
             key=lambda event: (event.onset_sec, event.pitch_midi, event.event_id)
@@ -1861,11 +1848,19 @@ def run_probe(
         candidate_path = normalized_dir / "voice_gap_candidate.jsonl"
         write_jsonl(candidate_path, candidates)
         report = build_coverage_report(spec, candidates)
+        product_admission = automatic_voice_candidate_admission(
+            source_note_count=len(source_events),
+            candidate_note_count=len(candidates),
+        )
         report["raw_directed_candidate_note_count"] = len(raw_candidates)
         report["raw_fallback_candidate_note_count"] = len(fallback_candidates)
-        report["residual_fallback_window_count"] = len(fallback_windows)
-        report["residual_fallback_max_passes"] = 1 if automatic_enhanced else 0
+        report["residual_fallback_window_count"] = 0
+        report["residual_fallback_max_passes"] = 0
         report["accompaniment_soft_mask"] = mask_report
+        report["product_admission"] = product_admission
+        if not product_admission["accepted_for_automatic_merge"]:
+            report["decision"] = "candidates_preserved_but_not_merged"
+        manifest["product_admission"] = product_admission
         atomic_write_json(normalized_dir / "gap_report.json", report)
         manifest["status"] = "succeeded"
     except (GapProbeError, OSError, RuntimeError, ValueError) as exc:
@@ -1883,17 +1878,23 @@ def run_probe(
             if automatic_enhanced
             else build_review_bundle
         )
-        bundle_builder(
-            project_dir,
-            spec=spec,
-            source_voice_path=source_voice_path,
-            source_canonical=source_canonical,
-            source_events=source_events,
-            candidate_path=normalized_dir / "voice_gap_candidate.jsonl",
-            candidates=candidates,
-            parent_manifest_path=run_dir / "run_manifest.json",
-            output_dir=review_bundle,
-        )
+        arguments: dict[str, Any] = {
+            "spec": spec,
+            "source_voice_path": source_voice_path,
+            "source_canonical": source_canonical,
+            "source_events": source_events,
+            "candidate_path": normalized_dir / "voice_gap_candidate.jsonl",
+            "candidates": candidates,
+            "parent_manifest_path": run_dir / "run_manifest.json",
+            "output_dir": review_bundle,
+        }
+        if automatic_enhanced:
+            arguments["product_candidates"] = (
+                candidates
+                if product_admission["accepted_for_automatic_merge"]
+                else []
+            )
+        bundle_builder(project_dir, **arguments)
     except (GapProbeError, OSError, RuntimeError, ValueError) as exc:
         manifest["status"] = "failed"
         manifest["ended_at"] = _utc_now()
@@ -1970,11 +1971,15 @@ def run_automatic_probe(
                 require_slurm=require_slurm,
                 execution_backend=execution_backend,
             )
-            decision = (
-                "automatic_gap_recovery_completed"
-                if manifest["status"] == "succeeded"
-                else "publish_raw_multitrack_fallback"
-            )
+            if manifest["status"] != "succeeded":
+                decision = "publish_raw_multitrack_fallback"
+            elif not manifest.get("product_admission", {}).get(
+                "accepted_for_automatic_merge",
+                False,
+            ):
+                decision = "automatic_candidates_preserved_but_not_merged"
+            else:
+                decision = "automatic_gap_recovery_completed"
         else:
             project, _audio, source_voice_path, source_canonical = _source_context(
                 project_dir,

@@ -560,7 +560,12 @@ public final class AppModel: ObservableObject {
   }
 
   public var bundleChoices: [CanonicalBundleChoice] {
-    catalog?.bundles ?? []
+    (catalog?.bundles ?? []).sorted {
+      if $0.modifiedAt == $1.modifiedAt {
+        return $0.id > $1.id
+      }
+      return $0.modifiedAt > $1.modifiedAt
+    }
   }
 
   public var selectedBundleID: String? {
@@ -1608,12 +1613,22 @@ public final class AppModel: ObservableObject {
     }
     refreshProjectLibrary()
     if let bundleID = pendingCompletedBundleID,
-      prepared.catalog.bundles.contains(where: { $0.id == bundleID })
+      let completedBundle = prepared.catalog.bundles.first(where: {
+        $0.id == bundleID
+      })
     {
       let trackID = pendingCompletedTrackID
       pendingCompletedBundleID = nil
       pendingCompletedTrackID = nil
-      chooseBundle(bundleID, preferredTrackID: trackID)
+      if completedBundle.isDefaultEligible {
+        chooseBundle(bundleID, preferredTrackID: trackID)
+      } else {
+        statusMessage =
+          "新补漏结果未通过主旋律准入，已保留当前安全版本"
+        errorMessage =
+          completedBundle.defaultExclusionReason
+          ?? "新补漏结果仅保留为诊断版本，没有自动覆盖主旋律"
+      }
     }
   }
 
@@ -2081,6 +2096,9 @@ private struct MixerSettings: Codable {
 
 private struct PrivateBetaJobState: Decodable, Sendable {
   let jobID: String?
+  let bundleID: String?
+  let sourceBundleID: String?
+  let sourceTrackID: String?
   let slurmState: String?
   let pipelineStage: String?
   let backend: String?
@@ -2089,6 +2107,9 @@ private struct PrivateBetaJobState: Decodable, Sendable {
 
   enum CodingKeys: String, CodingKey {
     case jobID = "job_id"
+    case bundleID = "bundle_id"
+    case sourceBundleID = "source_bundle_id"
+    case sourceTrackID = "source_track_id"
     case slurmState = "slurm_state"
     case pipelineStage = "pipeline_stage"
     case backend
@@ -2207,7 +2228,30 @@ private struct PreparedProject: Sendable {
         + ((error as? LocalizedError)?.errorDescription
           ?? error.localizedDescription)
     }
-    if let workspace {
+    let rejectedCompletedBundle =
+      jobState?.bundleID.flatMap { bundleID in
+        catalog.bundles.first(where: {
+          $0.id == bundleID && !$0.isDefaultEligible
+        })
+      }
+    let recoverySourceBundle =
+      rejectedCompletedBundle.flatMap { _ in
+        jobState?.sourceBundleID.flatMap { sourceBundleID in
+          catalog.bundles.first(where: {
+            $0.id == sourceBundleID && $0.isDefaultEligible
+          })
+        }
+      }
+    if let workspace,
+      let workspaceBundle = catalog.bundles.first(where: {
+        $0.id == workspace.canonicalBundleID
+      }),
+      !workspaceBundle.isDefaultEligible
+    {
+      warning =
+        workspaceBundle.defaultExclusionReason
+        ?? "上次打开的自动增强版本未通过默认产品准入，已改用安全版本"
+    } else if let workspace {
       do {
         guard workspace.projectID == catalog.manifest.projectID,
           let bundle = catalog.bundles.first(where: {
@@ -2253,7 +2297,16 @@ private struct PreparedProject: Sendable {
       }
     }
 
-    guard catalog.bundles.count == 1 else {
+    guard
+      let bundle =
+        recoverySourceBundle
+        ?? catalog.bundles.filter(\.isDefaultEligible).max(by: {
+          if $0.modifiedAt == $1.modifiedAt {
+            return $0.id < $1.id
+          }
+          return $0.modifiedAt < $1.modifiedAt
+        })
+    else {
       return PreparedProject(
         catalog: catalog,
         snapshot: nil,
@@ -2261,11 +2314,10 @@ private struct PreparedProject: Sendable {
         jobState: jobState,
         statusMessage: catalog.bundles.isEmpty
           ? "项目还没有可打开的识别结果"
-          : "项目包含多个结果版本，请选择一个",
+          : "所有自动增强版本都未通过默认准入；可手动打开诊断版本",
         warning: warning
       )
     }
-    let bundle = catalog.bundles[0]
     let snapshot = try ProjectLoader.open(catalog, bundleID: bundle.id)
     let preferredTrack =
       MelodyTrackSelector.preferred(in: snapshot.tracks)

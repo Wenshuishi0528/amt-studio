@@ -361,13 +361,20 @@ public struct ContentView: View {
               VStack(alignment: .leading, spacing: 3) {
                 Text(bundle.id)
                   .lineLimit(1)
-                Text("\(bundle.manifest.outputs.count) 个已校验文件")
-                  .font(.caption)
-                  .foregroundStyle(.secondary)
+                Text(
+                  bundle.isDefaultEligible
+                    ? "\(bundle.manifest.outputs.count) 个已校验文件"
+                    : "诊断版本 · 未作为默认主旋律"
+                )
+                .font(.caption)
+                .foregroundStyle(
+                  bundle.isDefaultEligible ? Color.secondary : Color.orange
+                )
               }
             }
             .buttonStyle(.plain)
             .disabled(model.isLoadingSelection)
+            .help(bundle.defaultExclusionReason ?? "已通过默认产品准入")
             .accessibilityIdentifier("bundle-\(bundle.id)")
           }
         }

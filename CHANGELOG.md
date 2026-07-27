@@ -4,6 +4,35 @@ This project records changes by numbered research task until formal semantic
 versions and releases begin. Dates and commit identifiers refer to the local
 Git history.
 
+## Task 009B2U — Conservative automatic melody admission — 2026-07-26
+
+Commit: this task's final commit
+
+### Fixed
+
+- Removed the unrestricted residual decode from production main-melody gap
+  recovery. Directed `voice` candidates and their immutable diagnostic
+  artifacts remain available.
+- Added a conservative automatic merge gate. Recovery candidates exceeding
+  `max(32, source note count / 10)` are preserved but cannot replace the safer
+  melody by default.
+- Made the macOS app reject an excessive automatic voice bundle at startup,
+  restore its recorded eligible source bundle, and label the rejected bundle
+  as diagnostic while retaining manual access.
+- Preserved rejected selected-gap candidates as a non-playing diagnostic track,
+  kept later manual selections across restarts, and bound cumulative recovery
+  decisions to the backend admission recorded for that source version.
+
+### Verified
+
+- The bad completed bundle contains 1,179 automatic voice notes versus 322 raw
+  notes; its preceding owner-accepted source contains 338. The app now opens
+  that 338-note source and keeps the 1,179-note bundle unchanged.
+- Full `make check` passes 276 Python and 38 Swift tests with three expected
+  environment-gated skips. A configured real-project integration asserts the
+  selected bundle, note count, and existing guitar-tail diagnostic.
+- No Hyak or local inference job was submitted.
+
 ## Task 009B2T — Organized library and visible tail repair — 2026-07-26
 
 Commit: this task's final commit

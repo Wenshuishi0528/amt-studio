@@ -20,7 +20,41 @@ diagnostic provenance. Task 009B2S makes compatible edits survive a newer
 result version, filters recovery candidates against accompaniment, performs at
 most one residual fallback, and derives instrument-aware tail cleanup while
 preserving raw events. Task 009B2T organizes the local music library, adds
-recoverable project deletion, and keeps tail-repair status visible.
+recoverable project deletion, and keeps tail-repair status visible. Task
+009B2U removes unrestricted main-melody fallback, rejects excessive automatic
+voice growth, and restores the latest eligible source version by default.
+
+## Task 009B2U: conservative automatic main-melody admission
+
+Implemented:
+
+- automatic and selected main-melody recovery keep MuScriptor constrained to
+  `voice` and no longer launch the unrestricted residual fallback;
+- raw directed candidates and soft-mask reports remain immutable diagnostic
+  artifacts, but automatic merge additionally requires candidate growth no
+  greater than `max(32, source note count / 10)`;
+- rejected candidates do not alter the product melody. Existing rejected
+  bundles remain manually inspectable and are labeled as diagnostic in the
+  version list. New rejected selected-gap candidates are exposed as a
+  non-playing diagnostic track;
+- on startup and result retrieval, the macOS app refuses an ineligible
+  automatic bundle and restores the eligible `source_bundle_id` recorded by
+  the completed recovery job. Later manual selection of another eligible
+  historical bundle remains the saved restart state;
+- cumulative recovery uses the admission decision recorded against its
+  immediate source version instead of reapplying the threshold against the
+  original raw voice.
+
+Evidence:
+
+- completed Job `37754413` used `--instruments voice`, yet added 841 candidates
+  to the prior 338-note melody and produced 1,179 notes. The earlier
+  owner-accepted recovery added 16 notes to the 322-note raw voice;
+- the configured real-project test now opens
+  `gap-recovery-20260727T035419Z-c5001346-multitrack` with 338 notes and retains
+  the clean-guitar five-group/51-fragment tail diagnostic;
+- full `make check` passes 276 Python and 38 Swift tests with three expected
+  environment-gated skips. No model job was submitted.
 
 ## Task 009B2T: organized music library and persistent tail-repair entry
 

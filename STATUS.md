@@ -1,16 +1,42 @@
 # Project status
 
-Current product milestone: Task 009B2T organized music library, recoverable
-project deletion, and persistent tail-repair status are implemented while Hyak
-remains the default
+Current product milestone: Task 009B2U prevents excessive automatic melody
+recovery from replacing a safer result while Hyak remains the default
 Research status: Gate 4 remains not passed for the rejected fusion routes; no
 new dataset, fusion, retuning, or training work is in the product critical path
-Current task: completed Job `37754413` is locally available; the music library
-is searchable and grouped, old projects can be moved to Trash, and tail repair
-no longer disappears when the selected track has no candidate
-Next task: owner reviews the completed recovery result and may use the restored
-per-track tail repair on any orange-flagged accompaniment track
+Current task: completed Job `37754413` is preserved as a diagnostic result;
+the app now opens its prior 338-note source version instead of the rejected
+1,179-note automatic melody
+Next task: owner may listen to the restored 338-note version; no replacement
+model run is required for this safety fix
 Current branch: `main`
+
+Implemented and verified for Task 009B2U:
+
+- the completed recovery did run MuScriptor with `--instruments voice`; its
+  failure was therefore not a stale frontend or an omitted allowlist. It added
+  841 notes to the prior 338-note main-melody track, while the earlier
+  owner-accepted recovery added only 16 notes to the 322-note raw voice;
+- production recovery no longer performs the unrestricted residual pass that
+  was able to admit non-voice material. Directed candidates are still
+  preserved and accompaniment-soft-masked, but automatic merge now also
+  requires conservative growth admission: at most `max(32, source / 10)`
+  candidate notes;
+- a rejected recovery remains immutable diagnostic evidence. Its candidate
+  files and bundle are not deleted, but it cannot become the default or
+  silently replace the safer source melody. Future rejected selected-gap
+  candidates also appear as a non-playing diagnostic track, and a user's
+  later manual selection of another eligible version survives restart;
+- the current private project now opens
+  `gap-recovery-20260727T035419Z-c5001346-multitrack` on
+  `voice_auto_enhanced` with 338 notes. The rejected 1,179-note bundle remains
+  present and is visibly labeled diagnostic;
+- accompaniment-track selected-gap recovery and per-track tail cleanup remain
+  available. No Hyak or local inference job was submitted for this fix;
+- full `make check` passes 276 Python and 38 Swift tests with three expected
+  environment-gated skips. The configured real-project integration confirms
+  the safe bundle ID, 338-note count, and existing five-group/51-fragment
+  guitar-tail diagnostic.
 
 Implemented and verified for Task 009B2T:
 
