@@ -11,7 +11,8 @@ shell and all-track overview. Task 009B2K adds optional local MPS/CPU execution
 while retaining Hyak as the default. Task 009B2L adds beat-aware editing,
 manual note creation, and song-level result acceptance. Task 009B2M–O add
 selectable gap recovery, launch repair, conservative sustain cleanup, and one
-canonical product timeline.
+canonical product timeline. Task 009B2P applies that boundary to every product
+consumer and adds instrument-aware cleanup on every track.
 
 ## Objective
 
@@ -147,6 +148,40 @@ Verification boundary:
 - read-only Hyak inspection found only Job `37744240` on L40. Its full-song
   MuScriptor pass succeeded before the job continued into bundle/gap
   processing. No job was submitted, cancelled, or altered for this task.
+
+## Task 009B2P: canonical product notes and per-track tail cleanup
+
+Implemented:
+
+- a shared canonical-timeline projection clips crossing notes and excludes
+  predictions beginning after the audio endpoint from UI, review, preview, and
+  MIDI exports without rewriting source events;
+- each track independently receives a cached cleanup diagnostic and orange
+  badge. Selecting the track exposes only that track's action;
+- pitched tracks retain conservative sustain merging. Drum tracks use a
+  separate dense periodic-short-hit detector and collapse each flagged drum
+  pitch to one short hit. Both are one-operation, undoable corrections.
+
+Current-song evidence:
+
+- the drums track has two candidate pitches and 14 in-timeline repeated hits.
+  Twenty-eight additional drum events begin after the audio endpoint and are
+  excluded automatically;
+- electric bass has one 10-fragment sustain candidate. The already corrected
+  clean-electric-guitar track remains a five-note sustained ending;
+- the distinction is necessary: merging repeated drum hits into long MIDI
+  notes would be musically incorrect. The UI separately warns that real drum
+  patterns and rolls can resemble model repetition.
+
+Verification:
+
+- canonical clipping, melodic and percussion detection, both cleanup modes,
+  undo, configured real-project diagnostics, and real drum-track MIDI export
+  pass;
+- full `make check` passes 265 Python and 36 Swift tests with three expected
+  environment-gated skips. This implementation started no compute; the
+  owner-triggered corrected five-gap request is running separately as Job
+  `37751981` and was not altered.
 
 ## Task 009B2O: canonical timeline repair
 

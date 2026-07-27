@@ -4,6 +4,20 @@ import XCTest
 @testable import AMTStudioCore
 
 final class ProjectAndEditingTests: XCTestCase {
+  func testCanonicalTimelineClipsAndDropsModelSpill() {
+    let notes = [
+      testNote(id: "inside", onset: 8, offset: 9, pitch: 60),
+      testNote(id: "crossing", onset: 9.5, offset: 11, pitch: 62),
+      testNote(id: "outside", onset: 10, offset: 11, pitch: 64),
+    ]
+
+    let clipped = CanonicalTimeline.clippedNotes(notes, duration: 10)
+
+    XCTAssertEqual(clipped.map(\.id), ["inside", "crossing"])
+    XCTAssertEqual(clipped.map(\.offsetSec), [9, 10])
+    XCTAssertEqual(notes[1].offsetSec, 11)
+  }
+
   func testTrailingSustainAnalyzerIsConservative() {
     let sustainedChord = [58.0, 62.0].flatMap { pitch in
       (0..<8).map { index in
@@ -59,6 +73,38 @@ final class ProjectAndEditingTests: XCTestCase {
     )
     XCTAssertEqual(clamped.count, 2)
     XCTAssertTrue(clamped.allSatisfy { $0.offsetSec == 10 })
+  }
+
+  func testPercussionRepeatAnalyzerRequiresDenseTailPattern() {
+    let repeatedHits = (0..<8).map { index in
+      testNote(
+        id: "hit-\(index)",
+        onset: 8 + Double(index) * 0.25,
+        offset: 8.01 + Double(index) * 0.25,
+        pitch: 42
+      )
+    }
+    let groups = PercussionRepeatAnalyzer.trailingGroups(
+      notes: repeatedHits,
+      timelineEnd: 10
+    )
+    XCTAssertEqual(groups.count, 1)
+    XCTAssertEqual(groups[0].fragmentCount, 8)
+
+    let sparseHits = (0..<5).map { index in
+      testNote(
+        id: "sparse-\(index)",
+        onset: 5 + Double(index),
+        offset: 5.01 + Double(index),
+        pitch: 42
+      )
+    }
+    XCTAssertTrue(
+      PercussionRepeatAnalyzer.trailingGroups(
+        notes: sparseHits,
+        timelineEnd: 10
+      ).isEmpty
+    )
   }
 
   func testSustainMergeIsOneUndoableEdit() throws {
@@ -132,6 +178,47 @@ final class ProjectAndEditingTests: XCTestCase {
     XCTAssertEqual(merged.count, 1)
     XCTAssertEqual(merged[0].onsetSec, 9)
     XCTAssertEqual(merged[0].offsetSec, 10)
+  }
+
+  func testPercussionRepeatCollapseKeepsOneHitAndIsUndoable() throws {
+    let fixture = try FixtureProject()
+    defer { fixture.remove() }
+    let snapshot = try ProjectLoader.open(projectURL: fixture.root)
+    var editor = try EditorProject(
+      snapshot: snapshot,
+      bundleID: "bundle-a",
+      selectedTrackID: "candidate-a"
+    )
+    let hits = (0..<5).map { index in
+      testNote(
+        id: "drum-hit-\(index)",
+        onset: 8 + Double(index) * 0.25,
+        offset: 8.01 + Double(index) * 0.25,
+        pitch: 42
+      )
+    }
+    for hit in hits {
+      try editor.create(hit)
+    }
+    let beforeCount = editor.notes.count
+    let collapsed = try editor.collapsePercussionRepeats([
+      SustainFragmentGroup(
+        pitchMIDI: 42,
+        noteIDs: hits.map(\.id),
+        onsetSec: 8,
+        offsetSec: 9.01
+      )
+    ])
+
+    XCTAssertEqual(collapsed.count, 1)
+    XCTAssertEqual(collapsed[0].onsetSec, 8)
+    XCTAssertEqual(collapsed[0].offsetSec, 8.01)
+    XCTAssertTrue(
+      collapsed[0].tags.contains("app-percussion-repeat-collapse")
+    )
+    XCTAssertEqual(editor.notes.count, beforeCount - 4)
+    try editor.undo()
+    XCTAssertEqual(editor.notes.count, beforeCount)
   }
 
   func testLegacyAppSustainOverflowRepairIsUndoable() throws {
@@ -349,7 +436,13 @@ final class ProjectAndEditingTests: XCTestCase {
       }
     }
     let report = try MIDIExporter.export(project: editor, to: output)
-    XCTAssertEqual(report.noteCount, editor.notes.count)
+    let productNotes = CanonicalTimeline.clippedNotes(
+      editor.notes,
+      duration:
+        snapshot.manifest.canonicalAudio.metadata?.durationSec
+        ?? .infinity
+    )
+    XCTAssertEqual(report.noteCount, productNotes.count)
     XCTAssertEqual(
       String(
         data: try Data(contentsOf: output).prefix(4),

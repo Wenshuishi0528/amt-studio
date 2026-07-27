@@ -193,6 +193,21 @@ public struct SustainFragmentGroup: Sendable, Equatable, Identifiable {
   public var fragmentCount: Int { noteIDs.count }
 }
 
+public enum CanonicalTimeline {
+  public static func clippedNotes(
+    _ notes: [EditorNote],
+    duration: Double
+  ) -> [EditorNote] {
+    guard duration.isFinite, duration > 0 else { return notes }
+    return notes.compactMap { note in
+      guard note.onsetSec < duration else { return nil }
+      var clipped = note
+      clipped.offsetSec = min(note.offsetSec, duration)
+      return clipped.offsetSec > clipped.onsetSec ? clipped : nil
+    }
+  }
+}
+
 public enum SustainFragmentAnalyzer {
   public static func trailingGroups(
     notes: [EditorNote],
@@ -265,6 +280,83 @@ public enum SustainFragmentAnalyzer {
         effectiveEnd,
         notes.map(\.offsetSec).max() ?? last.offsetSec
       )
+    )
+  }
+}
+
+public enum PercussionRepeatAnalyzer {
+  public static func trailingGroups(
+    notes: [EditorNote],
+    timelineEnd: Double,
+    maximumOnsetGap: Double = 0.5,
+    shortDurationThreshold: Double = 0.1
+  ) -> [SustainFragmentGroup] {
+    guard timelineEnd.isFinite, timelineEnd > 0 else { return [] }
+    let timelineNotes = CanonicalTimeline.clippedNotes(
+      notes,
+      duration: timelineEnd
+    )
+    var result: [SustainFragmentGroup] = []
+    for pitchNotes in Dictionary(
+      grouping: timelineNotes,
+      by: \.pitchMIDI
+    ).values {
+      let ordered = pitchNotes.sorted {
+        ($0.onsetSec, $0.offsetSec, $0.id)
+          < ($1.onsetSec, $1.offsetSec, $1.id)
+      }
+      var sequence: [EditorNote] = []
+      for note in ordered {
+        if let previous = sequence.last,
+          note.onsetSec - previous.onsetSec > maximumOnsetGap
+        {
+          if let candidate = candidate(
+            sequence,
+            timelineEnd: timelineEnd,
+            shortDurationThreshold: shortDurationThreshold
+          ) {
+            result.append(candidate)
+          }
+          sequence = []
+        }
+        sequence.append(note)
+      }
+      if let candidate = candidate(
+        sequence,
+        timelineEnd: timelineEnd,
+        shortDurationThreshold: shortDurationThreshold
+      ) {
+        result.append(candidate)
+      }
+    }
+    return result.sorted {
+      ($0.onsetSec, $0.pitchMIDI, $0.id)
+        < ($1.onsetSec, $1.pitchMIDI, $1.id)
+    }
+  }
+
+  private static func candidate(
+    _ notes: [EditorNote],
+    timelineEnd: Double,
+    shortDurationThreshold: Double
+  ) -> SustainFragmentGroup? {
+    guard let first = notes.first, let last = notes.last,
+      notes.count >= 5,
+      last.offsetSec >= timelineEnd - 0.5,
+      first.onsetSec >= timelineEnd - 15,
+      last.offsetSec - first.onsetSec >= 1
+    else {
+      return nil
+    }
+    let shortCount = notes.lazy.filter {
+      $0.offsetSec - $0.onsetSec <= shortDurationThreshold
+    }.count
+    guard shortCount * 2 >= notes.count else { return nil }
+    return SustainFragmentGroup(
+      pitchMIDI: first.pitchMIDI,
+      noteIDs: notes.map(\.id),
+      onsetSec: first.onsetSec,
+      offsetSec: min(timelineEnd, last.offsetSec)
     )
   }
 }

@@ -4,6 +4,37 @@ This project records changes by numbered research task until formal semantic
 versions and releases begin. Dates and commit identifiers refer to the local
 Git history.
 
+## Task 009B2P — Per-track tail cleanup — 2026-07-26
+
+Commit: this task's final commit
+
+### Fixed
+
+- Automatically excluded model notes beyond canonical audio from product
+  piano rolls, review, MIDI playback, and both single-track and multitrack MIDI
+  export while preserving raw model artifacts.
+- Added independent tail diagnostics to every track. Melodic tracks merge
+  contiguous same-pitch sustain fragments; drum tracks instead collapse
+  periodic repeated hits to one short hit per detected drum pitch.
+
+### Added
+
+- Added orange per-track cleanup badges to the mixer and all-track piano roll.
+  Selecting a flagged row opens that track's own confirmation action.
+- Added conservative percussion-repeat detection and an undoable
+  `折叠重复打击` edit. Confirmation warns that a real pattern or roll can look
+  similar, so cleanup is never applied silently.
+
+### Verified
+
+- The current drums track reports two groups and 14 in-timeline hits; 28
+  predictions after the real audio endpoint are automatically excluded.
+  Electric bass reports one 10-fragment sustain group.
+- Focused and configured-real-project checks pass. Full `make check` passes
+  265 Python and 36 Swift tests with three expected environment-gated skips.
+  This change started no compute. The owner's subsequent five-gap request
+  passed the corrected boundary and is running separately as Job `37751981`.
+
 ## Task 009B2O — Canonical timeline repair — 2026-07-26
 
 Commit: this task's final commit

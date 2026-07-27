@@ -18,7 +18,10 @@ public enum MIDIExporter {
     to outputURL: URL,
     ticksPerBeat: Int = 960
   ) throws -> MIDIExportReport {
-    let notes = try project.materializedNotes()
+    let notes = productNotes(
+      try project.materializedNotes(),
+      snapshot: project.snapshot
+    )
     guard !notes.isEmpty else {
       throw AMTProjectError.noNotesToExport
     }
@@ -108,7 +111,10 @@ public enum MIDIExporter {
         bundleID: bundleID,
         selectedTrackID: track.id
       )
-      let notes = try editor.materializedNotes()
+      let notes = productNotes(
+        try editor.materializedNotes(),
+        snapshot: snapshot
+      )
       noteCount += notes.count
       let instrument = track.instrument?.lowercased()
       let channel: UInt8
@@ -154,6 +160,19 @@ public enum MIDIExporter {
       trackCount: selectedTracks.count,
       ticksPerBeat: ticksPerBeat
     )
+  }
+
+  private static func productNotes(
+    _ notes: [EditorNote],
+    snapshot: ProjectSnapshot
+  ) -> [EditorNote] {
+    guard
+      let duration =
+        snapshot.manifest.canonicalAudio.metadata?.durationSec
+    else {
+      return notes
+    }
+    return CanonicalTimeline.clippedNotes(notes, duration: duration)
   }
 
   private static func conductorTrack(

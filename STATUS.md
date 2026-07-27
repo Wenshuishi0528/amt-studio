@@ -1,14 +1,44 @@
 # Project status
 
-Current product milestone: Task 009B2O canonical-timeline repair is implemented
-while Hyak remains the default
+Current product milestone: Task 009B2P canonical product clipping and adaptive
+per-track tail cleanup are implemented while Hyak remains the default
 Research status: Gate 4 remains not passed for the rejected fusion routes; no
 new dataset, fusion, retuning, or training work is in the product critical path
-Current task: the owner-reported final-gap rejection is fixed by using canonical
-audio duration instead of model-note spill as the product timeline; no recovery
-job was submitted on the owner's behalf
-Next task: the owner may retry the five selected gaps in the rebuilt app
+Current task: future model spill is automatically excluded from product UI,
+preview, and MIDI export; every track is independently checked for a safe
+instrument-aware tail cleanup candidate
+Next task: the owner may review orange per-track tail badges and confirm only
+the tracks whose endings sound wrong
 Current branch: `main`
+
+Implemented and verified for Task 009B2P:
+
+- normal imported projects already carry canonical-audio duration. Product
+  notes are now clipped to that boundary everywhere they are consumed:
+  current-track and all-track piano rolls, review queues, MIDI preview,
+  single-track export, and full multitrack export. Notes starting after the
+  audio endpoint are omitted and crossing notes end at the endpoint; raw model
+  JSONL is retained unchanged;
+- every track is analyzed independently and an orange tail badge appears on
+  both the mixer and all-track piano-roll row when a candidate exists. Selecting
+  that row opens its own confirmation action in `整曲验收`;
+- pitched tracks use the existing conservative contiguous-same-pitch sustain
+  merge. Drum tracks use a separate periodic-short-hit detector and
+  `折叠重复打击`, which keeps one hit per detected drum pitch instead of
+  creating musically invalid long drum notes;
+- neither cleanup is automatic because real tremolo, repeated playing, drum
+  patterns, or rolls can look similar. Each action affects only the selected
+  track, is saved as one undoable edit, and preserves original model output;
+- on the current song, the drums track has two in-timeline repeat groups with
+  14 hits. Another 28 drum predictions begin after `271.805147` and are
+  automatically excluded from the product. Electric bass has one 10-fragment
+  sustain candidate. The previously corrected clean-electric-guitar track
+  remains corrected;
+- focused analyzers, clipping, cleanup/undo, real-project loading, and real
+  drum-track MIDI export pass. Full `make check` passes 265 Python and 36 Swift
+  tests with three expected environment-gated skips. This implementation
+  started no compute; the owner's corrected five-gap submission is now real
+  Job `37751981` in `RUNNING` state and was left untouched.
 
 Implemented and verified for Task 009B2O:
 

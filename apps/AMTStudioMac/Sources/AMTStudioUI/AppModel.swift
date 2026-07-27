@@ -179,6 +179,24 @@ public struct LocalProjectItem: Sendable, Equatable, Identifiable {
   }
 }
 
+public enum TrailingCleanupKind: Sendable, Equatable {
+  case sustain
+  case percussionRepeats
+}
+
+public struct TrailingCleanupSummary: Sendable, Equatable {
+  public let kind: TrailingCleanupKind
+  public let groupCount: Int
+  public let fragmentCount: Int
+
+  public var badgeLabel: String {
+    switch kind {
+    case .sustain: "尾部延音碎片 \(fragmentCount)"
+    case .percussionRepeats: "尾部重复打击 \(fragmentCount)"
+    }
+  }
+}
+
 @MainActor
 public final class AppModel: ObservableObject {
   @Published public private(set) var catalog: ProjectCatalog?
@@ -213,6 +231,8 @@ public final class AppModel: ObservableObject {
   @Published public private(set) var activeComputeMode: ComputeMode?
   @Published public private(set) var localReadinessMessage = "尚未检查本机环境"
   @Published public private(set) var isCheckingLocalCompute = false
+  @Published public private(set) var trailingCleanupSummaries: [String: TrailingCleanupSummary] =
+    [:]
 
   public let transport = AudioTransport()
 
@@ -668,7 +688,10 @@ public final class AppModel: ObservableObject {
   }
 
   public var notes: [EditorNote] {
-    editor?.notes ?? []
+    CanonicalTimeline.clippedNotes(
+      editor?.notes ?? [],
+      duration: canonicalTimelineDuration
+    )
   }
 
   public var selectedNote: EditorNote? {
@@ -747,7 +770,10 @@ public final class AppModel: ObservableObject {
       }
     }
     return ProjectReviewAnalyzer.issues(
-      notes: allNotes,
+      notes: CanonicalTimeline.clippedNotes(
+        allNotes,
+        duration: canonicalTimelineDuration
+      ),
       confidenceThreshold: reviewConfidenceThreshold
     )
   }
@@ -759,42 +785,110 @@ public final class AppModel: ObservableObject {
     return "\(issues.count) 项 · 低置信度 \(low) · 过短 \(short)"
   }
 
-  public var trailingSustainFragmentGroups: [SustainFragmentGroup] {
+  public var trailingCleanupGroups: [SustainFragmentGroup] {
     guard let editor else { return [] }
-    return SustainFragmentAnalyzer.trailingGroups(
-      notes: editor.notes,
-      timelineEnd: canonicalTimelineDuration
+    return cleanupGroups(
+      track: editor.selectedTrack,
+      notes: editor.notes
     )
   }
 
-  public var trailingSustainFragmentSummary: String? {
-    let groups = trailingSustainFragmentGroups
+  public var currentTrailingCleanupSummary: TrailingCleanupSummary? {
+    guard let track = editor?.selectedTrack else { return nil }
+    let groups = trailingCleanupGroups
     guard !groups.isEmpty else { return nil }
-    let fragments = groups.reduce(0) { $0 + $1.fragmentCount }
-    return "检测到结尾 \(groups.count) 个音高被切成 \(fragments) 个连续片段"
+    return cleanupSummary(track: track, groups: groups)
   }
 
-  public func mergeTrailingSustainFragments() {
+  public func performTrailingCleanup() {
     do {
       guard var editor else { return }
-      let groups = trailingSustainFragmentGroups
+      let groups = trailingCleanupGroups
       guard !groups.isEmpty else {
-        statusMessage = "当前音轨没有符合条件的结尾延音碎片"
+        statusMessage = "当前音轨没有符合条件的结尾碎片"
         return
       }
       let fragmentCount = groups.reduce(0) { $0 + $1.fragmentCount }
-      let merged = try editor.mergeSustainFragments(groups)
+      let isPercussion = isPercussionTrack(editor.selectedTrack)
+      let merged =
+        isPercussion
+        ? try editor.collapsePercussionRepeats(groups)
+        : try editor.mergeSustainFragments(groups)
       try editor.save()
       self.editor = editor
       selectedNoteID = merged.first?.id
       statusMessage =
-        "已把 \(fragmentCount) 个结尾碎片合并为 \(merged.count) 个延长音；可撤销"
+        isPercussion
+        ? "已把 \(fragmentCount) 个结尾重复打击折叠为 \(merged.count) 个单次打击；可撤销"
+        : "已把 \(fragmentCount) 个结尾碎片合并为 \(merged.count) 个延长音；可撤销"
       errorMessage = nil
       updateMelodyCoverage()
+      refreshTrailingCleanupDiagnostics()
       refreshMIDIPreview()
     } catch {
       present(error)
     }
+  }
+
+  private func cleanupGroups(
+    track: EditorTrack,
+    notes: [EditorNote]
+  ) -> [SustainFragmentGroup] {
+    if isPercussionTrack(track) {
+      return PercussionRepeatAnalyzer.trailingGroups(
+        notes: notes,
+        timelineEnd: canonicalTimelineDuration
+      )
+    }
+    return SustainFragmentAnalyzer.trailingGroups(
+      notes: CanonicalTimeline.clippedNotes(
+        notes,
+        duration: canonicalTimelineDuration
+      ),
+      timelineEnd: canonicalTimelineDuration
+    )
+  }
+
+  private func cleanupSummary(
+    track: EditorTrack,
+    groups: [SustainFragmentGroup]
+  ) -> TrailingCleanupSummary {
+    TrailingCleanupSummary(
+      kind: isPercussionTrack(track) ? .percussionRepeats : .sustain,
+      groupCount: groups.count,
+      fragmentCount: groups.reduce(0) { $0 + $1.fragmentCount }
+    )
+  }
+
+  private func isPercussionTrack(_ track: EditorTrack) -> Bool {
+    let instrument = track.instrument?.lowercased() ?? ""
+    return instrument == "drums"
+      || instrument.contains("drum")
+      || track.id.lowercased() == "drums"
+  }
+
+  private func refreshTrailingCleanupDiagnostics() {
+    guard let snapshot else {
+      trailingCleanupSummaries = [:]
+      return
+    }
+    var notesByTrack = Dictionary(
+      grouping: snapshot.notes,
+      by: \.trackID
+    )
+    if let editor {
+      notesByTrack[editor.selectedTrack.id] = editor.notes
+    }
+    trailingCleanupSummaries = Dictionary(
+      uniqueKeysWithValues: snapshot.tracks.compactMap { track in
+        let groups = cleanupGroups(
+          track: track,
+          notes: notesByTrack[track.id] ?? []
+        )
+        guard !groups.isEmpty else { return nil }
+        return (track.id, cleanupSummary(track: track, groups: groups))
+      }
+    )
   }
 
   private func updateMelodyCoverage() {
@@ -959,6 +1053,7 @@ public final class AppModel: ObservableObject {
     discardMIDIPreviewArtifact()
     restoreMixerSettings(for: snapshot)
     updateMelodyCoverage()
+    refreshTrailingCleanupDiagnostics()
     statusMessage = "已验证多轨结果 \(id)；请选择一条音轨"
     errorMessage = nil
     if let voice = MelodyTrackSelector.preferred(in: snapshot.tracks) {
@@ -1032,6 +1127,7 @@ public final class AppModel: ObservableObject {
     errorMessage = nil
     transport.load(audioURL: snapshot.audioURL)
     updateMelodyCoverage()
+    refreshTrailingCleanupDiagnostics()
     refreshMIDIPreview()
   }
 
@@ -1126,6 +1222,7 @@ public final class AppModel: ObservableObject {
         "已在播放头新增 1 个音符，长度为当前一拍；可拖动或调整两端"
       errorMessage = nil
       updateMelodyCoverage()
+      refreshTrailingCleanupDiagnostics()
       refreshMIDIPreview()
     } catch {
       present(error)
@@ -1172,6 +1269,7 @@ public final class AppModel: ObservableObject {
       statusMessage = "编辑已保存（原始模型输出未修改）"
       errorMessage = nil
       updateMelodyCoverage()
+      refreshTrailingCleanupDiagnostics()
       refreshMIDIPreview()
     } catch {
       present(error)
@@ -1188,6 +1286,7 @@ public final class AppModel: ObservableObject {
       statusMessage = "删除操作已记录，可撤销"
       errorMessage = nil
       updateMelodyCoverage()
+      refreshTrailingCleanupDiagnostics()
       refreshMIDIPreview()
     } catch {
       present(error)
@@ -1208,6 +1307,7 @@ public final class AppModel: ObservableObject {
       statusMessage = "已撤销并保存"
       errorMessage = nil
       updateMelodyCoverage()
+      refreshTrailingCleanupDiagnostics()
       refreshMIDIPreview()
     } catch {
       present(error)
@@ -1223,6 +1323,7 @@ public final class AppModel: ObservableObject {
       statusMessage = "已重做并保存"
       errorMessage = nil
       updateMelodyCoverage()
+      refreshTrailingCleanupDiagnostics()
       refreshMIDIPreview()
     } catch {
       present(error)
@@ -1351,6 +1452,7 @@ public final class AppModel: ObservableObject {
       refreshMIDIPreview()
     }
     updateMelodyCoverage()
+    refreshTrailingCleanupDiagnostics()
   }
 
   private func applyPreparedProject(_ prepared: PreparedProject) {
@@ -1379,6 +1481,7 @@ public final class AppModel: ObservableObject {
       refreshMIDIPreview()
     }
     updateMelodyCoverage()
+    refreshTrailingCleanupDiagnostics()
     if let state = prepared.jobState {
       betaProjectURL = prepared.catalog.rootURL
       betaJobID = state.jobID

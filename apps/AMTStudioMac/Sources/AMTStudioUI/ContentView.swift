@@ -379,6 +379,14 @@ public struct ContentView: View {
                       )
                       .font(.caption2)
                       .foregroundStyle(.secondary)
+                      if let cleanup = model.trailingCleanupSummaries[track.id] {
+                        Label(
+                          cleanup.badgeLabel,
+                          systemImage: "exclamationmark.waveform"
+                        )
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                      }
                     }
                     Spacer()
                     if model.editor?.selectedTrack.id == track.id {
@@ -460,6 +468,9 @@ public struct ContentView: View {
             .toggleStyle(.switch)
           }
           Text("点名称编辑该轨；M 静音，S 独奏。乐器名称是模型预测，可能误分类。")
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+          Text("橙色尾部提示按音轨独立处理；先点音轨，再在右侧确认清理。")
             .font(.caption2)
             .foregroundStyle(.secondary)
         }
@@ -1340,6 +1351,7 @@ private struct WorkspaceView: View {
           AllTracksPianoRollView(
             tracks: overviewTracks,
             notesByTrack: overviewNotesByTrack,
+            cleanupSummaries: model.trailingCleanupSummaries,
             selectedTrackID: editor.selectedTrack.id,
             transport: transport,
             duration: timelineDuration,
@@ -1348,7 +1360,7 @@ private struct WorkspaceView: View {
           )
         } else {
           PianoRollView(
-            notes: editor.notes,
+            notes: model.notes,
             transport: transport,
             duration: timelineDuration,
             selectedNoteID: $model.selectedNoteID,
@@ -1378,10 +1390,13 @@ private struct WorkspaceView: View {
 
   private var overviewNotesByTrack: [String: [EditorNote]] {
     var notesByTrack = Dictionary(
-      grouping: model.snapshot?.notes ?? [],
+      grouping: CanonicalTimeline.clippedNotes(
+        model.snapshot?.notes ?? [],
+        duration: timelineDuration
+      ),
       by: \.trackID
     )
-    notesByTrack[editor.selectedTrack.id] = editor.notes
+    notesByTrack[editor.selectedTrack.id] = model.notes
     return notesByTrack
   }
 
@@ -1754,7 +1769,7 @@ private struct ConfidenceReviewPanel: View {
 
 private struct ResultReviewPanel: View {
   @ObservedObject var model: AppModel
-  @State private var isConfirmingSustainMerge = false
+  @State private var isConfirmingTrailingCleanup = false
 
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
@@ -1778,35 +1793,59 @@ private struct ResultReviewPanel: View {
       Text("这里只提示低置信度和异常短音；它们是复核线索，不会被自动删除。")
         .font(.caption2)
         .foregroundStyle(.secondary)
-      if let summary = model.trailingSustainFragmentSummary {
+      if let summary = model.currentTrailingCleanupSummary {
         Divider()
-        Label("结尾疑似延音碎片", systemImage: "waveform.path")
-          .font(.subheadline.weight(.semibold))
-          .foregroundStyle(.orange)
-        Text(summary)
-          .font(.caption)
-        Button("合并为延长音", systemImage: "arrow.triangle.merge") {
-          isConfirmingSustainMerge = true
+        Label(
+          summary.kind == .percussionRepeats
+            ? "结尾疑似重复打击"
+            : "结尾疑似延音碎片",
+          systemImage: "waveform.path"
+        )
+        .font(.subheadline.weight(.semibold))
+        .foregroundStyle(.orange)
+        Text(
+          summary.kind == .percussionRepeats
+            ? "检测到 \(summary.groupCount) 种鼓音、\(summary.fragmentCount) 个周期性短击"
+            : "检测到 \(summary.groupCount) 个音高被切成 \(summary.fragmentCount) 个连续片段"
+        )
+        .font(.caption)
+        Button(
+          summary.kind == .percussionRepeats
+            ? "折叠重复打击"
+            : "合并为延长音",
+          systemImage: "arrow.triangle.merge"
+        ) {
+          isConfirmingTrailingCleanup = true
         }
         .buttonStyle(.borderedProminent)
-        .accessibilityIdentifier("merge-trailing-sustain-fragments")
-        Text("只处理当前音轨结尾首尾相接的同音片段；原始识别不变，操作可撤销。")
-          .font(.caption2)
-          .foregroundStyle(.secondary)
+        .accessibilityIdentifier("clean-trailing-fragments")
+        Text(
+          summary.kind == .percussionRepeats
+            ? "只折叠当前鼓轨结尾同鼓音的密集重复；真实鼓点或滚奏也可能相似，操作可撤销。"
+            : "只处理当前音轨结尾首尾相接的同音片段；原始识别不变，操作可撤销。"
+        )
+        .font(.caption2)
+        .foregroundStyle(.secondary)
       }
     }
     .padding(12)
     .confirmationDialog(
-      "把结尾碎片合并为延长音？",
-      isPresented: $isConfirmingSustainMerge,
+      model.currentTrailingCleanupSummary?.kind == .percussionRepeats
+        ? "折叠当前鼓轨的结尾重复打击？"
+        : "把当前音轨的结尾碎片合并为延长音？",
+      isPresented: $isConfirmingTrailingCleanup,
       titleVisibility: .visible
     ) {
-      Button("合并并保存") {
-        model.mergeTrailingSustainFragments()
+      Button(
+        model.currentTrailingCleanupSummary?.kind == .percussionRepeats
+          ? "折叠并保存"
+          : "合并并保存"
+      ) {
+        model.performTrailingCleanup()
       }
       Button("取消", role: .cancel) {}
     } message: {
-      Text("真实的轮指或重复弹奏也可能长得相似；这里只按你的确认写入一条可撤销修正，不会修改模型原始音轨。")
+      Text("真实轮指、重复弹奏、鼓点或滚奏也可能长得相似；这里只按你的确认写入当前音轨的一条可撤销修正，不会修改模型原始音轨。")
     }
   }
 }
@@ -1892,6 +1931,7 @@ private struct PianoRollModeBar: View {
 private struct AllTracksPianoRollView: View {
   let tracks: [EditorTrack]
   let notesByTrack: [String: [EditorNote]]
+  let cleanupSummaries: [String: TrailingCleanupSummary]
   let selectedTrackID: String
   let transport: AudioTransport
   let duration: Double
@@ -1926,6 +1966,7 @@ private struct AllTracksPianoRollView: View {
               TrackOverviewRow(
                 track: track,
                 notes: notesByTrack[track.id] ?? [],
+                cleanupSummary: cleanupSummaries[track.id],
                 isSelected: track.id == selectedTrackID,
                 transport: transport,
                 duration: duration,
@@ -1996,6 +2037,7 @@ private struct MultiTrackTimeRuler: View {
 private struct TrackOverviewRow: View {
   let track: EditorTrack
   let notes: [EditorNote]
+  let cleanupSummary: TrailingCleanupSummary?
   let isSelected: Bool
   let transport: AudioTransport
   let duration: Double
@@ -2026,6 +2068,15 @@ private struct TrackOverviewRow: View {
               .font(.caption2.monospacedDigit())
               .foregroundStyle(theme.mutedText)
               .lineLimit(1)
+            if let cleanupSummary {
+              Label(
+                cleanupSummary.badgeLabel,
+                systemImage: "exclamationmark.waveform"
+              )
+              .font(.caption2)
+              .foregroundStyle(.orange)
+              .lineLimit(1)
+            }
           }
           Spacer(minLength: 6)
           if isSelected {
@@ -2034,7 +2085,7 @@ private struct TrackOverviewRow: View {
           }
         }
         .padding(.horizontal, 10)
-        .frame(width: labelWidth, height: 66)
+        .frame(width: labelWidth, height: 76)
 
         TrackNoteLane(
           notes: notes,
@@ -2043,7 +2094,7 @@ private struct TrackOverviewRow: View {
           color: color,
           theme: theme
         )
-        .frame(width: timelineWidth, height: 66)
+        .frame(width: timelineWidth, height: 76)
       }
       .background(
         isSelected

@@ -40,6 +40,23 @@ final class AppModelTests: XCTestCase {
     ] {
       XCTAssertEqual(model.editor?.selectedTrack.id, expectedTrack)
     }
+    if let cleanupTrack = ProcessInfo.processInfo.environment[
+      "AMT_STUDIO_REAL_CLEANUP_TRACK"
+    ] {
+      let summary = try XCTUnwrap(
+        model.trailingCleanupSummaries[cleanupTrack]
+      )
+      if let groupText = ProcessInfo.processInfo.environment[
+        "AMT_STUDIO_REAL_CLEANUP_GROUPS"
+      ], let expectedGroups = Int(groupText) {
+        XCTAssertEqual(summary.groupCount, expectedGroups)
+      }
+      if let fragmentText = ProcessInfo.processInfo.environment[
+        "AMT_STUDIO_REAL_CLEANUP_FRAGMENTS"
+      ], let expectedFragments = Int(fragmentText) {
+        XCTAssertEqual(summary.fragmentCount, expectedFragments)
+      }
+    }
 
     let output = FileManager.default.temporaryDirectory.appendingPathComponent(
       "AMTStudio-real-version-\(UUID().uuidString).mid"

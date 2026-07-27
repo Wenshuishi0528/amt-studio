@@ -1,5 +1,10 @@
 import Foundation
 
+private enum TrailingCollapseStyle {
+  case sustain
+  case percussionHit
+}
+
 public struct EditOperation: Codable, Hashable, Sendable, Identifiable {
   public enum Kind: String, Codable, Sendable {
     case create
@@ -241,6 +246,20 @@ public struct EditorProject: Sendable {
   public mutating func mergeSustainFragments(
     _ groups: [SustainFragmentGroup]
   ) throws -> [EditorNote] {
+    try collapseTrailingFragments(groups, style: .sustain)
+  }
+
+  @discardableResult
+  public mutating func collapsePercussionRepeats(
+    _ groups: [SustainFragmentGroup]
+  ) throws -> [EditorNote] {
+    try collapseTrailingFragments(groups, style: .percussionHit)
+  }
+
+  private mutating func collapseTrailingFragments(
+    _ groups: [SustainFragmentGroup],
+    style: TrailingCollapseStyle
+  ) throws -> [EditorNote] {
     guard !groups.isEmpty else { return [] }
     let current = Dictionary(
       uniqueKeysWithValues: try materializedNotes().map { ($0.id, $0) }
@@ -273,12 +292,18 @@ public struct EditorProject: Sendable {
       }
       var chainEnd = first.offsetSec
       for note in notes.dropFirst() {
-        guard note.onsetSec <= chainEnd + 0.03 else {
+        guard
+          style == .percussionHit
+            || note.onsetSec <= chainEnd + 0.03
+        else {
           throw AMTProjectError.invalidEvent("延音碎片之间存在明显空隙")
         }
         chainEnd = max(chainEnd, note.offsetSec)
       }
-      let mergedEnd = min(chainEnd, group.offsetSec)
+      let mergedEnd =
+        style == .sustain
+        ? min(chainEnd, group.offsetSec)
+        : first.offsetSec
       guard mergedEnd > first.onsetSec else {
         throw AMTProjectError.invalidEvent("延音合并范围不在歌曲时间轴内")
       }
@@ -289,11 +314,15 @@ public struct EditorProject: Sendable {
       let sourceIDs = Set(
         notes.flatMap { [$0.id] + $0.sourceEventIDs }
       ).sorted()
-      let tags = Set(notes.flatMap(\.tags) + ["app-sustain-merge"]).sorted()
+      let operationTag =
+        style == .sustain
+        ? "app-sustain-merge"
+        : "app-percussion-repeat-collapse"
+      let tags = Set(notes.flatMap(\.tags) + [operationTag]).sorted()
       before.append(contentsOf: notes)
       merged.append(
         EditorNote(
-          id: "app-sustain-merge-\(UUID().uuidString.lowercased())",
+          id: "\(operationTag)-\(UUID().uuidString.lowercased())",
           trackID: first.trackID,
           sourceTrackID: first.sourceTrackID,
           instrument: first.instrument,
