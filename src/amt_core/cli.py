@@ -73,6 +73,11 @@ def build_parser() -> argparse.ArgumentParser:
     muscriptor_bundle.add_argument("--run", type=Path, required=True)
     muscriptor_bundle.add_argument("--output", type=Path, required=True)
     muscriptor_bundle.add_argument("--default-bpm", type=float, default=120.0)
+    muscriptor_bundle.add_argument(
+        "--beat-run",
+        type=Path,
+        help="Optional verified Beat This run used for BPM, meter, and beat positions",
+    )
 
     return parser
 
@@ -143,6 +148,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.run,
                 args.output,
                 default_bpm=args.default_bpm,
+                beat_run_dir=args.beat_run,
             )
             print(json.dumps(manifest, ensure_ascii=False, indent=2))
             return 0

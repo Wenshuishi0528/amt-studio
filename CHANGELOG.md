@@ -4,6 +4,56 @@ This project records changes by numbered research task until formal semantic
 versions and releases begin. Dates and commit identifiers refer to the local
 Git history.
 
+## Task 009B2L — Beat-aware editing and result acceptance — 2026-07-26
+
+Commit: this task's final commit
+
+### Added
+
+- Added one-click, one-beat note creation at the current playback head with a
+  visible current-track button, `Command-Shift-N`, immediate selection, saved
+  edit history, and undo/redo support.
+- Added Beat This rhythm events to canonical bundles and BPM, meter,
+  bar/beat-position, downbeat, and beat-grid displays to the current-track
+  editor while retaining second-based timing.
+- Added a conservative song-level acceptance summary and navigation across
+  low-confidence and abnormally short notes on all normal product tracks.
+
+### Changed
+
+- Future Hyak song jobs now run pinned Beat This after full-song MuScriptor and
+  before automatic same-model gap recovery, all sequentially in the same GPU
+  allocation.
+- Performance MIDI uses the verified Beat This tempo and meter maps when
+  available. Older or local bundles without a rhythm run remain compatible
+  and visibly retain their default serialization grid. Beat-analysis failure
+  also falls back to that grid without discarding successful multitrack work.
+- Added a truthful rhythm-analysis stage to job status and fetch the immutable
+  Beat This run with completed project results.
+
+### Limitations
+
+- Rhythm is a model estimate, not verified notation. The current Beat This
+  normalizer fixes the denominator to four, so compound-meter distinctions
+  such as 6/8 are not guaranteed.
+- Review items are diagnostic hints and are never automatically deleted or
+  counted as confirmed transcription errors.
+- Job `37746586` was submitted with the previous code and was not interrupted;
+  it completed `0:0` in `00:21:19`, was fetched successfully, and its existing
+  result keeps the default rhythm grid.
+
+### Verified
+
+- Focused Python and Swift tests cover verified rhythm binding, pipeline-stage
+  detection, bar/beat placement, review classification, note creation,
+  persistence, and undo.
+- Swift Package and Xcode builds, strict Swift formatting, signed release
+  packaging, plist/signature validation, shell syntax, and
+  `git diff --check` pass.
+- Full `make check` passes 259 Python and 29 Swift tests with three expected
+  environment-gated skips. The single focused `/review` found no remaining
+  P0/P1 blocker.
+
 ## Task 009B2K — Optional local compute backend — 2026-07-26
 
 Commit: this task's final commit

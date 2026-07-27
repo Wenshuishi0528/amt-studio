@@ -4,6 +4,81 @@ import XCTest
 @testable import AMTStudioCore
 
 final class ProjectAndEditingTests: XCTestCase {
+  func testRhythmTimelineUsesDetectedBeatsAndLabelsReviewIssues() throws {
+    var events: [[String: Any]] = []
+    for index in 0..<12 {
+      let event: [String: Any] = [
+        "time_sec": Double(index) * 0.5,
+        "beat_number": index % 4 + 1,
+        "is_downbeat": index % 4 == 0,
+      ]
+      events.append(event)
+    }
+    let tempoMap: [[String: Any]] = [
+      ["time_sec": 0.0, "bpm": 118.0],
+      ["time_sec": 0.5, "bpm": 120.0],
+      ["time_sec": 1.0, "bpm": 122.0],
+    ]
+    let meterMap: [[String: Any]] = [
+      [
+        "time_sec": 0.0,
+        "numerator": 4,
+        "denominator": 4,
+        "status": "inferred",
+      ]
+    ]
+    let rhythmJSON: [String: Any] = [
+      "source_run_id": "beat-run",
+      "source_model": "final0",
+      "events": events,
+      "tempo_map": tempoMap,
+      "meter_map": meterMap,
+      "uncertainty": ["event_confidence_available": false],
+    ]
+    let rhythm = try JSONDecoder().decode(
+      RhythmMap.self,
+      from: JSONSerialization.data(
+        withJSONObject: rhythmJSON,
+        options: [.sortedKeys]
+      )
+    )
+
+    XCTAssertTrue(rhythm.isModelEstimated)
+    XCTAssertEqual(RhythmTimeline.representativeBPM(rhythm), 120)
+    let position = RhythmTimeline.position(
+      at: 2.6,
+      duration: 8,
+      rhythm: rhythm
+    )
+    XCTAssertEqual(position.bar, 2)
+    XCTAssertEqual(position.beat, 2)
+    XCTAssertEqual(position.beatFraction, 0.2, accuracy: 0.001)
+    XCTAssertEqual(position.displayLabel, "第 2 小节 · 第 2 拍")
+
+    let issues = ProjectReviewAnalyzer.issues(
+      notes: [
+        EditorNote(
+          id: "short-low",
+          trackID: "voice",
+          sourceTrackID: "voice",
+          instrument: "voice",
+          onsetSec: 2,
+          offsetSec: 2.02,
+          pitchMIDI: 64,
+          velocity: 80,
+          confidence: 0.2,
+          isMainMelodyCandidate: true,
+          sourceRunID: "run",
+          sourceModel: "model",
+          sourceEventIDs: [],
+          tags: [],
+          extra: [:]
+        )
+      ]
+    )
+    XCTAssertEqual(Set(issues.map(\.kind)), [.lowConfidence, .veryShort])
+  }
+
   func testOptionalEventFieldsDefaultAndFutureSchemaIsRejected() throws {
     let minimal: [String: Any] = [
       "schema_version": 1,

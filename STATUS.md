@@ -1,16 +1,52 @@
 # Project status
 
-Current product milestone: Task 009B2K optional local Apple GPU/CPU execution
-is implemented while Hyak remains the default
+Current product milestone: Task 009B2L beat-aware editing and song-level result
+acceptance are implemented while Hyak remains the default
 Research status: Gate 4 remains not passed for the rejected fusion routes; no
 new dataset, fusion, retuning, or training work is in the product critical path
-Current task: real new-song Job `37744240` is running on Hyak L40; its full-song
-MuScriptor pass succeeded and the single job is continuing through bundle/gap
-processing
-Next task: let Job `37744240` finish and reopen the rebuilt app to review its
-result and the new compute selector; do not run a local song merely to test the
-new option while the owner needs the Mac
+Current task: real new-song Job `37746586` completed on Hyak L40 with exit
+`0:0` in `00:21:19`; its final bundle was fetched and the rebuilt app was
+reopened
+Next task: owner review of the completed new-song multitrack and automatic
+voice-gap result. This old-code result truthfully retains the default
+120 BPM / 4/4 grid; the next uploaded Hyak song will also run Beat This inside
+the same job and return estimated BPM, meter, and beat positions
 Current branch: `main`
+
+Implemented and code-verified for Task 009B2L:
+
+- the current-track editor now has an explicit `新增音符` action and
+  `Command-Shift-N` shortcut. It inserts a one-beat note at the playback head,
+  selects it immediately, saves it as a reversible non-destructive correction,
+  and leaves the canonical model output untouched;
+- canonical rhythm data now carries actual Beat This beat events in addition
+  to tempo and meter maps. The app shows seconds, representative BPM, current
+  meter, `第 N 小节 · 第 N 拍`, downbeat labels, and beat-grid lines. Older
+  bundles remain readable and are visibly labeled as an unanalyzed MIDI
+  default rather than a model estimate;
+- future Hyak private-Beta jobs run MuScriptor, then the already pinned Beat
+  This worker, then same-model voice-gap recovery and packaging sequentially
+  in one L40 allocation. The verified rhythm run is bound to the same
+  canonical audio, preserved in worker provenance, used for MIDI tempo/meter,
+  and fetched with the result. Rhythm failure falls back to the explicitly
+  labeled default MIDI grid instead of discarding a valid multitrack result;
+- the inspector now has a song-level acceptance summary across all product
+  tracks and can jump between low-confidence or abnormally short notes. These
+  are review hints only and are never auto-deleted or described as confirmed
+  transcription errors;
+- Beat This estimates beat/downbeat structure but its current normalizer uses
+  a denominator of four. Common 4/4 and 3/4 estimates are useful; compound
+  meters such as 6/8 are not yet a guaranteed distinction and the UI labels
+  all rhythm output as an estimate requiring listening;
+- read-only Hyak inspection found only Job `37746586` on L40 node `g3116`.
+  It completed `0:0` in `00:21:19`, was fetched successfully, and left the
+  queue empty. It was not interrupted or duplicated. Because it was submitted
+  from the previous code, it does not retroactively gain Beat This;
+- `make check` passes 259 Python and 29 Swift tests with three expected
+  environment-gated
+  skips, strict Swift formatting, Xcode compilation, release packaging,
+  signature/plist validation, shell syntax, and `git diff --check` pass. The
+  single focused `/review` found no remaining P0/P1 blocker.
 
 Implemented and code-verified for Task 009B2K:
 

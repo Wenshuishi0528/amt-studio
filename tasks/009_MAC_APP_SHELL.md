@@ -8,7 +8,8 @@ productization are complete. Task 009B2G single-upload automatic same-model
 gap recovery and Task 009B2H Unicode-safe polling/explicit whole-version export
 are complete for the private Beta. Task 009B2I/J complete the dual-mode product
 shell and all-track overview. Task 009B2K adds optional local MPS/CPU execution
-while retaining Hyak as the default.
+while retaining Hyak as the default. Task 009B2L adds beat-aware editing,
+manual note creation, and song-level result acceptance.
 
 ## Objective
 
@@ -144,6 +145,46 @@ Verification boundary:
 - read-only Hyak inspection found only Job `37744240` on L40. Its full-song
   MuScriptor pass succeeded before the job continued into bundle/gap
   processing. No job was submitted, cancelled, or altered for this task.
+
+## Task 009B2L: beat-aware editing and result acceptance
+
+Implemented:
+
+- an explicit current-track note-creation command inserts a one-beat note at
+  the playback head, selects it, and records the action in the existing
+  reversible correction log without changing canonical events;
+- Beat This beat events are preserved with the tempo and meter maps. The
+  detailed piano roll shows both second labels and musical bar/beat lines,
+  while the transport reports representative BPM, meter, and current
+  `bar/beat` position;
+- old bundles with only the serialization defaults continue to load and are
+  explicitly labeled as unanalyzed instead of being presented as detected
+  rhythm;
+- the Hyak private-Beta workflow runs the already pinned Beat This worker
+  sequentially between full-song MuScriptor and automatic gap recovery. The
+  rhythm run is canonical-audio-bound, included in worker provenance, used by
+  performance MIDI, and fetched with the final result. A rhythm-only failure
+  falls back to the explicit default grid while preserving the valid
+  multitrack result;
+- a whole-song acceptance panel summarizes and navigates low-confidence and
+  unusually short note candidates across every normal product track. It does
+  not auto-delete, reclassify, or count them as ground-truth errors.
+
+Verification boundary:
+
+- Beat This currently estimates beat count between downbeats with a
+  denominator fixed to four. Common simple meters are useful estimates, but
+  6/8 versus related compound groupings is not a verified distinction;
+- old-code Job `37746586` was checked read-only and left unchanged. It
+  completed `0:0` in `00:21:19`, was fetched successfully, and its result keeps
+  the default rhythm grid; the next song submitted from this implementation
+  receives the new analysis stage;
+- tests cover rhythm binding, bar/beat math, cross-track issue classification,
+  note create/save/undo, and pipeline-stage reporting. Swift Package and Xcode
+  builds, strict formatting, signed packaging, and shell syntax pass;
+- full `make check` passes 259 Python and 29 Swift tests with three expected
+  environment-gated skips. The single focused `/review` found no remaining
+  P0/P1 blocker.
 
 ## Task 009B2D: responsiveness, music library, and voice coverage
 

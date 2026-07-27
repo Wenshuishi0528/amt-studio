@@ -316,6 +316,7 @@ def _validate_state(project_dir: Path, state: dict[str, Any]) -> dict[str, Any]:
         "queued",
         "starting",
         "full_transcription",
+        "rhythm_analysis",
         "gap_planning",
         "automatic_gap_recovery",
         "packaging",
@@ -1015,7 +1016,12 @@ def _fetch_results(
             timeout=1800,
         )
     probe_id = f"{state['run_id']}-auto-gap"
-    for relative in (f"runs/{probe_id}", f"reports/{probe_id}"):
+    rhythm_run_id = f"{state['run_id']}-rhythm"
+    for relative in (
+        f"runs/{rhythm_run_id}",
+        f"runs/{probe_id}",
+        f"reports/{probe_id}",
+    ):
         remote_path = f"{remote_project}/{relative}"
         if connection.remote(
             f"test -d {shlex.quote(remote_path)} && printf yes || true",
@@ -1046,6 +1052,7 @@ def _pipeline_stage(
     run_id = state["run_id"]
     bundle_id = state["bundle_id"]
     probe_id = f"{run_id}-auto-gap"
+    rhythm_run_id = f"{run_id}-rhythm"
     raw_bundle_id = f"{bundle_id}-raw"
     checks = (
         (
@@ -1063,6 +1070,10 @@ def _pipeline_stage(
         (
             f"{remote_project}/exports/{raw_bundle_id}/bundle_manifest.json",
             "gap_planning",
+        ),
+        (
+            f"{remote_project}/runs/{rhythm_run_id}/run_manifest.json",
+            "rhythm_analysis",
         ),
         (
             f"{remote_project}/runs/{run_id}/run_manifest.json",

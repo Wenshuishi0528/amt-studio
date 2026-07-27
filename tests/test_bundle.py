@@ -254,6 +254,48 @@ class BundleTests(unittest.TestCase):
             )
             self.assertFalse(canonical["claims"]["accuracy_claimed"])
 
+    def test_multitrack_bundle_uses_verified_rhythm_when_provided(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            project, canonical_hash = _project(Path(temporary))
+            note_run = _note_run(
+                project,
+                canonical_hash,
+                worker="muscriptor",
+                run_id="muscriptor-with-rhythm",
+                pitch=69.0,
+            )
+            beat_run = _beat_run(project, canonical_hash)
+            output = project / "exports" / "muscriptor-with-rhythm"
+
+            build_muscriptor_multitrack_bundle(
+                project,
+                note_run,
+                output,
+                beat_run_dir=beat_run,
+            )
+
+            canonical = json.loads(
+                (output / "canonical_project.json").read_text(encoding="utf-8")
+            )
+            midi = mido.MidiFile(output / "performance.mid")
+            rhythm = canonical["rhythm"]
+            self.assertEqual(rhythm["source_run_id"], "beat-run")
+            self.assertEqual(rhythm["source_model"], "final0")
+            self.assertEqual(len(rhythm["events"]), 9)
+            self.assertEqual(rhythm["meter_map"][0]["numerator"], 4)
+            self.assertEqual(
+                {result["worker"] for result in canonical["worker_results"]},
+                {"muscriptor", "beat_this"},
+            )
+            self.assertTrue(canonical["claims"]["tempo_inferred"])
+            tempo_messages = [
+                message
+                for message in midi.tracks[0]
+                if message.type == "set_tempo"
+            ]
+            self.assertTrue(tempo_messages)
+            self.assertEqual(mido.tempo2bpm(tempo_messages[0].tempo), 120.0)
+
     def test_multitrack_bundle_preserves_tracks_beyond_one_midi_port(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             project, canonical_hash = _project(Path(temporary))

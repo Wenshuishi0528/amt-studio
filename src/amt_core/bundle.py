@@ -237,6 +237,7 @@ def build_canonical_bundle(
                     project_dir,
                 ),
                 "normalized_sha256": beat_result.outputs["normalized/rhythm.json"].sha256,
+                "events": [event.to_dict() for event in rhythm.events],
                 "tempo_map": [point.to_dict() for point in rhythm.tempo_map],
                 "meter_map": [point.to_dict() for point in rhythm.meter_map],
                 "uncertainty": rhythm.uncertainty,
@@ -329,6 +330,7 @@ def build_muscriptor_multitrack_bundle(
     output_dir: Path,
     *,
     default_bpm: float = 120.0,
+    beat_run_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Build an editable multitrack bundle from one immutable MuScriptor run."""
 
@@ -358,6 +360,18 @@ def build_muscriptor_multitrack_bundle(
     source_model = events[0].source_model
     if any(event.source_model != source_model for event in events):
         raise BundleBuildError("MuScriptor result has ambiguous source models")
+
+    rhythm: RhythmMap | None = None
+    beat_result: WorkerResultV1 | None = None
+    if beat_run_dir is not None:
+        beat_result = load_worker_result(beat_run_dir)
+        if beat_result.worker != "beat_this" or beat_result.project_id != project_id:
+            raise BundleBuildError("rhythm result worker or project identity is invalid")
+        if _manifest_canonical_hash(beat_result) != canonical_sha256:
+            raise BundleBuildError("rhythm result is not bound to the canonical mix")
+        rhythm = RhythmMap.from_dict(beat_result.read_rhythm_map())
+        if rhythm.canonical_audio_sha256 != canonical_sha256:
+            raise BundleBuildError("normalized rhythm map is not bound to the canonical mix")
 
     grouped: dict[str, list[NoteEvent]] = defaultdict(list)
     for event in events:
@@ -404,24 +418,32 @@ def build_muscriptor_multitrack_bundle(
             )
 
         tempo_points = (
-            TempoPoint(
-                time_sec=0.0,
-                bpm=float(default_bpm),
-                confidence=None,
-                uncertainty_bpm=None,
-                source_event_ids=("private-beta-default-tempo",),
-                method="private_beta_default",
-            ),
+            rhythm.tempo_map
+            if rhythm is not None
+            else (
+                TempoPoint(
+                    time_sec=0.0,
+                    bpm=float(default_bpm),
+                    confidence=None,
+                    uncertainty_bpm=None,
+                    source_event_ids=("private-beta-default-tempo",),
+                    method="private_beta_default",
+                ),
+            )
         )
         meter_points = (
-            MeterPoint(
-                time_sec=0.0,
-                numerator=4,
-                denominator=4,
-                confidence=None,
-                source_event_ids=("private-beta-default-meter",),
-                status="defaulted",
-            ),
+            rhythm.meter_map
+            if rhythm is not None
+            else (
+                MeterPoint(
+                    time_sec=0.0,
+                    numerator=4,
+                    denominator=4,
+                    confidence=None,
+                    source_event_ids=("private-beta-default-meter",),
+                    status="defaulted",
+                ),
+            )
         )
         performance_midi = temporary_dir / "performance.mid"
         melodic_track_count = sum(track_id != "drums" for track_id in loaded)
@@ -468,7 +490,26 @@ def build_muscriptor_multitrack_bundle(
                     "run_id": result.run_id,
                     "manifest_path": _project_relative(result.manifest_path, project_dir),
                     "manifest_sha256": sha256_file(result.manifest_path),
-                }
+                },
+                *(
+                    [
+                        {
+                            "contract_version": beat_result.manifest.get(
+                                "contract_version",
+                                "amt-worker-result/v1",
+                            ),
+                            "worker": beat_result.worker,
+                            "run_id": beat_result.run_id,
+                            "manifest_path": _project_relative(
+                                beat_result.manifest_path,
+                                project_dir,
+                            ),
+                            "manifest_sha256": sha256_file(beat_result.manifest_path),
+                        }
+                    ]
+                    if beat_result is not None
+                    else []
+                ),
             ],
             "tracks": [track.to_dict() for track in tracks],
             "main_melody_track_id": next(
@@ -476,24 +517,38 @@ def build_muscriptor_multitrack_bundle(
                 None,
             ),
             "rhythm": {
-                "source_run_id": None,
-                "source_model": None,
-                "normalized_path": None,
-                "normalized_sha256": None,
-                "tempo_map": [{"time_sec": 0.0, "bpm": float(default_bpm)}],
-                "meter_map": [
-                    {
-                        "time_sec": 0.0,
-                        "numerator": 4,
-                        "denominator": 4,
+                "source_run_id": rhythm.source_run_id if rhythm is not None else None,
+                "source_model": rhythm.source_model if rhythm is not None else None,
+                "normalized_path": (
+                    _project_relative(
+                        beat_result.output_path("normalized/rhythm.json"),
+                        project_dir,
+                    )
+                    if beat_result is not None
+                    else None
+                ),
+                "normalized_sha256": (
+                    beat_result.outputs["normalized/rhythm.json"].sha256
+                    if beat_result is not None
+                    else None
+                ),
+                "events": (
+                    [event.to_dict() for event in rhythm.events]
+                    if rhythm is not None
+                    else []
+                ),
+                "tempo_map": [point.to_dict() for point in tempo_points],
+                "meter_map": [point.to_dict() for point in meter_points],
+                "uncertainty": (
+                    rhythm.uncertainty
+                    if rhythm is not None
+                    else {
+                        "status": "defaulted_for_midi_serialization",
+                        "tempo_bpm": float(default_bpm),
+                        "meter": "4/4",
+                        "warning": "No beat or tempo model was run.",
                     }
-                ],
-                "uncertainty": {
-                    "status": "defaulted_for_midi_serialization",
-                    "tempo_bpm": float(default_bpm),
-                    "meter": "4/4",
-                    "warning": "No beat or tempo model was run.",
-                },
+                ),
             },
             "exports": {
                 "performance_midi": {
@@ -519,7 +574,7 @@ def build_muscriptor_multitrack_bundle(
                 "voice_used_as_default_main_melody": "voice" in grouped,
                 "instrument_labels_verified": False,
                 "accuracy_claimed": False,
-                "tempo_inferred": False,
+                "tempo_inferred": rhythm is not None,
                 "score_notation_claimed": False,
             },
         }
@@ -534,7 +589,18 @@ def build_muscriptor_multitrack_bundle(
             "limitations": [
                 "Instrument names are MuScriptor predictions and may be incomplete or wrong.",
                 "The voice track is the default main-melody view, not a formal accuracy claim.",
-                "A fixed 120 BPM and 4/4 meter are used only to serialize performance MIDI.",
+                *(
+                    [
+                        "Beat and meter are model estimates and may require correction."
+                    ]
+                    if rhythm is not None
+                    else [
+                        (
+                            f"A fixed {default_bpm:g} BPM and 4/4 meter are used only "
+                            "to serialize performance MIDI."
+                        )
+                    ]
+                ),
                 "Original normalized events and native MIDI remain preserved in the worker run.",
             ],
         }

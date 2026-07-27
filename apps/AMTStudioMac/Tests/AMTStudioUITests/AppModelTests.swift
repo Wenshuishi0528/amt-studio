@@ -484,6 +484,18 @@ final class AppModelTests: XCTestCase {
     model.redo()
     XCTAssertEqual(model.notes.first, moved)
 
+    model.transport.seek(to: 0.05)
+    model.createNoteAtPlayhead()
+    XCTAssertEqual(model.notes.count, 2)
+    let created = try XCTUnwrap(
+      model.notes.first(where: { $0.tags.contains("app-created") })
+    )
+    XCTAssertEqual(created.onsetSec, 0.05, accuracy: 0.001)
+    XCTAssertEqual(created.offsetSec - created.onsetSec, 0.5, accuracy: 0.001)
+    XCTAssertEqual(model.selectedNoteID, created.id)
+    model.undo()
+    XCTAssertEqual(model.notes, [moved])
+
     let midiURL = fixture.root.appendingPathComponent(
       "exports/ui-performance.mid"
     )

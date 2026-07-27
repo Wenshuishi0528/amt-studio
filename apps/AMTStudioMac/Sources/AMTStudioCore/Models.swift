@@ -114,12 +114,63 @@ public struct TrackProvenance: Decodable, Sendable, Equatable {
 }
 
 public struct RhythmMap: Decodable, Sendable, Equatable {
+  public let sourceRunID: String?
+  public let sourceModel: String?
+  public let events: [RhythmEventPoint]
   public let tempoMap: [TempoPoint]
   public let meterMap: [MeterPoint]
+  public let uncertainty: [String: JSONValue]?
+
+  public var isModelEstimated: Bool {
+    guard let sourceModel else { return false }
+    return !sourceModel.isEmpty
+  }
 
   enum CodingKeys: String, CodingKey {
+    case sourceRunID = "source_run_id"
+    case sourceModel = "source_model"
+    case events
     case tempoMap = "tempo_map"
     case meterMap = "meter_map"
+    case uncertainty
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    sourceRunID = try container.decodeIfPresent(String.self, forKey: .sourceRunID)
+    sourceModel = try container.decodeIfPresent(String.self, forKey: .sourceModel)
+    events =
+      try container.decodeIfPresent([RhythmEventPoint].self, forKey: .events)
+      ?? []
+    tempoMap =
+      try container.decodeIfPresent([TempoPoint].self, forKey: .tempoMap)
+      ?? []
+    meterMap =
+      try container.decodeIfPresent([MeterPoint].self, forKey: .meterMap)
+      ?? []
+    uncertainty =
+      try container.decodeIfPresent(
+        [String: JSONValue].self,
+        forKey: .uncertainty
+      )
+  }
+}
+
+public struct RhythmEventPoint: Codable, Sendable, Equatable {
+  public let timeSec: Double
+  public let beatNumber: Int
+  public let isDownbeat: Bool
+
+  public init(timeSec: Double, beatNumber: Int, isDownbeat: Bool) {
+    self.timeSec = timeSec
+    self.beatNumber = beatNumber
+    self.isDownbeat = isDownbeat
+  }
+
+  enum CodingKeys: String, CodingKey {
+    case timeSec = "time_sec"
+    case beatNumber = "beat_number"
+    case isDownbeat = "is_downbeat"
   }
 }
 
@@ -142,17 +193,25 @@ public struct MeterPoint: Codable, Sendable, Equatable {
   public let timeSec: Double
   public let numerator: Int
   public let denominator: Int
+  public let status: String?
 
-  public init(timeSec: Double, numerator: Int, denominator: Int) {
+  public init(
+    timeSec: Double,
+    numerator: Int,
+    denominator: Int,
+    status: String? = nil
+  ) {
     self.timeSec = timeSec
     self.numerator = numerator
     self.denominator = denominator
+    self.status = status
   }
 
   enum CodingKeys: String, CodingKey {
     case timeSec = "time_sec"
     case numerator
     case denominator
+    case status
   }
 }
 

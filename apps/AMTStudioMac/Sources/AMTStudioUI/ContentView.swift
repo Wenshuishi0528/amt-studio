@@ -853,6 +853,7 @@ private struct JobProgressView: View {
         model.activeComputeMode == .hyak ? "上传并排队" : "创建本机任务"
       ),
       ("waveform", "整曲识别"),
+      ("metronome", "速度与拍号"),
       ("scope", "检查缺口"),
       ("wand.and.stars", "自动补漏"),
       ("shippingbox", "打包结果"),
@@ -1019,9 +1020,10 @@ private struct JobProgressView: View {
   private var currentPhase: Int {
     switch model.betaPipelineStage {
     case "full_transcription": 1
-    case "gap_planning": 2
-    case "automatic_gap_recovery": 3
-    case "packaging", "complete": 4
+    case "rhythm_analysis": 2
+    case "gap_planning": 3
+    case "automatic_gap_recovery": 4
+    case "packaging", "complete": 5
     default:
       ["RUNNING", "COMPLETING"].contains(model.betaSlurmState ?? "") ? 1 : 0
     }
@@ -1030,6 +1032,7 @@ private struct JobProgressView: View {
   private var stageDescription: String {
     switch model.betaPipelineStage {
     case "full_transcription": "正在识别完整多轨"
+    case "rhythm_analysis": "正在估算 BPM、拍号与每拍位置"
     case "gap_planning": "正在检查主旋律覆盖"
     case "automatic_gap_recovery": "正在定向补回主旋律长缺口"
     case "packaging": "识别完成，正在校验并打包结果"
@@ -1251,7 +1254,8 @@ private struct WorkspaceView: View {
           trackCount: overviewTracks.count,
           selectedTrackLabel: editor.selectedTrack.label,
           isLoadingSelection: model.isLoadingSelection,
-          theme: theme
+          theme: theme,
+          onAddNote: model.createNoteAtPlayhead
         )
         Divider()
         if pianoRollDisplayMode == .allTracks {
@@ -1271,6 +1275,7 @@ private struct WorkspaceView: View {
             duration: timelineDuration,
             selectedNoteID: $model.selectedNoteID,
             onCommit: model.commit,
+            rhythm: editor.snapshot.canonicalProject.rhythm,
             theme: theme
           )
         }
@@ -1309,6 +1314,8 @@ private struct WorkspaceView: View {
   @ViewBuilder
   private var inspector: some View {
     VStack(spacing: 0) {
+      ResultReviewPanel(model: model)
+      Divider()
       ConfidenceReviewPanel(model: model)
       Divider()
       if let note = model.selectedNote {
@@ -1319,11 +1326,19 @@ private struct WorkspaceView: View {
         )
         .id("\(note.id)-\(note.onsetSec)-\(note.offsetSec)-\(note.pitchMIDI)")
       } else {
-        EmptyStateView(
-          icon: "cursorarrow.click",
-          title: "选择音符",
-          message: "拖动音符可同时改变时间与音高；拖左右把手可调整长度。"
-        )
+        VStack(spacing: 14) {
+          EmptyStateView(
+            icon: "cursorarrow.click",
+            title: "选择或新增音符",
+            message: "拖动音符可同时改变时间与音高；拖左右把手可调整长度。"
+          )
+          Button("在播放头新增音符", systemImage: "plus.rectangle.on.rectangle") {
+            model.createNoteAtPlayhead()
+          }
+          .buttonStyle(.borderedProminent)
+          .keyboardShortcut("n", modifiers: [.command, .shift])
+          .accessibilityIdentifier("add-note-empty-inspector")
+        }
       }
     }
   }
@@ -1391,6 +1406,27 @@ private struct TransportControlsView: View {
         )
         .font(.caption)
         .foregroundStyle(.secondary)
+      }
+      if let position = model.currentMusicalPosition {
+        HStack(spacing: 10) {
+          Label(
+            position.displayLabel,
+            systemImage: "music.note"
+          )
+          .font(.caption.monospacedDigit())
+          Text(model.currentMeterLabel)
+            .font(.caption.monospacedDigit().weight(.semibold))
+          Text(
+            model.representativeBPM.map {
+              "\($0.formatted(.number.precision(.fractionLength(1)))) BPM"
+            } ?? "BPM —"
+          )
+          .font(.caption.monospacedDigit())
+          Text(model.rhythmSourceLabel)
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+          Spacer()
+        }
       }
       HStack(spacing: 10) {
         Label("原曲音量", systemImage: "waveform")
@@ -1642,6 +1678,36 @@ private struct ConfidenceReviewPanel: View {
   }
 }
 
+private struct ResultReviewPanel: View {
+  @ObservedObject var model: AppModel
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      HStack {
+        Label("整曲验收", systemImage: "checklist")
+          .font(.headline)
+        Spacer()
+        Text("\(model.snapshot?.tracks.count ?? 0) 轨")
+          .font(.caption.monospacedDigit())
+          .foregroundStyle(.secondary)
+      }
+      Text(model.projectReviewSummary)
+        .font(.caption)
+        .foregroundStyle(.secondary)
+      Button("定位下一项", systemImage: "scope") {
+        model.seekToNextProjectReviewIssue()
+      }
+      .buttonStyle(.bordered)
+      .disabled(model.projectReviewIssues.isEmpty)
+      .accessibilityIdentifier("review-next-project-issue")
+      Text("这里只提示低置信度和异常短音；它们是复核线索，不会被自动删除。")
+        .font(.caption2)
+        .foregroundStyle(.secondary)
+    }
+    .padding(12)
+  }
+}
+
 private enum PianoRollDisplayMode: String, CaseIterable, Identifiable {
   case allTracks
   case currentTrack
@@ -1662,6 +1728,7 @@ private struct PianoRollModeBar: View {
   let selectedTrackLabel: String
   let isLoadingSelection: Bool
   let theme: AMTTheme
+  let onAddNote: () -> Void
 
   var body: some View {
     HStack(spacing: 12) {
@@ -1692,6 +1759,15 @@ private struct PianoRollModeBar: View {
         ProgressView("正在切换音轨…")
           .controlSize(.small)
           .font(.caption)
+      }
+
+      if mode == .currentTrack {
+        Button("新增音符", systemImage: "plus") {
+          onAddNote()
+        }
+        .buttonStyle(.borderedProminent)
+        .keyboardShortcut("n", modifiers: [.command, .shift])
+        .accessibilityIdentifier("add-note-at-playhead")
       }
 
       Button(
@@ -2049,6 +2125,7 @@ private struct PianoRollView: View {
   let duration: Double
   @Binding var selectedNoteID: String?
   let onCommit: (EditorNote) -> Void
+  let rhythm: RhythmMap
   let theme: AMTTheme
 
   private let pointsPerSecond = 28.0
@@ -2081,6 +2158,7 @@ private struct PianoRollView: View {
       ZStack(alignment: .topLeading) {
         PianoGrid(
           duration: duration,
+          rhythm: rhythm,
           minimumPitch: minimumPitch,
           maximumPitch: maximumPitch,
           pointsPerSecond: pointsPerSecond,
@@ -2165,6 +2243,7 @@ private struct PianoRollPlayhead: View {
 
 private struct PianoGrid: View {
   let duration: Double
+  let rhythm: RhythmMap
   let minimumPitch: Double
   let maximumPitch: Double
   let pointsPerSecond: Double
@@ -2194,6 +2273,31 @@ private struct PianoGrid: View {
           lineWidth: 0.5
         )
       }
+      let beatMarkers = RhythmTimeline.markers(
+        duration: duration,
+        rhythm: rhythm
+      )
+      for marker in beatMarkers {
+        let x = marker.timeSec * pointsPerSecond
+        context.stroke(
+          Path(CGRect(x: x, y: 0, width: 0.5, height: size.height)),
+          with: .color(
+            marker.isDownbeat
+              ? Color.accentColor.opacity(0.50)
+              : Color.secondary.opacity(0.16)
+          ),
+          lineWidth: marker.isDownbeat ? 1 : 0.5
+        )
+        if marker.isDownbeat {
+          context.draw(
+            Text("第\(marker.bar)小节")
+              .font(.caption2)
+              .foregroundColor(.accentColor),
+            at: CGPoint(x: x + 3, y: 8),
+            anchor: .leading
+          )
+        }
+      }
       for second in stride(from: 0, through: Int(duration), by: 5) {
         let x = Double(second) * pointsPerSecond
         context.stroke(
@@ -2203,7 +2307,7 @@ private struct PianoGrid: View {
         )
         context.draw(
           Text("\(second)s").font(.caption2).foregroundColor(.secondary),
-          at: CGPoint(x: x + 3, y: 8),
+          at: CGPoint(x: x + 3, y: 22),
           anchor: .leading
         )
       }

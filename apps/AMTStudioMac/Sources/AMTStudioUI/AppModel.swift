@@ -233,6 +233,9 @@ public final class AppModel: ObservableObject {
   private var projectLoadGeneration = UUID()
   private var activeSecurityScopedURLs: [URL] = []
   private var lastMelodyGapID: String?
+  private var lastProjectReviewIssueID: String?
+  private var pendingSelectedNoteID: String?
+  private var pendingSelectedTrackID: String?
   private var selectionLoadTask: Task<Void, Never>?
   private var selectionLoadGeneration = UUID()
 
@@ -626,6 +629,67 @@ public final class AppModel: ObservableObject {
     notes.lazy.filter { $0.confidence == nil }.count
   }
 
+  public var rhythm: RhythmMap? {
+    snapshot?.canonicalProject.rhythm
+  }
+
+  public var representativeBPM: Double? {
+    rhythm.flatMap(RhythmTimeline.representativeBPM)
+  }
+
+  public var currentMeterLabel: String {
+    guard let rhythm else { return "—" }
+    let meter = RhythmTimeline.meter(
+      at: transport.currentTime,
+      rhythm: rhythm
+    )
+    return "\(meter.numerator)/\(meter.denominator)"
+  }
+
+  public var currentMusicalPosition: MusicalPosition? {
+    guard let rhythm else { return nil }
+    return RhythmTimeline.position(
+      at: transport.currentTime,
+      duration: max(
+        transport.duration,
+        snapshot?.notes.map(\.offsetSec).max() ?? 1
+      ),
+      rhythm: rhythm
+    )
+  }
+
+  public var rhythmSourceLabel: String {
+    guard let rhythm else { return "没有节拍信息" }
+    return rhythm.isModelEstimated
+      ? "模型估算，建议听感确认"
+      : "未分析；当前为 MIDI 默认网格"
+  }
+
+  public var projectReviewIssues: [ProjectReviewIssue] {
+    guard let snapshot else { return [] }
+    let visibleTrackIDs = Set(visibleTrackChoices.map(\.id))
+    var allNotes = snapshot.notes.filter {
+      visibleTrackIDs.contains($0.trackID)
+    }
+    if let editor {
+      allNotes.removeAll { $0.trackID == editor.selectedTrack.id }
+      if visibleTrackIDs.contains(editor.selectedTrack.id) {
+        allNotes.append(contentsOf: editor.notes)
+      }
+    }
+    return ProjectReviewAnalyzer.issues(
+      notes: allNotes,
+      confidenceThreshold: reviewConfidenceThreshold
+    )
+  }
+
+  public var projectReviewSummary: String {
+    let issues = projectReviewIssues
+    let low = issues.lazy.filter { $0.kind == .lowConfidence }.count
+    let short = issues.count - low
+    return "\(issues.count) 项 · 低置信度 \(low) · 过短 \(short)"
+  }
+
   private func updateMelodyCoverage() {
     guard let snapshot else {
       melodyGaps = []
@@ -897,6 +961,83 @@ public final class AppModel: ObservableObject {
     selectReviewNote(offset: 1)
   }
 
+  public func createNoteAtPlayhead() {
+    do {
+      guard var editor else { return }
+      let start = max(0, transport.currentTime)
+      let beatDuration =
+        rhythm.map {
+          RhythmTimeline.beatDuration(at: start, rhythm: $0)
+        } ?? 0.5
+      let duration = min(4, max(0.08, beatDuration))
+      let pitch =
+        selectedNote?.pitchMIDI
+        ?? editor.notes.map(\.pitchMIDI).sorted().dropFirst(
+          editor.notes.count / 2
+        ).first
+        ?? 60
+      let note = EditorNote(
+        id: "app-created-\(UUID().uuidString.lowercased())",
+        trackID: editor.selectedTrack.id,
+        sourceTrackID: editor.selectedTrack.id,
+        instrument: editor.selectedTrack.instrument,
+        onsetSec: start,
+        offsetSec: start + duration,
+        pitchMIDI: pitch.rounded(),
+        velocity: 80,
+        confidence: nil,
+        isMainMelodyCandidate:
+          editor.selectedTrack.instrument?.lowercased() == "voice",
+        sourceRunID: "amt-studio-manual-edit",
+        sourceModel: "manual",
+        sourceEventIDs: [],
+        tags: ["app-created"],
+        extra: [:]
+      )
+      try editor.create(note)
+      try editor.save()
+      self.editor = editor
+      selectedNoteID = note.id
+      statusMessage =
+        "已在播放头新增 1 个音符，长度为当前一拍；可拖动或调整两端"
+      errorMessage = nil
+      updateMelodyCoverage()
+      refreshMIDIPreview()
+    } catch {
+      present(error)
+    }
+  }
+
+  public func seekToNextProjectReviewIssue() {
+    let issues = projectReviewIssues
+    guard !issues.isEmpty else { return }
+    let issue: ProjectReviewIssue
+    if let lastProjectReviewIssueID,
+      let index = issues.firstIndex(where: { $0.id == lastProjectReviewIssueID })
+    {
+      issue = issues[(index + 1) % issues.count]
+    } else {
+      issue =
+        issues.first(where: { $0.timeSec > transport.currentTime + 0.05 })
+        ?? issues[0]
+    }
+    lastProjectReviewIssueID = issue.id
+    transport.seek(to: max(0, issue.timeSec - 0.25))
+    if editor?.selectedTrack.id == issue.trackID {
+      selectedNoteID = issue.noteID
+    } else {
+      pendingSelectedTrackID = issue.trackID
+      pendingSelectedNoteID = issue.noteID
+      chooseTrack(issue.trackID)
+    }
+    let trackLabel =
+      snapshot?.tracks.first(where: { $0.id == issue.trackID })
+      .map { MelodyTrackSelector.displayLabel(for: $0) }
+      ?? issue.trackID
+    statusMessage =
+      "已定位 \(trackLabel) · \(issue.kind.label) · \(formatClock(issue.timeSec))"
+  }
+
   public func commit(_ note: EditorNote) {
     do {
       guard var editor else { return }
@@ -1068,7 +1209,17 @@ public final class AppModel: ObservableObject {
     }
     snapshot = prepared.snapshot
     editor = prepared.editor
-    selectedNoteID = prepared.editor?.notes.first?.id
+    if let editor = prepared.editor,
+      pendingSelectedTrackID == editor.selectedTrack.id,
+      let pendingSelectedNoteID,
+      editor.notes.contains(where: { $0.id == pendingSelectedNoteID })
+    {
+      selectedNoteID = pendingSelectedNoteID
+    } else {
+      selectedNoteID = prepared.editor?.notes.first?.id
+    }
+    pendingSelectedTrackID = nil
+    pendingSelectedNoteID = nil
     statusMessage = prepared.statusMessage
     errorMessage = nil
     if let editor = prepared.editor {
@@ -1088,6 +1239,9 @@ public final class AppModel: ObservableObject {
     editor = prepared.editor
     selectedNoteID = prepared.editor?.notes.first?.id
     lastMelodyGapID = nil
+    lastProjectReviewIssueID = nil
+    pendingSelectedTrackID = nil
+    pendingSelectedNoteID = nil
     statusMessage = prepared.statusMessage
     errorMessage = prepared.warning
     if persistRecentProject {

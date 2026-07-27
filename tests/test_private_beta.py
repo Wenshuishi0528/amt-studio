@@ -270,6 +270,16 @@ class PrivateBetaTests(unittest.TestCase):
                 "full_transcription",
             )
 
+            rhythm_manifest = (
+                project / "runs/full-run-rhythm/run_manifest.json"
+            )
+            rhythm_manifest.parent.mkdir(parents=True)
+            rhythm_manifest.write_text("{}", encoding="utf-8")
+            self.assertEqual(
+                _pipeline_stage(connection, state),
+                "rhythm_analysis",
+            )
+
             raw_bundle = (
                 project
                 / "exports/full-run-multitrack-raw/bundle_manifest.json"

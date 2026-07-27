@@ -19,6 +19,7 @@
 		000000000000000000000059 /* AMTStudioAppUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000039 /* AMTStudioAppUITests.swift */; };
 		00000000000000000000005A /* PrivateBetaBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000003A /* PrivateBetaBackend.swift */; };
 		00000000000000000000005B /* AMTAppearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000003B /* AMTAppearance.swift */; };
+		00000000000000000000005C /* RhythmAndReview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000003C /* RhythmAndReview.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -47,6 +48,7 @@
 		000000000000000000000040 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Support/Info.plist; sourceTree = "<group>"; };
 		00000000000000000000003A /* PrivateBetaBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/AMTStudioUI/PrivateBetaBackend.swift; sourceTree = "<group>"; };
 		00000000000000000000003B /* AMTAppearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/AMTStudioUI/AMTAppearance.swift; sourceTree = "<group>"; };
+		00000000000000000000003C /* RhythmAndReview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/AMTStudioCore/RhythmAndReview.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -93,6 +95,7 @@
 				000000000000000000000031 /* ProjectLoader.swift */,
 				000000000000000000000032 /* EditHistory.swift */,
 				000000000000000000000033 /* MIDIExporter.swift */,
+				00000000000000000000003C /* RhythmAndReview.swift */,
 				000000000000000000000034 /* AppModel.swift */,
 				000000000000000000000035 /* AudioTransport.swift */,
 				000000000000000000000036 /* AudioWaveformLoader.swift */,
@@ -230,6 +233,7 @@
 				000000000000000000000057 /* ContentView.swift in Sources */,
 				00000000000000000000005A /* PrivateBetaBackend.swift in Sources */,
 				00000000000000000000005B /* AMTAppearance.swift in Sources */,
+				00000000000000000000005C /* RhythmAndReview.swift in Sources */,
 				000000000000000000000058 /* AMTStudioApp.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
