@@ -24,6 +24,23 @@ public struct ContentView: View {
     .frame(minWidth: 1_150, minHeight: 720)
     .toolbar {
       ToolbarItemGroup {
+        Menu(model.computeMode.label, systemImage: model.computeMode.icon) {
+          ForEach(ComputeMode.allCases) { mode in
+            Button {
+              model.setComputeMode(mode)
+            } label: {
+              Label(
+                mode.label,
+                systemImage: model.computeMode == mode
+                  ? "checkmark.circle.fill"
+                  : mode.icon
+              )
+            }
+          }
+        }
+        .disabled(model.isBetaBusy || model.hasActiveBetaJob)
+        .help("选择下一首歌使用 Hyak、本机 GPU 或本机 CPU")
+        .accessibilityIdentifier("compute-mode-menu")
         Button(hyakActionTitle, systemImage: hyakActionIcon) {
           if model.hyakConnectionState == .connected {
             model.checkHyakConnection()
@@ -44,7 +61,7 @@ public struct ContentView: View {
         .help(
           model.hasActiveBetaJob
             ? "当前已有任务，完成或失败前不会重复提交"
-            : "选择 MP3/WAV 并在 Hyak GPU 上识别"
+            : transcriptionHelp
         )
         .accessibilityIdentifier("transcribe-song")
         if model.isBetaBusy {
@@ -208,24 +225,69 @@ public struct ContentView: View {
         }
       }
 
-      Section("Hyak") {
-        LabeledContent("连接", value: hyakConnectionLabel)
+      Section("计算") {
+        Picker(
+          "下一首歌",
+          selection: Binding(
+            get: { model.computeMode },
+            set: { model.setComputeMode($0) }
+          )
+        ) {
+          ForEach(ComputeMode.allCases) { mode in
+            Text(mode.label).tag(mode)
+          }
+        }
+        .disabled(model.isBetaBusy || model.hasActiveBetaJob)
+        .accessibilityIdentifier("compute-mode-picker")
+        Text(model.computeMode.detail)
+          .font(.caption)
+          .foregroundStyle(.secondary)
+
+        if model.computeMode == .hyak {
+          LabeledContent("Hyak 连接", value: hyakConnectionLabel)
+        } else {
+          Button("检查本机环境", systemImage: "checkmark.shield") {
+            model.checkLocalCompute()
+          }
+          .disabled(model.isCheckingLocalCompute)
+          if model.isCheckingLocalCompute {
+            ProgressView()
+              .controlSize(.small)
+          }
+          Text(model.localReadinessMessage)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+
         if let jobID = model.betaJobID {
-          LabeledContent("Job ID", value: jobID)
+          LabeledContent(
+            model.activeComputeMode == .hyak ? "Job ID" : "任务 ID",
+            value: jobID
+          )
+          LabeledContent(
+            "运行位置",
+            value: model.activeComputeMode?.label ?? "未知"
+          )
           LabeledContent(
             "任务",
             value: model.betaSlurmState ?? "准备中"
           )
         }
-        if model.hyakConnectionState == .loginRequired {
+        if model.activeComputeMode == .hyak
+          && model.hyakConnectionState == .loginRequired
+        {
           Label(
             "登录过期不会终止远端作业。重新登录后会自动查询并取回结果。",
             systemImage: "exclamationmark.arrow.triangle.2.circlepath"
           )
           .font(.caption)
           .foregroundStyle(.orange)
+        } else if model.computeMode == .hyak {
+          Text("Hyak 是默认方式；关闭 Mac 窗口不会终止已提交的 Slurm 作业。")
+            .font(.caption)
+            .foregroundStyle(.secondary)
         } else {
-          Text("模型只在 Hyak GPU 上运行；关闭 Mac 窗口不会终止已提交的 Slurm 作业。")
+          Text("本机任务会降低 CPU 后台优先级，但仍可能明显占用处理器、GPU 和统一内存。")
             .font(.caption)
             .foregroundStyle(.secondary)
         }
@@ -490,7 +552,7 @@ public struct ContentView: View {
   }
 
   private var hyakActionTitle: String {
-    switch model.hyakConnectionState {
+    return switch model.hyakConnectionState {
     case .connected: "检查 Hyak"
     case .checking: "正在连接"
     case .unknown, .loginRequired: "连接 Hyak"
@@ -498,7 +560,7 @@ public struct ContentView: View {
   }
 
   private var hyakActionIcon: String {
-    switch model.hyakConnectionState {
+    return switch model.hyakConnectionState {
     case .connected: "network.badge.shield.half.filled"
     case .checking: "arrow.triangle.2.circlepath"
     case .unknown: "network"
@@ -521,6 +583,17 @@ public struct ContentView: View {
     case .checking: "检查中"
     case .connected: "已连接"
     case .loginRequired: "需要重新登录"
+    }
+  }
+
+  private var transcriptionHelp: String {
+    switch model.computeMode {
+    case .hyak:
+      "选择音频并在 Hyak L40 GPU 上识别"
+    case .localGPU:
+      "选择音频并在本机 Apple GPU 后台识别"
+    case .localCPU:
+      "选择音频并在本机 CPU 低优先级后台识别"
     }
   }
 
@@ -561,6 +634,7 @@ public struct ContentView: View {
       LibraryHomeView(
         projects: model.libraryProjects,
         isBusy: model.isBetaBusy || model.hasActiveBetaJob,
+        computeMode: model.computeMode,
         theme: theme,
         onTranscribe: importAudioPanel,
         onOpenProject: openProjectPanel,
@@ -770,14 +844,20 @@ private struct AppearanceSettingsView: View {
 private struct JobProgressView: View {
   @ObservedObject var model: AppModel
   let theme: AMTTheme
+  @State private var isConfirmingLocalStop = false
 
-  private let phases = [
-    ("arrow.up.circle", "上传并排队"),
-    ("waveform", "整曲识别"),
-    ("scope", "检查缺口"),
-    ("wand.and.stars", "自动补漏"),
-    ("shippingbox", "打包结果"),
-  ]
+  private var phases: [(String, String)] {
+    [
+      (
+        model.activeComputeMode == .hyak ? "arrow.up.circle" : "desktopcomputer",
+        model.activeComputeMode == .hyak ? "上传并排队" : "创建本机任务"
+      ),
+      ("waveform", "整曲识别"),
+      ("scope", "检查缺口"),
+      ("wand.and.stars", "自动补漏"),
+      ("shippingbox", "打包结果"),
+    ]
+  }
 
   var body: some View {
     ZStack {
@@ -804,9 +884,11 @@ private struct JobProgressView: View {
             )
             .font(.caption.weight(.semibold))
             .foregroundStyle(theme.active)
-            Text("JOB \(model.betaJobID ?? "—")")
-              .font(.caption.monospaced())
-              .foregroundStyle(theme.mutedText)
+            Text(
+              "\(model.activeComputeMode == .hyak ? "JOB" : "TASK") \(model.betaJobID ?? "—")"
+            )
+            .font(.caption.monospaced())
+            .foregroundStyle(theme.mutedText)
           }
         }
 
@@ -859,14 +941,24 @@ private struct JobProgressView: View {
           }
           .buttonStyle(.borderedProminent)
           .disabled(model.isBetaBusy)
-          Button("检查 Hyak", systemImage: "network") {
-            model.checkHyakConnection()
+          if model.activeComputeMode == .hyak {
+            Button("检查 Hyak", systemImage: "network") {
+              model.checkHyakConnection()
+            }
+            .buttonStyle(.bordered)
+            .disabled(model.hyakConnectionState == .checking)
+          } else {
+            Button("停止本机任务", systemImage: "stop.circle") {
+              isConfirmingLocalStop = true
+            }
+            .buttonStyle(.bordered)
+            .disabled(model.isBetaBusy)
           }
-          .buttonStyle(.bordered)
-          .disabled(model.hyakConnectionState == .checking)
           Spacer()
           Label(
-            "完成后自动取回，不需要重新上传",
+            model.activeComputeMode == .hyak
+              ? "完成后自动取回，不需要重新上传"
+              : "本机完成后自动打开结果",
             systemImage: "arrow.down.to.line.compact"
           )
           .font(.callout)
@@ -879,8 +971,10 @@ private struct JobProgressView: View {
           Label(connectionLabel, systemImage: connectionIcon)
           Divider()
             .frame(height: 16)
-          Text("Job \(model.betaJobID ?? "—")")
-            .monospaced()
+          Text(
+            "\(model.activeComputeMode == .hyak ? "Job" : "Task") \(model.betaJobID ?? "—")"
+          )
+          .monospaced()
           Divider()
             .frame(height: 16)
           Text(stageDescription)
@@ -901,6 +995,18 @@ private struct JobProgressView: View {
       }
       .frame(maxWidth: 980, alignment: .leading)
       .padding(42)
+    }
+    .confirmationDialog(
+      "停止本机计算？",
+      isPresented: $isConfirmingLocalStop,
+      titleVisibility: .visible
+    ) {
+      Button("停止任务", role: .destructive) {
+        model.cancelLocalCompute()
+      }
+      Button("继续运行", role: .cancel) {}
+    } message: {
+      Text("未完成的项目和日志会保留；模型进程将停止。")
     }
   }
 
@@ -930,13 +1036,20 @@ private struct JobProgressView: View {
     case "complete": "结果已经完成"
     default:
       model.betaSlurmState == "PENDING"
-        ? "GPU 作业已排队，等待资源"
-        : "正在准备远端任务"
+        ? (model.activeComputeMode == .hyak
+          ? "GPU 作业已排队，等待资源"
+          : "本机后台任务正在启动")
+        : (model.activeComputeMode == .hyak
+          ? "正在准备远端任务"
+          : "正在准备本机任务")
     }
   }
 
   private var connectionLabel: String {
-    switch model.hyakConnectionState {
+    if model.activeComputeMode != .hyak {
+      return model.activeComputeMode?.label ?? "本机计算"
+    }
+    return switch model.hyakConnectionState {
     case .connected: "Hyak 已连接"
     case .checking: "正在检查连接"
     case .loginRequired: "需要重新登录"
@@ -945,7 +1058,10 @@ private struct JobProgressView: View {
   }
 
   private var connectionIcon: String {
-    switch model.hyakConnectionState {
+    if model.activeComputeMode != .hyak {
+      return model.activeComputeMode?.icon ?? "desktopcomputer"
+    }
+    return switch model.hyakConnectionState {
     case .connected: "network.badge.shield.half.filled"
     case .checking: "arrow.triangle.2.circlepath"
     case .loginRequired: "network.slash"
@@ -983,6 +1099,7 @@ private struct JobProgressView: View {
 private struct LibraryHomeView: View {
   let projects: [LocalProjectItem]
   let isBusy: Bool
+  let computeMode: ComputeMode
   let theme: AMTTheme
   let onTranscribe: () -> Void
   let onOpenProject: () -> Void
@@ -998,9 +1115,11 @@ private struct LibraryHomeView: View {
             .foregroundStyle(theme.accent)
           Label("AMT Studio", systemImage: "waveform.path")
             .font(.system(size: 34, weight: .bold, design: .rounded))
-          Text("把一首歌变成可以试听、分轨和编辑的 MIDI。模型在 Hyak GPU 运行，Mac 负责项目与编辑。")
-            .font(.title3)
-            .foregroundStyle(theme.mutedText)
+          Text(
+            "把一首歌变成可以试听、分轨和编辑的 MIDI。下一首歌将使用\(computeMode.label)；默认仍是 Hyak GPU。"
+          )
+          .font(.title3)
+          .foregroundStyle(theme.mutedText)
         }
 
         HStack(spacing: 16) {
@@ -1073,7 +1192,9 @@ private struct LibraryHomeView: View {
         }
 
         Label(
-          "已经提交的 Hyak 作业在关闭窗口或 SSH 登录过期后仍会继续；重新连接只恢复查询，不会重复提交。",
+          computeMode == .hyak
+            ? "已经提交的 Hyak 作业在关闭窗口或 SSH 登录过期后仍会继续；重新连接只恢复查询，不会重复提交。"
+            : "本机任务会在独立后台进程中继续；开始前请保存其他工作，必要时可以在任务页停止。",
           systemImage: "checkmark.shield"
         )
         .font(.callout)

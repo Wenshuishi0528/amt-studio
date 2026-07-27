@@ -9,11 +9,13 @@ from pathlib import Path
 
 from amt_core.private_beta import (
     PrivateBetaError,
+    _local_worker_command,
     _load_hyak_configuration,
     _load_state,
     _pipeline_stage,
     _unique_project_dir,
     _validate_state,
+    local_readiness,
 )
 from amt_core.utils import atomic_write_json, slugify
 from workers.muscriptor import run_baseline
@@ -138,6 +140,76 @@ class PrivateBetaTests(unittest.TestCase):
 
             self.assertEqual(loaded["project_id"], project_id)
             self.assertEqual(loaded["pipeline_stage"], "queued")
+
+    def test_local_state_and_readiness_do_not_start_inference(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            project = root / "projects/private/local-song"
+            (project / "app").mkdir(parents=True)
+            (project / "logs").mkdir()
+            atomic_write_json(
+                project / "manifest.json",
+                {"schema_version": 1, "project_id": "local-song"},
+            )
+            worker_bin = root / "workers/muscriptor/.venv/bin"
+            worker_bin.mkdir(parents=True)
+            for executable in ("python", "muscriptor"):
+                path = worker_bin / executable
+                path.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+                path.chmod(0o755)
+            model_dir = root / "model"
+            model_dir.mkdir()
+            weight = model_dir / "model.safetensors"
+            config = model_dir / "config.json"
+            weight.write_bytes(b"fixture")
+            config.write_text("{}", encoding="utf-8")
+            provenance = root / "weights/muscriptor/large-provenance.json"
+            provenance.parent.mkdir(parents=True)
+            atomic_write_json(
+                provenance,
+                {
+                    "schema_version": 1,
+                    "repository": "MuScriptor/muscriptor-large",
+                    "weight": {"path": str(weight)},
+                    "config": {"path": str(config)},
+                },
+            )
+            readiness = local_readiness(
+                root,
+                device="cpu",
+                probe_device=False,
+            )
+            self.assertTrue(readiness["ready"])
+            self.assertEqual(readiness["local_device"], "cpu")
+
+            state = {
+                "schema_version": 1,
+                "backend": "local",
+                "status": "running",
+                "submitted_at": "2026-07-26T00:00:00+00:00",
+                "project_id": "local-song",
+                "local_project_dir": str(project),
+                "job_id": "local-0123456789ab",
+                "run_id": "muscriptor-local-fixture",
+                "bundle_id": "muscriptor-local-fixture-multitrack",
+                "weight_provenance_path": str(provenance),
+                "slurm_state": "RUNNING",
+                "pipeline_stage": "full_transcription",
+                "local_device": "cpu",
+                "local_pid": 12345,
+                "local_log_path": str(project / "logs/local-compute.log"),
+            }
+            loaded = _validate_state(project.resolve(), state)
+            self.assertEqual(loaded["backend"], "local")
+            self.assertEqual(loaded["local_device"], "cpu")
+
+            command = _local_worker_command(project, repo_root=root)
+            self.assertIn("run-local-worker", command)
+            self.assertIn(str(project), command)
+
+            state["local_log_path"] = str(root / "outside/local-compute.log")
+            with self.assertRaisesRegex(PrivateBetaError, "日志路径"):
+                _validate_state(project.resolve(), state)
 
     def test_state_file_symlink_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

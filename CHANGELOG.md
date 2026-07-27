@@ -4,6 +4,45 @@ This project records changes by numbered research task until formal semantic
 versions and releases begin. Dates and commit identifiers refer to the local
 Git history.
 
+## Task 009B2K — Optional local compute backend — 2026-07-26
+
+Commit: this task's final commit
+
+### Added
+
+- Added an explicit per-song compute selector with Hyak GPU as the unchanged
+  default plus optional Apple Metal/MPS and local CPU modes.
+- Added local readiness reporting for the isolated MuScriptor environment,
+  pinned model provenance, ffmpeg, and Apple MPS availability.
+- Added a detached per-project local worker with fixed logs, resumable status,
+  pipeline stages, lower CPU scheduling priority, and guarded stop support.
+
+### Changed
+
+- Generalized the private-Beta status flow so local execution uses the same
+  full-song multitrack, automatic same-model gap recovery, raw fallback, and
+  final bundle contract as the Hyak route.
+- Kept the existing Slurm/login-node guards as the default for gap recovery;
+  only the explicit local worker can select the bounded non-Slurm path.
+- Updated the app copy and job view to identify where a task runs without
+  implying that an SSH login controls the lifetime of either backend.
+
+### Verified
+
+- `make check` passes 258 Python and 28 Swift tests with three expected
+  environment-gated Swift skips. Strict Swift formatting, the signed release
+  build, plist/signature validation, and `git diff --check` pass.
+- Tests verify local command planning and state/readiness safety without
+  spawning MuScriptor. Per owner request, no local model inference or local
+  song processing was performed, so local runtime speed and output quality
+  remain unmeasured.
+- The separate XCUITest launch was blocked by the already-running production
+  app with the same bundle identifier. That app was retained because it was
+  monitoring live Hyak Job `37744240`; no GUI pass is claimed for this slice.
+- A read-only Hyak check found only Job `37744240` on L40. Its full-song
+  MuScriptor run completed successfully and the single job continued into
+  multitrack/gap processing; no duplicate job was submitted.
+
 ## Task 009B2J — All-track piano-roll overview — 2026-07-26
 
 Commit: this task's final commit

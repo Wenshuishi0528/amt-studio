@@ -5,6 +5,8 @@ import json
 import os
 import re
 import shlex
+import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -25,6 +27,8 @@ HOST_PATTERN = re.compile(
 COMMIT_PATTERN = re.compile(r"[0-9a-f]{40}")
 TERMINAL_STATUSES = {"succeeded", "failed", "cancelled"}
 JOB_STATUSES = TERMINAL_STATUSES | {"submitted", "running"}
+COMPUTE_BACKENDS = {"hyak", "local"}
+LOCAL_DEVICES = {"mps", "cpu"}
 
 
 class PrivateBetaError(RuntimeError):
@@ -211,6 +215,7 @@ def _canonical_filesystem_text(value: str) -> str:
 def _validate_state(project_dir: Path, state: dict[str, Any]) -> dict[str, Any]:
     allowed = {
         "schema_version",
+        "backend",
         "status",
         "submitted_at",
         "updated_at",
@@ -228,6 +233,10 @@ def _validate_state(project_dir: Path, state: dict[str, Any]) -> dict[str, Any]:
         "slurm_exit_code",
         "code_commit",
         "pipeline_stage",
+        "local_device",
+        "local_pid",
+        "local_log_path",
+        "failure_reason",
     }
     if set(state) - allowed:
         raise PrivateBetaError("任务状态文件包含未知字段")
@@ -250,16 +259,35 @@ def _validate_state(project_dir: Path, state: dict[str, Any]) -> dict[str, Any]:
     if not local_project_matches:
         raise PrivateBetaError("任务状态 local_project_dir 与项目目录不匹配")
 
-    host = _safe_host(_require_state_string(state, "host"))
-    remote_root = _safe_remote_root(_require_state_string(state, "remote_root"))
-    remote_project = _require_state_string(state, "remote_project_dir")
-    expected_remote = f"{remote_root}/projects/private/{project_id}"
-    if remote_project != expected_remote:
-        raise PrivateBetaError("任务状态 remote_project_dir 与项目身份不匹配")
-
+    backend = state.get("backend", "hyak")
+    if backend not in COMPUTE_BACKENDS:
+        raise PrivateBetaError("任务状态 backend 无效")
+    state["backend"] = backend
     job_id = _require_state_string(state, "job_id")
-    if not job_id.isdigit():
-        raise PrivateBetaError("任务状态 job_id 无效")
+    if backend == "hyak":
+        host = _safe_host(_require_state_string(state, "host"))
+        remote_root = _safe_remote_root(_require_state_string(state, "remote_root"))
+        remote_project = _require_state_string(state, "remote_project_dir")
+        expected_remote = f"{remote_root}/projects/private/{project_id}"
+        if remote_project != expected_remote:
+            raise PrivateBetaError("任务状态 remote_project_dir 与项目身份不匹配")
+        if not job_id.isdigit():
+            raise PrivateBetaError("任务状态 job_id 无效")
+        state["host"] = host
+        state["remote_root"] = remote_root
+    else:
+        if STATE_IDENTIFIER.fullmatch(job_id) is None or not job_id.startswith("local-"):
+            raise PrivateBetaError("本机任务 job_id 无效")
+        local_device = _require_state_string(state, "local_device")
+        if local_device not in LOCAL_DEVICES:
+            raise PrivateBetaError("本机任务 local_device 无效")
+        local_pid = state.get("local_pid")
+        if not isinstance(local_pid, int) or isinstance(local_pid, bool) or local_pid <= 1:
+            raise PrivateBetaError("本机任务 local_pid 无效")
+        log_path = Path(_require_state_string(state, "local_log_path"))
+        expected_log_path = (project_dir / "logs/local-compute.log").resolve()
+        if log_path.expanduser().resolve() != expected_log_path:
+            raise PrivateBetaError("本机任务日志路径无效")
     run_id = _require_state_string(state, "run_id", pattern=STATE_IDENTIFIER)
     bundle_id = _require_state_string(state, "bundle_id", pattern=STATE_IDENTIFIER)
     if bundle_id != f"{run_id}-multitrack":
@@ -305,7 +333,13 @@ def _validate_state(project_dir: Path, state: dict[str, Any]) -> dict[str, Any]:
         or "\r" in provenance
     ):
         raise PrivateBetaError("任务状态 weight_provenance_path 无效")
-    for key in ("submitted_at", "updated_at", "completed_at", "slurm_exit_code"):
+    for key in (
+        "submitted_at",
+        "updated_at",
+        "completed_at",
+        "slurm_exit_code",
+        "failure_reason",
+    ):
         if key in state and state[key] is not None and not isinstance(state[key], str):
             raise PrivateBetaError(f"任务状态字段 {key} 无效")
     if "code_commit" in state and state["code_commit"] is not None:
@@ -321,8 +355,6 @@ def _validate_state(project_dir: Path, state: dict[str, Any]) -> dict[str, Any]:
         manifest_project_id
     ) != _canonical_filesystem_text(project_id):
         raise PrivateBetaError("任务状态 project_id 与项目清单不匹配")
-    state["host"] = host
-    state["remote_root"] = remote_root
     return state
 
 
@@ -352,6 +384,217 @@ def _unique_project_dir(local_root: Path, stem: str) -> Path:
         return candidate
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     return local_root / f"{safe}-{stamp}-{uuid4().hex[:6]}"
+
+
+def _local_weight_provenance(
+    repo_root: Path,
+    explicit: str | None,
+) -> Path:
+    candidate = Path(
+        explicit
+        or os.environ.get("MUSCRIPTOR_WEIGHT_PROVENANCE")
+        or repo_root / "weights/muscriptor/large-provenance.json"
+    ).expanduser()
+    if not candidate.is_absolute():
+        candidate = repo_root / candidate
+    candidate = candidate.resolve()
+    if not candidate.is_file() or candidate.is_symlink():
+        raise PrivateBetaError(
+            "本机尚未准备 MuScriptor 模型。请先登录 Hugging Face，并按 "
+            "workers/muscriptor/README.md 下载约 5.5 GB 的固定版本模型。"
+        )
+    try:
+        provenance = json.loads(candidate.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise PrivateBetaError(f"本机模型来源文件无法读取：{candidate}") from exc
+    if (
+        not isinstance(provenance, dict)
+        or provenance.get("repository") != "MuScriptor/muscriptor-large"
+        or not isinstance(provenance.get("weight"), dict)
+        or not isinstance(provenance.get("config"), dict)
+    ):
+        raise PrivateBetaError("本机 MuScriptor 模型来源文件无效")
+    for label in ("weight", "config"):
+        path_value = provenance[label].get("path")
+        if not isinstance(path_value, str) or not Path(path_value).expanduser().is_file():
+            raise PrivateBetaError(f"本机 MuScriptor {label} 文件不存在")
+    return candidate
+
+
+def local_readiness(
+    repo_root: Path,
+    *,
+    device: str,
+    weight_provenance: str | None = None,
+    probe_device: bool = True,
+) -> dict[str, Any]:
+    repo_root = repo_root.expanduser().resolve()
+    if device not in LOCAL_DEVICES:
+        raise PrivateBetaError("本机计算设备必须是 mps 或 cpu")
+    worker_env = repo_root / "workers/muscriptor/.venv"
+    worker_python = worker_env / "bin/python"
+    muscriptor = worker_env / "bin/muscriptor"
+    missing: list[str] = []
+    if not worker_python.is_file() or not os.access(worker_python, os.X_OK):
+        missing.append("MuScriptor Python 环境")
+    if not muscriptor.is_file() or not os.access(muscriptor, os.X_OK):
+        missing.append("MuScriptor 命令")
+    if shutil.which("ffmpeg") is None:
+        missing.append("ffmpeg")
+    provenance: Path | None = None
+    try:
+        provenance = _local_weight_provenance(repo_root, weight_provenance)
+    except PrivateBetaError as exc:
+        missing.append(str(exc))
+
+    device_available = device == "cpu"
+    if not missing and device == "mps" and probe_device:
+        diagnostics = _run(
+            [
+                str(worker_python),
+                "-c",
+                (
+                    "import json, torch; "
+                    "print(json.dumps({'built': bool(torch.backends.mps.is_built()), "
+                    "'available': bool(torch.backends.mps.is_available())}))"
+                ),
+            ],
+            timeout=30,
+        )
+        try:
+            payload = json.loads(diagnostics.stdout)
+        except json.JSONDecodeError as exc:
+            raise PrivateBetaError("无法读取本机 Apple GPU 状态") from exc
+        device_available = payload.get("available") is True
+        if not device_available:
+            missing.append("Apple Metal/MPS 当前不可用")
+
+    ready = not missing and device_available
+    label = "Apple GPU（Metal/MPS）" if device == "mps" else "CPU"
+    return {
+        "schema_version": 1,
+        "backend": "local",
+        "local_device": device,
+        "ready": ready,
+        "readiness_message": (
+            f"本机 {label} 已就绪；开始后会占用本机资源。"
+            if ready
+            else "；".join(missing)
+        ),
+        "weight_provenance_path": str(provenance) if provenance else None,
+    }
+
+
+def _local_worker_command(
+    project_dir: Path,
+    *,
+    repo_root: Path,
+) -> list[str]:
+    return [
+        sys.executable,
+        "-m",
+        "amt_core.private_beta",
+        "run-local-worker",
+        str(project_dir),
+        "--repo-root",
+        str(repo_root),
+    ]
+
+
+def start_local_job(
+    audio: Path,
+    *,
+    repo_root: Path,
+    local_root: Path,
+    device: str,
+    weight_provenance: str | None,
+) -> dict[str, Any]:
+    audio = audio.expanduser().resolve()
+    repo_root = repo_root.expanduser().resolve()
+    local_root = local_root.expanduser().resolve()
+    if not audio.is_file():
+        raise PrivateBetaError(f"找不到音频文件：{audio}")
+    readiness = local_readiness(
+        repo_root,
+        device=device,
+        weight_provenance=weight_provenance,
+    )
+    if readiness["ready"] is not True:
+        raise PrivateBetaError(str(readiness["readiness_message"]))
+    project_dir = _unique_project_dir(local_root, audio.stem)
+    manifest = initialize_project(audio, project_dir, title=audio.stem, copy_original=True)
+    project_id = manifest["project_id"]
+    run_id = (
+        f"muscriptor-local-{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}-"
+        f"{uuid4().hex[:8]}"
+    )
+    bundle_id = f"{run_id}-multitrack"
+    job_id = f"local-{uuid4().hex[:12]}"
+    log_path = project_dir / "logs/local-compute.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    code_commit = _run(
+        ["git", "rev-parse", "--verify", "HEAD"],
+        cwd=repo_root,
+    ).stdout.strip()
+    state: dict[str, Any] = {
+        "schema_version": 1,
+        "backend": "local",
+        "status": "submitted",
+        "submitted_at": _utc_now(),
+        "project_id": project_id,
+        "local_project_dir": str(project_dir),
+        "job_id": job_id,
+        "run_id": run_id,
+        "bundle_id": bundle_id,
+        "weight_provenance_path": readiness["weight_provenance_path"],
+        "code_commit": code_commit,
+        "slurm_state": "PENDING",
+        "pipeline_stage": "starting",
+        "local_device": device,
+        "local_log_path": str(log_path),
+    }
+    _write_state(project_dir, state)
+    environment = os.environ.copy()
+    background_threads = max(1, (os.cpu_count() or 2) // 2)
+    environment.update(
+        {
+            "PYTHONUNBUFFERED": "1",
+            "OMP_NUM_THREADS": str(background_threads),
+            "MKL_NUM_THREADS": str(background_threads),
+        }
+    )
+    if device == "mps":
+        environment["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+    with log_path.open("a", encoding="utf-8") as log_handle:
+        try:
+            process = subprocess.Popen(
+                _local_worker_command(project_dir, repo_root=repo_root),
+                cwd=repo_root,
+                env=environment,
+                stdin=subprocess.PIPE,
+                stdout=log_handle,
+                stderr=subprocess.STDOUT,
+                text=True,
+                start_new_session=True,
+                close_fds=True,
+            )
+        except OSError as exc:
+            state["status"] = "failed"
+            state["slurm_state"] = "FAILED"
+            state["pipeline_stage"] = "failed"
+            state["completed_at"] = _utc_now()
+            state["failure_reason"] = f"无法启动本机后台任务：{exc}"
+            state["local_pid"] = 2
+            _write_state(project_dir, state)
+            raise PrivateBetaError(state["failure_reason"]) from exc
+    state["local_pid"] = process.pid
+    state["status"] = "running"
+    state["slurm_state"] = "RUNNING"
+    _write_state(project_dir, state)
+    if process.stdin is not None:
+        process.stdin.write("start\n")
+        process.stdin.close()
+    return state
 
 
 def _sync_code(connection: HyakConnection, repo_root: Path, remote_root: str) -> str:
@@ -551,6 +794,7 @@ def start_job(
 
     state: dict[str, Any] = {
         "schema_version": 1,
+        "backend": "hyak",
         "status": "submitted",
         "submitted_at": _utc_now(),
         "project_id": project_id,
@@ -566,6 +810,181 @@ def start_job(
         "slurm_state": "PENDING",
         "pipeline_stage": "queued",
     }
+    _write_state(project_dir, state)
+    return state
+
+
+def _run_local_pipeline(project_dir: Path, *, repo_root: Path) -> int:
+    from .bundle import build_muscriptor_multitrack_bundle
+    from workers.muscriptor import gap_probe, run_baseline
+
+    project_dir = project_dir.expanduser().resolve()
+    repo_root = repo_root.expanduser().resolve()
+    state = _load_state(project_dir)
+    if state["backend"] != "local":
+        raise PrivateBetaError("本机 worker 拒绝非本机任务状态")
+    if state["local_pid"] != os.getpid():
+        raise PrivateBetaError("本机 worker PID 与任务状态不匹配")
+    try:
+        os.nice(10)
+    except OSError:
+        pass
+
+    run_dir = project_dir / "runs" / state["run_id"]
+    raw_bundle = project_dir / "exports" / f"{state['bundle_id']}-raw"
+    final_bundle = project_dir / "exports" / state["bundle_id"]
+    worker_env = repo_root / "workers/muscriptor/.venv"
+    provenance = Path(state["weight_provenance_path"]).expanduser().resolve()
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg is None:
+        raise PrivateBetaError("本机找不到 ffmpeg")
+
+    try:
+        state["status"] = "running"
+        state["slurm_state"] = "RUNNING"
+        state["pipeline_stage"] = "full_transcription"
+        _write_state(project_dir, state)
+        exit_code = run_baseline.main(
+            [
+                "--project",
+                str(project_dir),
+                "--worker-env",
+                str(worker_env),
+                "--weight-provenance",
+                str(provenance),
+                "--run-id",
+                state["run_id"],
+                "--beam-size",
+                "4",
+                "--device",
+                state["local_device"],
+                "--prelude-forcing",
+                "--skip-midi",
+            ]
+        )
+        if exit_code != 0:
+            raise PrivateBetaError("本机 MuScriptor 整曲识别失败")
+
+        build_muscriptor_multitrack_bundle(project_dir, run_dir, raw_bundle)
+        state["pipeline_stage"] = "gap_planning"
+        _write_state(project_dir, state)
+        try:
+            state["pipeline_stage"] = "automatic_gap_recovery"
+            _write_state(project_dir, state)
+            recovery = gap_probe.run_automatic_probe(
+                project_dir,
+                probe_id=f"{state['run_id']}-auto-gap",
+                source_bundle_id=raw_bundle.name,
+                output_bundle_id=state["bundle_id"],
+                worker_env=worker_env,
+                weight_provenance=provenance,
+                ffmpeg=ffmpeg,
+                source_voice_track_id="voice",
+                device=state["local_device"],
+                require_slurm=False,
+                execution_backend="local",
+            )
+            if recovery.get("status") != "succeeded":
+                raise PrivateBetaError("本机自动补漏未成功")
+        except (OSError, RuntimeError, ValueError) as exc:
+            if not final_bundle.exists():
+                build_muscriptor_multitrack_bundle(
+                    project_dir,
+                    run_dir,
+                    final_bundle,
+                )
+            state["failure_reason"] = f"自动补漏回退为原始多轨：{exc}"
+
+        state["pipeline_stage"] = "packaging"
+        _write_state(project_dir, state)
+        if not (final_bundle / "bundle_manifest.json").is_file():
+            raise PrivateBetaError("本机任务没有生成最终多轨包")
+        state["status"] = "succeeded"
+        state["slurm_state"] = "COMPLETED"
+        state["pipeline_stage"] = "complete"
+        state["completed_at"] = _utc_now()
+        _write_state(project_dir, state)
+        return 0
+    except (OSError, RuntimeError, ValueError) as exc:
+        state["status"] = "failed"
+        state["slurm_state"] = "FAILED"
+        state["pipeline_stage"] = "failed"
+        state["completed_at"] = _utc_now()
+        state["failure_reason"] = str(exc)
+        _write_state(project_dir, state)
+        return 1
+
+
+def _local_worker_matches(pid: int, project_dir: Path) -> bool:
+    try:
+        command = subprocess.run(
+            ["ps", "-ww", "-p", str(pid), "-o", "command="],
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return (
+        command.returncode == 0
+        and "amt_core.private_beta run-local-worker" in command.stdout
+        and str(project_dir) in command.stdout
+    )
+
+
+def _refresh_local_job(project_dir: Path, state: dict[str, Any]) -> dict[str, Any]:
+    if state.get("status") in TERMINAL_STATUSES:
+        return state
+    pid = int(state["local_pid"])
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        state["status"] = "failed"
+        state["slurm_state"] = "FAILED"
+        state["pipeline_stage"] = "failed"
+        state["completed_at"] = _utc_now()
+        state["failure_reason"] = "本机后台进程已退出，结果未完成"
+        _write_state(project_dir, state)
+    except PermissionError as exc:
+        raise PrivateBetaError("无法确认本机后台进程状态") from exc
+    else:
+        if not _local_worker_matches(pid, project_dir):
+            state["status"] = "failed"
+            state["slurm_state"] = "FAILED"
+            state["pipeline_stage"] = "failed"
+            state["completed_at"] = _utc_now()
+            state["failure_reason"] = "本机后台进程身份已失效，结果未完成"
+            _write_state(project_dir, state)
+            return state
+        state["status"] = "running"
+        state["slurm_state"] = "RUNNING"
+        _write_state(project_dir, state)
+    return state
+
+
+def cancel_local_job(project_dir: Path) -> dict[str, Any]:
+    project_dir = project_dir.expanduser().resolve()
+    state = _load_state(project_dir)
+    if state["backend"] != "local":
+        raise PrivateBetaError("只能停止本机计算任务")
+    if state["status"] in TERMINAL_STATUSES:
+        return state
+    pid = int(state["local_pid"])
+    if not _local_worker_matches(pid, project_dir):
+        raise PrivateBetaError("本机任务进程身份不匹配，拒绝停止")
+    try:
+        if os.getpgid(pid) != pid:
+            raise PrivateBetaError("本机任务进程组身份不匹配，拒绝停止")
+        os.killpg(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    state["status"] = "cancelled"
+    state["slurm_state"] = "CANCELLED"
+    state["pipeline_stage"] = "failed"
+    state["completed_at"] = _utc_now()
+    state["failure_reason"] = "用户停止了本机计算"
     _write_state(project_dir, state)
     return state
 
@@ -667,6 +1086,8 @@ def _pipeline_stage(
 def refresh_job(project_dir: Path) -> dict[str, Any]:
     project_dir = project_dir.expanduser().resolve()
     state = _load_state(project_dir)
+    if state["backend"] == "local":
+        return _refresh_local_job(project_dir, state)
     if state.get("status") in {"succeeded", "failed", "cancelled"}:
         return state
     connection = HyakConnection.discover(state["host"])
@@ -745,8 +1166,33 @@ def build_parser() -> argparse.ArgumentParser:
         default=os.environ.get("MUSCRIPTOR_WEIGHT_PROVENANCE"),
     )
 
+    start_local = subparsers.add_parser("start-local")
+    start_local.add_argument("audio", type=Path)
+    start_local.add_argument("--repo-root", type=Path, required=True)
+    start_local.add_argument("--local-root", type=Path, required=True)
+    start_local.add_argument("--device", choices=sorted(LOCAL_DEVICES), required=True)
+    start_local.add_argument(
+        "--weight-provenance",
+        default=os.environ.get("MUSCRIPTOR_WEIGHT_PROVENANCE"),
+    )
+
     status = subparsers.add_parser("status")
     status.add_argument("project", type=Path)
+
+    cancel_local = subparsers.add_parser("cancel-local")
+    cancel_local.add_argument("project", type=Path)
+
+    readiness = subparsers.add_parser("local-readiness")
+    readiness.add_argument("--repo-root", type=Path, required=True)
+    readiness.add_argument("--device", choices=sorted(LOCAL_DEVICES), required=True)
+    readiness.add_argument(
+        "--weight-provenance",
+        default=os.environ.get("MUSCRIPTOR_WEIGHT_PROVENANCE"),
+    )
+
+    local_worker = subparsers.add_parser("run-local-worker")
+    local_worker.add_argument("project", type=Path)
+    local_worker.add_argument("--repo-root", type=Path, required=True)
 
     connection = subparsers.add_parser("connection")
     connection.add_argument("--repo-root", type=Path, default=Path.cwd())
@@ -767,8 +1213,30 @@ def main(argv: list[str] | None = None) -> int:
                 remote_root=args.remote_root,
                 weight_provenance=args.weight_provenance,
             )
+        elif args.command == "start-local":
+            result = start_local_job(
+                args.audio,
+                repo_root=args.repo_root,
+                local_root=args.local_root,
+                device=args.device,
+                weight_provenance=args.weight_provenance,
+            )
         elif args.command == "status":
             result = refresh_job(args.project)
+        elif args.command == "cancel-local":
+            result = cancel_local_job(args.project)
+        elif args.command == "local-readiness":
+            result = local_readiness(
+                args.repo_root,
+                device=args.device,
+                weight_provenance=args.weight_provenance,
+            )
+        elif args.command == "run-local-worker":
+            sys.stdin.readline()
+            return _run_local_pipeline(
+                args.project,
+                repo_root=args.repo_root,
+            )
         elif args.command == "connection":
             host, _remote_root = _load_hyak_configuration(
                 args.repo_root.expanduser().resolve(),

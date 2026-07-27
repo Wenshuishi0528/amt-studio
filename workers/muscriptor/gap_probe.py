@@ -1263,6 +1263,25 @@ def build_automatic_bundle(
     return bundle_manifest
 
 
+def _execution_source_record(
+    *,
+    automatic_enhanced: bool,
+    execution_backend: str,
+) -> dict[str, Any]:
+    if execution_backend == "local":
+        relative = Path("src/amt_core/private_beta.py")
+    else:
+        relative = Path(
+            "slurm/40_private_beta_muscriptor.slurm"
+            if automatic_enhanced
+            else "slurm/41_muscriptor_gap_probe.slurm"
+        )
+    return {
+        "path": str(relative),
+        "sha256": sha256_file(run_baseline.REPO_ROOT / relative),
+    }
+
+
 def run_probe(
     project_dir: Path,
     config_path: Path,
@@ -1272,12 +1291,21 @@ def run_probe(
     ffmpeg: str,
     output_dir: Path | None = None,
     automatic_enhanced: bool = False,
+    device: str = "cuda",
+    require_slurm: bool = True,
+    execution_backend: str = "slurm",
 ) -> dict[str, Any]:
-    if not os.environ.get("SLURM_JOB_ID"):
+    if require_slurm and not os.environ.get("SLURM_JOB_ID"):
         raise GapProbeError("gap probe requires an active Slurm allocation")
     hostname = platform.node()
-    if "login" in hostname:
+    if require_slurm and "login" in hostname:
         raise GapProbeError("refusing to run gap probe on a login node")
+    if device not in {"cuda", "mps", "cpu", "auto"}:
+        raise GapProbeError("unsupported MuScriptor device")
+    if execution_backend not in {"slurm", "local"}:
+        raise GapProbeError("unsupported execution backend")
+    if require_slurm != (execution_backend == "slurm"):
+        raise GapProbeError("execution backend does not match the Slurm requirement")
     project_dir = project_dir.expanduser().resolve()
     config_path = config_path.expanduser().resolve()
     worker_env = worker_env.expanduser().resolve()
@@ -1330,7 +1358,9 @@ def run_probe(
             "skip_midi": True,
             "instrument_allowlist": None,
             "sampling": False,
+            "device": device,
         },
+        "execution_backend": execution_backend,
         "automatic_merge_performed": False,
     }
     atomic_write_json(run_dir / "request.json", request)
@@ -1343,7 +1373,8 @@ def run_probe(
         "started_at": _utc_now(),
         "ended_at": None,
         "hostname": hostname,
-        "slurm_job_id": os.environ["SLURM_JOB_ID"],
+        "slurm_job_id": os.environ.get("SLURM_JOB_ID"),
+        "execution_backend": execution_backend,
         "request_sha256": sha256_file(run_dir / "request.json"),
         "child_runs": [],
         "outputs": [],
@@ -1358,22 +1389,10 @@ def run_probe(
                     "path": "workers/muscriptor/run_baseline.py",
                     "sha256": sha256_file(Path(run_baseline.__file__).resolve()),
                 },
-                {
-                    "path": (
-                        "slurm/40_private_beta_muscriptor.slurm"
-                        if automatic_enhanced
-                        else "slurm/41_muscriptor_gap_probe.slurm"
-                    ),
-                    "sha256": sha256_file(
-                        run_baseline.REPO_ROOT
-                        / "slurm"
-                        / (
-                            "40_private_beta_muscriptor.slurm"
-                            if automatic_enhanced
-                            else "41_muscriptor_gap_probe.slurm"
-                        )
-                    ),
-                },
+                _execution_source_record(
+                    automatic_enhanced=automatic_enhanced,
+                    execution_backend=execution_backend,
+                ),
             ],
         },
         "error": None,
@@ -1415,7 +1434,7 @@ def run_probe(
                     "--beam-size",
                     "4",
                     "--device",
-                    "cuda",
+                    device,
                     "--prelude-forcing",
                     "--skip-midi",
                 ]
@@ -1498,12 +1517,21 @@ def run_automatic_probe(
     weight_provenance: Path,
     ffmpeg: str,
     source_voice_track_id: str = "voice",
+    device: str = "cuda",
+    require_slurm: bool = True,
+    execution_backend: str = "slurm",
 ) -> dict[str, Any]:
-    if not os.environ.get("SLURM_JOB_ID"):
+    if require_slurm and not os.environ.get("SLURM_JOB_ID"):
         raise GapProbeError("automatic gap recovery requires a Slurm allocation")
     hostname = platform.node()
-    if "login" in hostname:
+    if require_slurm and "login" in hostname:
         raise GapProbeError("refusing automatic gap recovery on a login node")
+    if device not in {"cuda", "mps", "cpu", "auto"}:
+        raise GapProbeError("unsupported MuScriptor device")
+    if execution_backend not in {"slurm", "local"}:
+        raise GapProbeError("unsupported execution backend")
+    if require_slurm != (execution_backend == "slurm"):
+        raise GapProbeError("execution backend does not match the Slurm requirement")
     project_dir = project_dir.expanduser().resolve()
     probe_id = _safe_identifier(probe_id, label="probe_id")
     source_bundle_id = _safe_identifier(
@@ -1540,6 +1568,9 @@ def run_automatic_probe(
                 ffmpeg=ffmpeg,
                 output_dir=output_dir,
                 automatic_enhanced=True,
+                device=device,
+                require_slurm=require_slurm,
+                execution_backend=execution_backend,
             )
             decision = (
                 "automatic_gap_recovery_completed"
@@ -1583,7 +1614,9 @@ def run_automatic_probe(
                 "started_at": _utc_now(),
                 "ended_at": _utc_now(),
                 "hostname": hostname,
-                "slurm_job_id": os.environ["SLURM_JOB_ID"],
+                "slurm_job_id": os.environ.get("SLURM_JOB_ID"),
+                "execution_backend": execution_backend,
+                "device": device,
                 "request_sha256": sha256_file(plan_path),
                 "child_runs": [],
                 "outputs": _artifact_records(run_dir),
@@ -1653,6 +1686,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--worker-env", type=Path, required=True)
     parser.add_argument("--weight-provenance", type=Path, required=True)
     parser.add_argument("--ffmpeg", default=shutil.which("ffmpeg") or "ffmpeg")
+    parser.add_argument("--device", default="cuda")
+    parser.add_argument(
+        "--allow-local",
+        action="store_true",
+        help="Allow the explicit local backend instead of requiring Slurm.",
+    )
     return parser
 
 
@@ -1673,6 +1712,9 @@ def main(argv: list[str] | None = None) -> int:
                 weight_provenance=args.weight_provenance,
                 ffmpeg=args.ffmpeg,
                 source_voice_track_id=args.source_voice_track,
+                device=args.device,
+                require_slurm=not args.allow_local,
+                execution_backend="local" if args.allow_local else "slurm",
             )
         else:
             manifest = run_probe(
@@ -1681,6 +1723,9 @@ def main(argv: list[str] | None = None) -> int:
                 worker_env=args.worker_env,
                 weight_provenance=args.weight_provenance,
                 ffmpeg=args.ffmpeg,
+                device=args.device,
+                require_slurm=not args.allow_local,
+                execution_backend="local" if args.allow_local else "slurm",
             )
     except GapProbeError as exc:
         print(json.dumps({"status": "failed", "error": str(exc)}, sort_keys=True))

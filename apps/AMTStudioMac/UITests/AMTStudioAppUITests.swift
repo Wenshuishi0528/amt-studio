@@ -25,6 +25,14 @@ final class AMTStudioAppUITests: XCTestCase {
       status.waitForExistence(timeout: 8),
       "应用没有打开 UI 测试项目"
     )
+    XCTAssertTrue(
+      app.descendants(matching: .any)["compute-mode-menu"].exists,
+      "应用没有显示计算方式入口"
+    )
+    XCTAssertTrue(
+      app.descendants(matching: .any)["compute-mode-picker"].exists,
+      "侧栏没有显示 Hyak、本机 GPU 与本机 CPU 选择"
+    )
     let pianoRoll = app.descendants(matching: .any)["piano-roll"]
     XCTAssertTrue(
       pianoRoll.waitForExistence(timeout: 8),

@@ -12,6 +12,10 @@ struct PrivateBetaResponse: Decodable, Sendable {
   let bundleID: String?
   let slurmState: String?
   let pipelineStage: String?
+  let backend: String?
+  let localDevice: String?
+  let ready: Bool?
+  let readinessMessage: String?
   let host: String?
   let user: String?
   let controlPath: String?
@@ -28,6 +32,10 @@ struct PrivateBetaResponse: Decodable, Sendable {
     case bundleID = "bundle_id"
     case slurmState = "slurm_state"
     case pipelineStage = "pipeline_stage"
+    case backend
+    case localDevice = "local_device"
+    case ready
+    case readinessMessage = "readiness_message"
     case host
     case user
     case controlPath = "control_path"
@@ -106,17 +114,17 @@ struct PrivateBetaBackend: Sendable {
     )
   }
 
-  func start(audioURL: URL) throws -> PrivateBetaResponse {
-    try execute([
-      "run",
-      "amt-private-beta",
-      "start",
-      audioURL.path,
-      "--repo-root",
-      repositoryRoot.path,
-      "--local-root",
-      localProjectsRoot.path,
-    ])
+  func start(
+    audioURL: URL,
+    computeMode: ComputeMode
+  ) throws -> PrivateBetaResponse {
+    try execute(
+      Self.startArguments(
+        audioURL: audioURL,
+        computeMode: computeMode,
+        repositoryRoot: repositoryRoot,
+        localProjectsRoot: localProjectsRoot
+      ))
   }
 
   func refresh(projectURL: URL) throws -> PrivateBetaResponse {
@@ -136,6 +144,56 @@ struct PrivateBetaBackend: Sendable {
       "--repo-root",
       repositoryRoot.path,
     ])
+  }
+
+  func localReadiness(
+    computeMode: ComputeMode
+  ) throws -> PrivateBetaResponse {
+    guard let device = computeMode.localDevice else {
+      throw PrivateBetaBackendError.invalidResponse(
+        "Hyak 模式不需要检查本机模型环境"
+      )
+    }
+    return try execute([
+      "run",
+      "amt-private-beta",
+      "local-readiness",
+      "--repo-root",
+      repositoryRoot.path,
+      "--device",
+      device,
+    ])
+  }
+
+  func cancelLocal(projectURL: URL) throws -> PrivateBetaResponse {
+    try execute([
+      "run",
+      "amt-private-beta",
+      "cancel-local",
+      projectURL.path,
+    ])
+  }
+
+  static func startArguments(
+    audioURL: URL,
+    computeMode: ComputeMode,
+    repositoryRoot: URL,
+    localProjectsRoot: URL
+  ) -> [String] {
+    var arguments = [
+      "run",
+      "amt-private-beta",
+      computeMode == .hyak ? "start" : "start-local",
+      audioURL.path,
+      "--repo-root",
+      repositoryRoot.path,
+      "--local-root",
+      localProjectsRoot.path,
+    ]
+    if let device = computeMode.localDevice {
+      arguments.append(contentsOf: ["--device", device])
+    }
+    return arguments
   }
 
   private func execute(_ arguments: [String]) throws -> PrivateBetaResponse {

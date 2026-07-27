@@ -1,15 +1,43 @@
 # Project status
 
-Current product milestone: Task 009B2J all-track piano-roll overview is
-implemented in the rebuilt and signed private Beta
+Current product milestone: Task 009B2K optional local Apple GPU/CPU execution
+is implemented while Hyak remains the default
 Research status: Gate 4 remains not passed for the rejected fusion routes; no
 new dataset, fusion, retuning, or training work is in the product critical path
-Current task: real new-song Job `37743206` completed successfully, including
-automatic gap recovery and final bundle retrieval; the result is open locally
-Next task: owner visual/use review of the all-track overview and detailed-track
-editing switch; do not start another model route solely because the previous
-interface looked unfinished
+Current task: real new-song Job `37744240` is running on Hyak L40; its full-song
+MuScriptor pass succeeded and the single job is continuing through bundle/gap
+processing
+Next task: let Job `37744240` finish and reopen the rebuilt app to review its
+result and the new compute selector; do not run a local song merely to test the
+new option while the owner needs the Mac
 Current branch: `main`
+
+Implemented and code-verified for Task 009B2K:
+
+- Hyak remains the default for every new song. The toolbar and sidebar now
+  allow an explicit choice of `Hyak GPU`, `本机 GPU`, or `本机 CPU`;
+- local GPU uses MuScriptor's Apple Metal/MPS device and local CPU uses a
+  reduced-priority background worker with bounded thread environment settings;
+- local work uses the same full-song multitrack, deterministic gap planning,
+  optional same-model recovery, fallback, and final bundle contract as Hyak;
+- local readiness checks model/environment/device availability before launch.
+  A detached per-project worker survives the app window, has a fixed local log,
+  exposes honest stages, and can be stopped only after PID/project identity
+  checks;
+- no password, Hyak account identity, private audio, or local result path was
+  added to tracked source. Existing Hyak connection/submission behavior is
+  unchanged;
+- by owner request, no local model inference and no local song transcription
+  were run. Verification therefore covers command planning, state validation,
+  readiness without device probing, process safety, UI selection persistence,
+  compilation, and packaging—not local runtime speed or transcription quality;
+- `make check` passes 258 Python and 28 Swift tests with three expected
+  environment-gated Swift skips. Strict Swift formatting, release signing,
+  plist validation, and `git diff --check` pass;
+- the standalone XCUITest could not attach to its temporary fixture because
+  the owner's already-running production app has the same bundle identifier.
+  The live app was deliberately not terminated during its active Hyak task;
+  this is an explicit GUI-session verification gap, not a passing result.
 
 Implemented and verified for Task 009B2J:
 

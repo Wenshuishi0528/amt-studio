@@ -6,7 +6,9 @@ Status: private Beta usability implementation complete — Task 009A, 009B1,
 same-model directed gap recovery and Task 009B2F owner-approved enhanced voice
 productization are complete. Task 009B2G single-upload automatic same-model
 gap recovery and Task 009B2H Unicode-safe polling/explicit whole-version export
-are complete for the private Beta.
+are complete for the private Beta. Task 009B2I/J complete the dual-mode product
+shell and all-track overview. Task 009B2K adds optional local MPS/CPU execution
+while retaining Hyak as the default.
 
 ## Objective
 
@@ -105,6 +107,43 @@ Implemented:
 
 The mixer is a non-destructive MIDI audition surface. It does not claim the
 predicted instrument names are correct and does not change MuScriptor.
+
+## Task 009B2K: optional local compute
+
+Implemented:
+
+- each new song has three explicit compute choices: default Hyak GPU, local
+  Apple GPU through Metal/MPS, and local CPU;
+- the choice is persisted locally, but cannot change while a task is active;
+- readiness checks the existing isolated MuScriptor environment, pinned model
+  provenance, ffmpeg, and—when requested—MPS availability before launch;
+- local work runs in a detached per-project process with reduced scheduling
+  priority, bounded CPU-thread environment variables, a fixed project log,
+  restart-visible status, and a user-confirmed stop action;
+- PID, process-group, project identity, state path, log path, and bundle/run
+  relationships are validated before status or cancellation actions;
+- the local worker uses the same full-song MuScriptor decoding, lossless
+  multitrack bundle, automatic bounded same-model gap recovery, and raw-result
+  fallback contract as the Hyak private Beta;
+- Slurm requirements remain enabled by default in gap recovery. A non-Slurm
+  route is admitted only by the explicit local worker and records `local`
+  execution provenance.
+
+Verification boundary:
+
+- the owner explicitly requested that the Mac remain available. No local
+  MuScriptor inference, model load, or song processing was run;
+- unit tests cover default-Hyak persistence, local command construction,
+  readiness without GPU probing, state/path validation, and UI mode selection;
+- `make check` passes 258 Python and 28 Swift tests with three expected skips.
+  Strict Swift formatting and the signed release package pass;
+- standalone XCUITest was attempted once but could not open its fixture while
+  the already-running production app with the same bundle identifier was
+  monitoring a live Hyak task. The production app was intentionally retained,
+  and this slice does not claim GUI-session validation;
+- read-only Hyak inspection found only Job `37744240` on L40. Its full-song
+  MuScriptor pass succeeded before the job continued into bundle/gap
+  processing. No job was submitted, cancelled, or altered for this task.
 
 ## Task 009B2D: responsiveness, music library, and voice coverage
 

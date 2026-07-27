@@ -26,6 +26,54 @@ public enum HyakConnectionState: String, Sendable {
   case loginRequired
 }
 
+public enum ComputeMode: String, CaseIterable, Identifiable, Sendable {
+  case hyak
+  case localGPU
+  case localCPU
+
+  public var id: String { rawValue }
+
+  public var label: String {
+    switch self {
+    case .hyak: "Hyak GPU"
+    case .localGPU: "本机 GPU"
+    case .localCPU: "本机 CPU"
+    }
+  }
+
+  public var detail: String {
+    switch self {
+    case .hyak:
+      "默认。模型在 Hyak L40 上运行，Mac 只负责上传、状态和结果。"
+    case .localGPU:
+      "使用 Apple Metal/MPS；会占用统一内存并可能影响前台软件。"
+    case .localCPU:
+      "使用本机处理器并降低后台优先级；通常最慢，但不需要 GPU。"
+    }
+  }
+
+  public var icon: String {
+    switch self {
+    case .hyak: "network"
+    case .localGPU: "gauge.with.dots.needle.67percent"
+    case .localCPU: "cpu"
+    }
+  }
+
+  var localDevice: String? {
+    switch self {
+    case .hyak: nil
+    case .localGPU: "mps"
+    case .localCPU: "cpu"
+    }
+  }
+
+  static func resolve(backend: String?, localDevice: String?) -> ComputeMode {
+    guard backend == "local" else { return .hyak }
+    return localDevice == "cpu" ? .localCPU : .localGPU
+  }
+}
+
 public struct MelodyGap: Sendable, Equatable, Identifiable {
   public let startSec: Double
   public let endSec: Double
@@ -159,6 +207,10 @@ public final class AppModel: ObservableObject {
   @Published public private(set) var showMelodyVersions = false
   @Published public private(set) var appearanceMode: AMTAppearanceMode =
     .precision
+  @Published public private(set) var computeMode: ComputeMode = .hyak
+  @Published public private(set) var activeComputeMode: ComputeMode?
+  @Published public private(set) var localReadinessMessage = "尚未检查本机环境"
+  @Published public private(set) var isCheckingLocalCompute = false
 
   public let transport = AudioTransport()
 
@@ -170,6 +222,7 @@ public final class AppModel: ObservableObject {
   private let midiMasterVolumeKey = "AMTStudio.midiMasterVolume"
   private let projectBookmarksKey = "AMTStudio.projectBookmarks"
   private let appearanceModeKey = "AMTStudio.appearanceMode"
+  private let computeModeKey = "AMTStudio.computeMode"
   private var pendingInitialProjectURL: URL?
   private var betaMonitor: Task<Void, Never>?
   private var connectionMonitor: Task<Void, Never>?
@@ -199,6 +252,9 @@ public final class AppModel: ObservableObject {
     appearanceMode =
       defaults.string(forKey: appearanceModeKey)
       .flatMap(AMTAppearanceMode.init(rawValue:)) ?? .precision
+    computeMode =
+      defaults.string(forKey: computeModeKey)
+      .flatMap(ComputeMode.init(rawValue:)) ?? .hyak
     if let initialProjectURL {
       pendingInitialProjectURL = initialProjectURL
     } else if restoreRecent,
@@ -307,17 +363,26 @@ public final class AppModel: ObservableObject {
   public func transcribeSong(_ audioURL: URL) {
     guard !isBetaBusy else { return }
     let accessing = audioURL.startAccessingSecurityScopedResource()
+    let requestedMode = computeMode
     isBetaBusy = true
-    statusMessage = "正在准备音频、上传 Hyak 并提交 GPU 任务…"
+    statusMessage =
+      requestedMode == .hyak
+      ? "正在准备音频、上传 Hyak 并提交 GPU 任务…"
+      : "正在准备本机项目并启动\(requestedMode.label)后台任务…"
     errorMessage = nil
     Task {
       do {
         let backend = try PrivateBetaBackend.locate()
         let response = try await Task.detached(priority: .userInitiated) {
-          try backend.start(audioURL: audioURL)
+          try backend.start(
+            audioURL: audioURL,
+            computeMode: requestedMode
+          )
         }.value
         try handleBetaResponse(response)
-        hyakConnectionState = .connected
+        if requestedMode == .hyak {
+          hyakConnectionState = .connected
+        }
         if let betaProjectURL {
           startMonitoring(projectURL: betaProjectURL)
         }
@@ -435,6 +500,69 @@ public final class AppModel: ObservableObject {
     guard appearanceMode != mode else { return }
     appearanceMode = mode
     defaults.set(mode.rawValue, forKey: appearanceModeKey)
+  }
+
+  public func setComputeMode(_ mode: ComputeMode) {
+    guard !isBetaBusy, !hasActiveBetaJob, computeMode != mode else { return }
+    computeMode = mode
+    defaults.set(mode.rawValue, forKey: computeModeKey)
+    localReadinessMessage =
+      mode == .hyak
+      ? "Hyak 是默认计算方式"
+      : "尚未检查本机环境"
+  }
+
+  public func checkLocalCompute() {
+    guard computeMode != .hyak, !isCheckingLocalCompute else { return }
+    isCheckingLocalCompute = true
+    localReadinessMessage = "正在检查本机模型与计算设备…"
+    Task {
+      do {
+        let backend = try PrivateBetaBackend.locate()
+        let mode = computeMode
+        let response = try await Task.detached(priority: .utility) {
+          try backend.localReadiness(computeMode: mode)
+        }.value
+        guard response.ok else {
+          throw PrivateBetaBackendError.invalidResponse(
+            response.error ?? "本机环境尚未就绪"
+          )
+        }
+        localReadinessMessage =
+          response.readinessMessage
+          ?? (response.ready == true ? "本机环境已就绪" : "本机环境尚未就绪")
+        errorMessage = nil
+      } catch {
+        localReadinessMessage =
+          (error as? LocalizedError)?.errorDescription
+          ?? error.localizedDescription
+      }
+      isCheckingLocalCompute = false
+    }
+  }
+
+  public func cancelLocalCompute() {
+    guard
+      activeComputeMode == .localGPU || activeComputeMode == .localCPU,
+      let betaProjectURL,
+      !isBetaBusy
+    else {
+      return
+    }
+    isBetaBusy = true
+    statusMessage = "正在停止本机计算…"
+    Task {
+      do {
+        let backend = try PrivateBetaBackend.locate()
+        let response = try await Task.detached(priority: .userInitiated) {
+          try backend.cancelLocal(projectURL: betaProjectURL)
+        }.value
+        try handleBetaResponse(response)
+      } catch {
+        present(error)
+      }
+      isBetaBusy = false
+    }
   }
 
   public func toggleMute(_ id: String) {
@@ -978,6 +1106,10 @@ public final class AppModel: ObservableObject {
       betaJobID = state.jobID
       betaSlurmState = state.slurmState
       betaPipelineStage = state.pipelineStage
+      activeComputeMode = ComputeMode.resolve(
+        backend: state.backend,
+        localDevice: state.localDevice
+      )
       if prepared.catalog.bundles.isEmpty
         || !["COMPLETED", "FAILED", "CANCELLED"].contains(
           state.slurmState ?? ""
@@ -1134,7 +1266,9 @@ public final class AppModel: ObservableObject {
         try backend.refresh(projectURL: projectURL)
       }.value
       try handleBetaResponse(response)
-      hyakConnectionState = .connected
+      if activeComputeMode == .hyak {
+        hyakConnectionState = .connected
+      }
     } catch {
       presentBetaError(error)
     }
@@ -1156,6 +1290,10 @@ public final class AppModel: ObservableObject {
     if let path = response.localProjectDir {
       betaProjectURL = URL(fileURLWithPath: path, isDirectory: true)
     }
+    activeComputeMode = ComputeMode.resolve(
+      backend: response.backend,
+      localDevice: response.localDevice
+    )
     betaJobID = response.jobID ?? betaJobID
     betaSlurmState = response.slurmState ?? betaSlurmState
     betaPipelineStage = response.pipelineStage ?? betaPipelineStage
@@ -1164,26 +1302,42 @@ public final class AppModel: ObservableObject {
       guard let betaProjectURL else { return }
       clearActiveBetaProject()
       openProject(betaProjectURL)
-      statusMessage = "Hyak 识别流程完成，完整多轨与默认主旋律已取回"
-    case "failed":
+      statusMessage =
+        activeComputeMode == .hyak
+        ? "Hyak 识别流程完成，完整多轨与默认主旋律已取回"
+        : "本机识别完成，完整多轨与默认主旋律已生成"
+    case "failed", "cancelled":
       clearActiveBetaProject()
-      errorMessage = "Hyak 任务失败；项目日志已经保留，可据此定位问题。"
-      statusMessage = "识别失败"
+      if response.status == "cancelled" {
+        errorMessage = nil
+        statusMessage = "本机计算已停止；未完成项目与日志已经保留"
+      } else {
+        errorMessage =
+          activeComputeMode == .hyak
+          ? "Hyak 任务失败；项目日志已经保留，可据此定位问题。"
+          : "本机任务失败；项目日志已经保留，可据此定位问题。"
+        statusMessage = "识别失败"
+      }
     case "running":
       rememberActiveBetaProject()
       switch betaPipelineStage {
       case "automatic_gap_recovery":
-        statusMessage = "Hyak 正在自动补漏主旋律（任务 \(betaJobID ?? "未知")）"
+        statusMessage =
+          "\(activeComputeMode?.label ?? "计算任务")正在自动补漏主旋律（\(betaJobID ?? "未知")）"
       case "gap_planning":
         statusMessage = "整曲多轨已生成，正在检查主旋律长缺口"
       case "packaging":
         statusMessage = "识别已完成，正在打包完整多轨"
       default:
-        statusMessage = "Hyak GPU 正在识别整首歌（任务 \(betaJobID ?? "未知")）"
+        statusMessage =
+          "\(activeComputeMode?.label ?? "计算任务")正在识别整首歌（\(betaJobID ?? "未知")）"
       }
     default:
       rememberActiveBetaProject()
-      statusMessage = "Hyak 任务已排队（\(betaSlurmState ?? "PENDING")）"
+      statusMessage =
+        activeComputeMode == .hyak
+        ? "Hyak 任务已排队（\(betaSlurmState ?? "PENDING")）"
+        : "本机后台任务正在启动"
     }
     refreshProjectLibrary()
   }
@@ -1353,11 +1507,15 @@ private struct PrivateBetaJobState: Decodable, Sendable {
   let jobID: String?
   let slurmState: String?
   let pipelineStage: String?
+  let backend: String?
+  let localDevice: String?
 
   enum CodingKeys: String, CodingKey {
     case jobID = "job_id"
     case slurmState = "slurm_state"
     case pipelineStage = "pipeline_stage"
+    case backend
+    case localDevice = "local_device"
   }
 }
 

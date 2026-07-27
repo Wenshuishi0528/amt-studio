@@ -117,6 +117,33 @@ final class AppModelTests: XCTestCase {
     XCTAssertNil(reopened.betaJobID)
   }
 
+  func testComputeModePersistsAndPlansLocalWithoutStartingWork() throws {
+    let suiteName = "AMTStudioUITests.\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let model = AppModel(defaults: defaults, restoreRecent: false)
+    XCTAssertEqual(model.computeMode, .hyak)
+
+    model.setComputeMode(.localGPU)
+
+    XCTAssertEqual(model.computeMode, .localGPU)
+    XCTAssertNil(model.betaJobID)
+    XCTAssertNil(model.betaProjectURL)
+    let reopened = AppModel(defaults: defaults, restoreRecent: false)
+    XCTAssertEqual(reopened.computeMode, .localGPU)
+    XCTAssertNil(reopened.betaJobID)
+
+    let arguments = PrivateBetaBackend.startArguments(
+      audioURL: URL(fileURLWithPath: "/tmp/song.mp3"),
+      computeMode: .localGPU,
+      repositoryRoot: URL(fileURLWithPath: "/tmp/repository"),
+      localProjectsRoot: URL(fileURLWithPath: "/tmp/projects")
+    )
+    XCTAssertTrue(arguments.contains("start-local"))
+    XCTAssertTrue(arguments.contains("mps"))
+    XCTAssertFalse(arguments.contains("start"))
+  }
+
   func testTransportErrorsAreVisibleAndShortNotesKeepMoveHitArea() {
     let transport = AudioTransport()
     let missingAudio = URL(
