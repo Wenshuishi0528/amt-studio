@@ -88,3 +88,9 @@ This public repository contains source code, schemas, tests, and documentation
 only. It does not include private songs, datasets, model weights, credentials,
 or private generated transcriptions. No open-source license has been selected;
 see `LICENSE_NOT_SELECTED.md`.
+
+Hyak access is never included with this repository or application. An operator
+who independently has access must log in from Terminal with their own account,
+password, and Duo approval. Credentials, personal storage paths, SSH control
+sockets, and per-machine Hyak configuration must remain local; the reserved
+`configs/local_hyak.json` path is ignored by Git.
