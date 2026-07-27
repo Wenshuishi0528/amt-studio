@@ -4,6 +4,32 @@ This project records changes by numbered research task until formal semantic
 versions and releases begin. Dates and commit identifiers refer to the local
 Git history.
 
+## Task 009B2V — Configurable Hyak wall time — 2026-07-27
+
+Commit: this task's final commit
+
+### Changed
+
+- Changed the default private-Beta whole-song and selected-gap Slurm wall time
+  from three hours to one hour.
+- Added a persistent 1–24 hour `Hyak 运行时限` control to the app settings.
+  The selected value is passed explicitly to new whole-song and selected-gap
+  submissions; local GPU and CPU tasks are unchanged.
+- Renamed the former appearance-only sheet to `设置` while preserving both
+  existing visual modes.
+
+### Live scheduling evidence
+
+- Job `37804031` had no Slurm start estimate because the normal L40 association
+  was at its group GPU limit. Same-resource `sbatch --test-only` snapshots
+  estimated L40 at 2026-07-28 06:22 PDT and L40S at 2026-07-27 20:19 PDT.
+- Checkpoint A40 and A100 tests both reported immediate starts. The pending,
+  never-run L40 job was replaced by one A100-only Job `37805247` with a
+  one-hour limit; it started on an 80 GB A100 within seconds. Test-only jobs
+  did not remain queued.
+- Full `make check` passes 277 Python and 38 Swift tests with three expected
+  environment-gated skips.
+
 ## Task 009B2U — Conservative automatic melody admission — 2026-07-26
 
 Commit: this task's final commit

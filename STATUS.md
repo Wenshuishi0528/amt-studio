@@ -1,15 +1,32 @@
 # Project status
 
-Current product milestone: Task 009B2U prevents excessive automatic melody
-recovery from replacing a safer result while Hyak remains the default
+Current product milestone: Task 009B2V makes the Hyak wall-time limit
+configurable and defaults new jobs to one hour
 Research status: Gate 4 remains not passed for the rejected fusion routes; no
 new dataset, fusion, retuning, or training work is in the product critical path
-Current task: completed Job `37754413` is preserved as a diagnostic result;
-the app now opens its prior 338-note source version instead of the rejected
-1,179-note automatic melody
-Next task: owner may listen to the restored 338-note version; no replacement
-model run is required for this safety fix
+Current task: Job `37805247` is running the existing private-Beta workload on
+one checkpoint A100 with a one-hour limit after the normal L40 association
+could not provide a start estimate
+Next task: allow the active job and existing app polling to finish; no duplicate
+submission is needed
 Current branch: `main`
+
+Implemented and verified for Task 009B2V:
+
+- at the scheduling snapshot, pending Job `37804031` was blocked by
+  `AssocGrpGRES`. Slurm test-only estimates placed normal L40 at
+  `2026-07-28T06:22:38` PDT and L40S at `2026-07-27T20:19:38` PDT, while
+  checkpoint A40 and A100 were immediately schedulable;
+- the old job had never run and was cancelled. Replacement Job `37805247`
+  requests only one A100, has a one-hour time limit, and started on an 80 GB
+  A100 within seconds. The local project state follows the replacement ID and
+  reports `RUNNING / full_transcription`;
+- new whole-song and selected-gap submissions default to one hour. The app's
+  `设置` sheet persists a 1–24 hour choice and the backend explicitly supplies
+  it to `sbatch`; local GPU and CPU jobs do not receive the Slurm option;
+- full `make check` passes 277 Python and 38 Swift tests with three expected
+  environment-gated skips. Slurm shell syntax, strict Swift formatting, Python
+  compilation, and `git diff --check` also pass.
 
 Implemented and verified for Task 009B2U:
 

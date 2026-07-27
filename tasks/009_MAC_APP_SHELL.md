@@ -983,3 +983,34 @@ Remaining non-blocking review notes:
   environment-gated Swift skips. Strict Swift formatting, `make mac-app`,
   signature/plist validation, `git diff --check`, real-project visual QA, and
   the standalone XCUITest pass.
+
+## Task 009B2V: configurable Hyak wall time
+
+Objective:
+
+- reduce unnecessary queue cost from the former three-hour default;
+- let the owner set the maximum runtime for future Hyak whole-song and
+  selected-gap tasks without editing Slurm files;
+- keep local GPU/CPU behavior and the reproducible standard L40 route
+  unchanged;
+- move the currently blocked, never-started job only when a live read-only
+  scheduling comparison identifies a materially faster compatible GPU.
+
+Evidence:
+
+- Job `37804031` was pending with `AssocGrpGRES` and no start estimate.
+  Test-only submissions estimated normal L40 at
+  `2026-07-28T06:22:38 PDT`, L40S at `2026-07-27T20:19:38 PDT`, and
+  checkpoint A40/A100 immediately;
+- the old job had zero runtime before cancellation. Replacement Job `37805247`
+  requests exactly one A100, uses a one-hour limit, and began on an 80 GB A100
+  within seconds. The app state follows the replacement job and reports
+  `RUNNING / full_transcription`;
+- both product Slurm entrypoints now default to `01:00:00`. The Swift setting
+  persists a bounded 1–24 hour value and passes it through the Python CLI to
+  `sbatch` for both new task kinds;
+- local compute arguments do not contain the Slurm time option. Unit tests
+  cover the default, persistence, command construction, and Python boundary;
+- `make check` passes 277 Python and 38 Swift tests with three expected
+  environment-gated skips. Strict Swift formatting, Slurm shell syntax,
+  Python compilation, and `git diff --check` pass.

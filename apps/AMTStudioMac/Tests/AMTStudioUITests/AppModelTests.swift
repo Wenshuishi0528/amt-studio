@@ -156,25 +156,31 @@ final class AppModelTests: XCTestCase {
     defer { defaults.removePersistentDomain(forName: suiteName) }
     let model = AppModel(defaults: defaults, restoreRecent: false)
     XCTAssertEqual(model.computeMode, .hyak)
+    XCTAssertEqual(model.hyakTimeLimitHours, 1)
 
     model.setComputeMode(.localGPU)
+    model.setHyakTimeLimitHours(6)
 
     XCTAssertEqual(model.computeMode, .localGPU)
+    XCTAssertEqual(model.hyakTimeLimitHours, 6)
     XCTAssertNil(model.betaJobID)
     XCTAssertNil(model.betaProjectURL)
     let reopened = AppModel(defaults: defaults, restoreRecent: false)
     XCTAssertEqual(reopened.computeMode, .localGPU)
+    XCTAssertEqual(reopened.hyakTimeLimitHours, 6)
     XCTAssertNil(reopened.betaJobID)
 
     let arguments = PrivateBetaBackend.startArguments(
       audioURL: URL(fileURLWithPath: "/tmp/song.mp3"),
       computeMode: .localGPU,
+      hyakTimeLimitHours: 6,
       repositoryRoot: URL(fileURLWithPath: "/tmp/repository"),
       localProjectsRoot: URL(fileURLWithPath: "/tmp/projects")
     )
     XCTAssertTrue(arguments.contains("start-local"))
     XCTAssertTrue(arguments.contains("mps"))
     XCTAssertFalse(arguments.contains("start"))
+    XCTAssertFalse(arguments.contains("--time-limit-hours"))
 
     let recoveryArguments = PrivateBetaBackend.gapRecoveryArguments(
       projectURL: URL(fileURLWithPath: "/tmp/projects/song"),
@@ -195,6 +201,7 @@ final class AppModelTests: XCTestCase {
         ),
       ],
       computeMode: .hyak,
+      hyakTimeLimitHours: 6,
       repositoryRoot: URL(fileURLWithPath: "/tmp/repository")
     )
     XCTAssertTrue(recoveryArguments.contains("start-gap-recovery"))
@@ -205,6 +212,8 @@ final class AppModelTests: XCTestCase {
     )
     XCTAssertTrue(recoveryArguments.contains("10.000000:30.000000"))
     XCTAssertFalse(recoveryArguments.contains("mps"))
+    XCTAssertTrue(recoveryArguments.contains("--time-limit-hours"))
+    XCTAssertTrue(recoveryArguments.contains("6"))
   }
 
   func testTransportErrorsAreVisibleAndShortNotesKeepMoveHitArea() {

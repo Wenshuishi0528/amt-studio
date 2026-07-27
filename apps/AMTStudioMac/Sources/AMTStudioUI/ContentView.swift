@@ -8,7 +8,7 @@ import UniformTypeIdentifiers
 
 public struct ContentView: View {
   @ObservedObject private var model: AppModel
-  @State private var isShowingAppearanceSettings = false
+  @State private var isShowingSettings = false
   @State private var isConfirmingGapRecovery = false
   @State private var librarySearchText = ""
   @State private var projectPendingDeletion: LocalProjectItem?
@@ -126,10 +126,10 @@ public struct ContentView: View {
         }
         .disabled(model.editor?.canRedo != true)
         .accessibilityIdentifier("redo-edit")
-        Button("外观", systemImage: "slider.horizontal.3") {
-          isShowingAppearanceSettings = true
+        Button("设置", systemImage: "slider.horizontal.3") {
+          isShowingSettings = true
         }
-        .help("切换精密模式或炫酷模式")
+        .help("调整外观与 Hyak 运行时限")
         .accessibilityIdentifier("appearance-settings")
       }
     }
@@ -154,8 +154,8 @@ public struct ContentView: View {
       model.refreshProjectLibrary()
       model.openInitialProjectIfNeeded()
     }
-    .sheet(isPresented: $isShowingAppearanceSettings) {
-      AppearanceSettingsView(model: model)
+    .sheet(isPresented: $isShowingSettings) {
+      SettingsView(model: model)
     }
     .confirmationDialog(
       "重新分析所选空缺？",
@@ -304,6 +304,10 @@ public struct ContentView: View {
 
         if model.computeMode == .hyak {
           LabeledContent("Hyak 连接", value: hyakConnectionLabel)
+          LabeledContent(
+            "新任务时限",
+            value: "\(model.hyakTimeLimitHours) 小时"
+          )
         } else {
           Button("检查本机环境", systemImage: "checkmark.shield") {
             model.checkLocalCompute()
@@ -1047,7 +1051,7 @@ private struct AMTBrandHeader: View {
   }
 }
 
-private struct AppearanceSettingsView: View {
+private struct SettingsView: View {
   @ObservedObject var model: AppModel
   @Environment(\.dismiss) private var dismiss
 
@@ -1056,9 +1060,9 @@ private struct AppearanceSettingsView: View {
     VStack(alignment: .leading, spacing: 22) {
       HStack {
         VStack(alignment: .leading, spacing: 5) {
-          Text("外观")
+          Text("设置")
             .font(.system(size: 24, weight: .bold, design: .rounded))
-          Text("两种模式共用完全相同的功能、项目和识别结果。")
+          Text("调整界面外观和下一次 Hyak 任务的运行上限。")
             .foregroundStyle(theme.mutedText)
         }
         Spacer()
@@ -1136,8 +1140,32 @@ private struct AppearanceSettingsView: View {
         }
       }
 
+      Divider()
+        .overlay(theme.border)
+
+      VStack(alignment: .leading, spacing: 10) {
+        Text("Hyak")
+          .font(.headline)
+        Stepper(
+          value: Binding(
+            get: { model.hyakTimeLimitHours },
+            set: { model.setHyakTimeLimitHours($0) }
+          ),
+          in: 1...24
+        ) {
+          LabeledContent(
+            "运行时限",
+            value: "\(model.hyakTimeLimitHours) 小时"
+          )
+        }
+        .accessibilityIdentifier("hyak-time-limit-hours")
+        Text("默认 1 小时，仅影响之后提交的整曲识别和空缺重算任务；正在运行的任务不会被修改。")
+          .font(.caption)
+          .foregroundStyle(theme.mutedText)
+      }
+
       Label(
-        "外观切换不会重载歌曲、重新提交 Hyak 作业或改变任何 MIDI。",
+        "设置不会重载歌曲、重新提交 Hyak 作业或改变任何 MIDI。",
         systemImage: "checkmark.shield"
       )
       .font(.callout)

@@ -31,6 +31,9 @@ JOB_STATUSES = TERMINAL_STATUSES | {"submitted", "running"}
 COMPUTE_BACKENDS = {"hyak", "local"}
 LOCAL_DEVICES = {"mps", "cpu"}
 TASK_KINDS = {"full_transcription", "targeted_gap_recovery"}
+DEFAULT_HYAK_TIME_LIMIT_HOURS = 1
+MIN_HYAK_TIME_LIMIT_HOURS = 1
+MAX_HYAK_TIME_LIMIT_HOURS = 24
 
 
 class PrivateBetaError(RuntimeError):
@@ -39,6 +42,19 @@ class PrivateBetaError(RuntimeError):
 
 def _utc_now() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def _slurm_time_limit(hours: int) -> str:
+    if (
+        not isinstance(hours, int)
+        or isinstance(hours, bool)
+        or not MIN_HYAK_TIME_LIMIT_HOURS <= hours <= MAX_HYAK_TIME_LIMIT_HOURS
+    ):
+        raise PrivateBetaError(
+            "Hyak 运行时限必须是 "
+            f"{MIN_HYAK_TIME_LIMIT_HOURS}–{MAX_HYAK_TIME_LIMIT_HOURS} 小时"
+        )
+    return f"{hours:02d}:00:00"
 
 
 def _ensure_repository_imports(repo_root: Path) -> None:
@@ -832,6 +848,7 @@ def start_job(
     host: str | None,
     remote_root: str | None,
     weight_provenance: str | None,
+    time_limit_hours: int = DEFAULT_HYAK_TIME_LIMIT_HOURS,
 ) -> dict[str, Any]:
     audio = audio.expanduser().resolve()
     repo_root = repo_root.expanduser().resolve()
@@ -874,6 +891,7 @@ def start_job(
     submit = (
         f"cd {shlex.quote(remote_repo)} && {env_prefix} "
         "sbatch --parsable "
+        f"--time={shlex.quote(_slurm_time_limit(time_limit_hours))} "
         f"--output={shlex.quote(remote_logs + '/slurm-%j.out')} "
         f"--error={shlex.quote(remote_logs + '/slurm-%j.err')} "
         "slurm/40_private_beta_muscriptor.slurm"
@@ -955,6 +973,7 @@ def start_gap_recovery_job(
     host: str | None,
     remote_root: str | None,
     weight_provenance: str | None,
+    time_limit_hours: int = DEFAULT_HYAK_TIME_LIMIT_HOURS,
 ) -> dict[str, Any]:
     project_dir = project_dir.expanduser().resolve()
     repo_root = repo_root.expanduser().resolve()
@@ -1017,6 +1036,7 @@ def start_gap_recovery_job(
     submit = (
         f"cd {shlex.quote(remote_repo)} && {env_prefix} "
         "sbatch --parsable "
+        f"--time={shlex.quote(_slurm_time_limit(time_limit_hours))} "
         f"--output={shlex.quote(remote_logs + '/slurm-%j.out')} "
         f"--error={shlex.quote(remote_logs + '/slurm-%j.err')} "
         "slurm/42_targeted_gap_recovery.slurm"
@@ -1652,6 +1672,12 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument("--host")
     start.add_argument("--remote-root")
     start.add_argument(
+        "--time-limit-hours",
+        type=int,
+        choices=range(MIN_HYAK_TIME_LIMIT_HOURS, MAX_HYAK_TIME_LIMIT_HOURS + 1),
+        default=DEFAULT_HYAK_TIME_LIMIT_HOURS,
+    )
+    start.add_argument(
         "--weight-provenance",
         default=os.environ.get("MUSCRIPTOR_WEIGHT_PROVENANCE"),
     )
@@ -1679,6 +1705,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     recover.add_argument("--host")
     recover.add_argument("--remote-root")
+    recover.add_argument(
+        "--time-limit-hours",
+        type=int,
+        choices=range(MIN_HYAK_TIME_LIMIT_HOURS, MAX_HYAK_TIME_LIMIT_HOURS + 1),
+        default=DEFAULT_HYAK_TIME_LIMIT_HOURS,
+    )
     recover.add_argument(
         "--weight-provenance",
         default=os.environ.get("MUSCRIPTOR_WEIGHT_PROVENANCE"),
@@ -1741,6 +1773,7 @@ def main(argv: list[str] | None = None) -> int:
                 host=args.host,
                 remote_root=args.remote_root,
                 weight_provenance=args.weight_provenance,
+                time_limit_hours=args.time_limit_hours,
             )
         elif args.command == "start-local":
             result = start_local_job(
@@ -1760,6 +1793,7 @@ def main(argv: list[str] | None = None) -> int:
                 host=args.host,
                 remote_root=args.remote_root,
                 weight_provenance=args.weight_provenance,
+                time_limit_hours=args.time_limit_hours,
             )
         elif args.command == "start-local-gap-recovery":
             result = start_local_gap_recovery_job(

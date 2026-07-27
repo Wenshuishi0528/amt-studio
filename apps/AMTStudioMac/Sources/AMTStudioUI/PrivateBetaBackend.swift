@@ -127,12 +127,14 @@ struct PrivateBetaBackend: Sendable {
 
   func start(
     audioURL: URL,
-    computeMode: ComputeMode
+    computeMode: ComputeMode,
+    hyakTimeLimitHours: Int
   ) throws -> PrivateBetaResponse {
     try execute(
       Self.startArguments(
         audioURL: audioURL,
         computeMode: computeMode,
+        hyakTimeLimitHours: hyakTimeLimitHours,
         repositoryRoot: repositoryRoot,
         localProjectsRoot: localProjectsRoot
       ))
@@ -152,7 +154,8 @@ struct PrivateBetaBackend: Sendable {
     sourceBundleID: String,
     sourceTrackID: String,
     gaps: [MelodyGap],
-    computeMode: ComputeMode
+    computeMode: ComputeMode,
+    hyakTimeLimitHours: Int
   ) throws -> PrivateBetaResponse {
     try execute(
       Self.gapRecoveryArguments(
@@ -161,6 +164,7 @@ struct PrivateBetaBackend: Sendable {
         sourceTrackID: sourceTrackID,
         gaps: gaps,
         computeMode: computeMode,
+        hyakTimeLimitHours: hyakTimeLimitHours,
         repositoryRoot: repositoryRoot
       ))
   }
@@ -206,6 +210,7 @@ struct PrivateBetaBackend: Sendable {
   static func startArguments(
     audioURL: URL,
     computeMode: ComputeMode,
+    hyakTimeLimitHours: Int,
     repositoryRoot: URL,
     localProjectsRoot: URL
   ) -> [String] {
@@ -221,6 +226,9 @@ struct PrivateBetaBackend: Sendable {
     ]
     if let device = computeMode.localDevice {
       arguments.append(contentsOf: ["--device", device])
+    } else {
+      arguments.append(
+        contentsOf: ["--time-limit-hours", String(hyakTimeLimitHours)])
     }
     return arguments
   }
@@ -231,6 +239,7 @@ struct PrivateBetaBackend: Sendable {
     sourceTrackID: String,
     gaps: [MelodyGap],
     computeMode: ComputeMode,
+    hyakTimeLimitHours: Int,
     repositoryRoot: URL
   ) -> [String] {
     var arguments = [
@@ -262,6 +271,9 @@ struct PrivateBetaBackend: Sendable {
     }
     if let device = computeMode.localDevice {
       arguments.append(contentsOf: ["--device", device])
+    } else {
+      arguments.append(
+        contentsOf: ["--time-limit-hours", String(hyakTimeLimitHours)])
     }
     return arguments
   }

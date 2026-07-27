@@ -15,8 +15,10 @@ from amt_core.private_beta import (
     _load_hyak_configuration,
     _load_state,
     _pipeline_stage,
+    _slurm_time_limit,
     _unique_project_dir,
     _validate_state,
+    build_parser,
     local_readiness,
 )
 from amt_core.utils import atomic_write_json, slugify
@@ -24,6 +26,44 @@ from workers.muscriptor import run_baseline
 
 
 class PrivateBetaTests(unittest.TestCase):
+    def test_hyak_time_limit_defaults_to_one_hour_and_is_bounded(self) -> None:
+        parser = build_parser()
+        default = parser.parse_args(
+            [
+                "start",
+                "song.mp3",
+                "--repo-root",
+                "repo",
+                "--local-root",
+                "projects",
+            ]
+        )
+        selected = parser.parse_args(
+            [
+                "start-gap-recovery",
+                "project",
+                "--repo-root",
+                "repo",
+                "--source-bundle",
+                "bundle",
+                "--source-track",
+                "voice",
+                "--gap",
+                "1:2",
+                "--time-limit-hours",
+                "6",
+            ]
+        )
+
+        self.assertEqual(default.time_limit_hours, 1)
+        self.assertEqual(selected.time_limit_hours, 6)
+        self.assertEqual(_slurm_time_limit(1), "01:00:00")
+        self.assertEqual(_slurm_time_limit(24), "24:00:00")
+        for invalid in (0, 25, True):
+            with self.subTest(invalid=invalid):
+                with self.assertRaisesRegex(PrivateBetaError, "1–24"):
+                    _slurm_time_limit(invalid)
+
     def test_console_entrypoint_can_load_repository_workers(self) -> None:
         repo_root = Path(__file__).resolve().parents[1]
         script = """

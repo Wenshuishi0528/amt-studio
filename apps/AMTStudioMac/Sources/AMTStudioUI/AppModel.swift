@@ -261,6 +261,7 @@ public final class AppModel: ObservableObject {
   @Published public private(set) var appearanceMode: AMTAppearanceMode =
     .precision
   @Published public private(set) var computeMode: ComputeMode = .hyak
+  @Published public private(set) var hyakTimeLimitHours = 1
   @Published public private(set) var activeComputeMode: ComputeMode?
   @Published public private(set) var localReadinessMessage = "尚未检查本机环境"
   @Published public private(set) var isCheckingLocalCompute = false
@@ -279,6 +280,7 @@ public final class AppModel: ObservableObject {
   private let projectBookmarksKey = "AMTStudio.projectBookmarks"
   private let appearanceModeKey = "AMTStudio.appearanceMode"
   private let computeModeKey = "AMTStudio.computeMode"
+  private let hyakTimeLimitHoursKey = "AMTStudio.hyakTimeLimitHours"
   private var pendingInitialProjectURL: URL?
   private var betaMonitor: Task<Void, Never>?
   private var connectionMonitor: Task<Void, Never>?
@@ -316,6 +318,9 @@ public final class AppModel: ObservableObject {
     computeMode =
       defaults.string(forKey: computeModeKey)
       .flatMap(ComputeMode.init(rawValue:)) ?? .hyak
+    let savedTimeLimit = defaults.integer(forKey: hyakTimeLimitHoursKey)
+    hyakTimeLimitHours =
+      (1...24).contains(savedTimeLimit) ? savedTimeLimit : 1
     if let initialProjectURL {
       pendingInitialProjectURL = initialProjectURL
     } else if restoreRecent,
@@ -457,6 +462,7 @@ public final class AppModel: ObservableObject {
     guard !isBetaBusy else { return }
     let accessing = audioURL.startAccessingSecurityScopedResource()
     let requestedMode = computeMode
+    let requestedTimeLimit = hyakTimeLimitHours
     isBetaBusy = true
     statusMessage =
       requestedMode == .hyak
@@ -469,7 +475,8 @@ public final class AppModel: ObservableObject {
         let response = try await Task.detached(priority: .userInitiated) {
           try backend.start(
             audioURL: audioURL,
-            computeMode: requestedMode
+            computeMode: requestedMode,
+            hyakTimeLimitHours: requestedTimeLimit
           )
         }.value
         try handleBetaResponse(response)
@@ -511,6 +518,7 @@ public final class AppModel: ObservableObject {
     let projectURL = catalog.rootURL
     let sourceTrackID = editor.selectedTrack.id
     let requestedMode = computeMode
+    let requestedTimeLimit = hyakTimeLimitHours
     pendingCompletedTrackID = sourceTrackID
     isBetaBusy = true
     statusMessage =
@@ -525,7 +533,8 @@ public final class AppModel: ObservableObject {
             sourceBundleID: sourceBundleID,
             sourceTrackID: sourceTrackID,
             gaps: gaps,
-            computeMode: requestedMode
+            computeMode: requestedMode,
+            hyakTimeLimitHours: requestedTimeLimit
           )
         }.value
         try handleBetaResponse(response)
@@ -667,6 +676,13 @@ public final class AppModel: ObservableObject {
       mode == .hyak
       ? "Hyak 是默认计算方式"
       : "尚未检查本机环境"
+  }
+
+  public func setHyakTimeLimitHours(_ hours: Int) {
+    let bounded = min(24, max(1, hours))
+    guard hyakTimeLimitHours != bounded else { return }
+    hyakTimeLimitHours = bounded
+    defaults.set(bounded, forKey: hyakTimeLimitHoursKey)
   }
 
   public func checkLocalCompute() {
