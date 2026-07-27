@@ -401,6 +401,10 @@ final class ProjectAndEditingTests: XCTestCase {
       selectedTrackID: trackID
     )
     XCTAssertGreaterThan(editor.notes.count, 0)
+    if environment["AMT_STUDIO_REAL_EXPECT_MIGRATED"] == "1" {
+      XCTAssertTrue(editor.restoredFromCompatibleVersion)
+      XCTAssertNotNil(editor.persistedUpdatedAt)
+    }
     if let expectedGroupText = environment[
       "AMT_STUDIO_REAL_SUSTAIN_GROUPS"
     ], let expectedGroups = Int(expectedGroupText) {
@@ -626,6 +630,64 @@ final class ProjectAndEditingTests: XCTestCase {
         from: Data(line.utf8)
       )
     }
+  }
+
+  func testCompatibleEditsFollowAnUnchangedTrackIntoANewerBundle() throws {
+    let fixture = try FixtureProject(bundleIDs: ["bundle-a", "bundle-b"])
+    defer { fixture.remove() }
+    let catalog = try ProjectLoader.inspect(fixture.root)
+    let oldSnapshot = try ProjectLoader.open(catalog, bundleID: "bundle-a")
+    var oldEditor = try EditorProject(
+      snapshot: oldSnapshot,
+      bundleID: "bundle-a",
+      selectedTrackID: "candidate-a"
+    )
+    let original = try XCTUnwrap(oldEditor.notes.first)
+    try oldEditor.move(
+      noteID: original.id,
+      onsetSec: original.onsetSec + 0.2,
+      pitchMIDI: original.pitchMIDI + 1
+    )
+    try oldEditor.save()
+
+    let newerCanonical = fixture.root.appendingPathComponent(
+      "exports/bundle-b/canonical_project.json"
+    )
+    var value = try jsonObject(newerCanonical)
+    var rhythm = value["rhythm"] as! [String: Any]
+    rhythm["tempo_map"] = [["time_sec": 0.0, "bpm": 121.0]]
+    value["rhythm"] = rhythm
+    try writeJSON(value, to: newerCanonical)
+    try fixture.refreshBundleManifest(bundleID: "bundle-b")
+
+    let refreshedCatalog = try ProjectLoader.inspect(fixture.root)
+    let newSnapshot = try ProjectLoader.open(
+      refreshedCatalog,
+      bundleID: "bundle-b"
+    )
+    XCTAssertNotEqual(oldSnapshot.baseFingerprint, newSnapshot.baseFingerprint)
+    var newEditor = try EditorProject(
+      snapshot: newSnapshot,
+      bundleID: "bundle-b",
+      selectedTrackID: "candidate-a"
+    )
+
+    XCTAssertTrue(newEditor.restoredFromCompatibleVersion)
+    XCTAssertEqual(newEditor.notes.first?.pitchMIDI, original.pitchMIDI + 1)
+    XCTAssertEqual(
+      try XCTUnwrap(newEditor.notes.first?.onsetSec),
+      original.onsetSec + 0.2,
+      accuracy: 0.000_001
+    )
+    try newEditor.save()
+
+    let reopened = try EditorProject(
+      snapshot: newSnapshot,
+      bundleID: "bundle-b",
+      selectedTrackID: "candidate-a"
+    )
+    XCTAssertFalse(reopened.restoredFromCompatibleVersion)
+    XCTAssertEqual(reopened.notes, newEditor.notes)
   }
 
   func testEditorRefusesSymlinkedWriteDirectories() throws {

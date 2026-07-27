@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from amt_core.events import NoteEvent, write_jsonl
+from amt_core.events import NoteEvent, read_jsonl, write_jsonl
 from amt_core.utils import atomic_write_json, sha256_file
 from workers.muscriptor.gap_probe import (
     GapProbeError,
@@ -20,9 +20,11 @@ from workers.muscriptor.gap_probe import (
     derive_automatic_voice,
     derive_owner_approved_voice,
     load_spec,
+    plan_residual_fallback_windows,
     plan_automatic_probe,
     run_probe,
     shift_voice_candidates,
+    shift_unconstrained_melody_candidates,
     validate_empty_source_gaps,
 )
 
@@ -102,6 +104,74 @@ class MuScriptorGapProbeTests(unittest.TestCase):
         index = arguments.index("--instruments")
         self.assertEqual(arguments[index + 1], "voice")
         self.assertEqual(arguments.count("--instruments"), 1)
+
+    def test_residual_fallback_decode_is_unconstrained_and_bounded(self) -> None:
+        arguments = _directed_child_arguments(
+            project_dir=Path("/project"),
+            clip_path=Path("/project/clip.flac"),
+            worker_env=Path("/worker"),
+            weight_provenance=Path("/weights.json"),
+            child_run_id="gap-fallback",
+            device="cuda",
+            instrument=None,
+        )
+        self.assertNotIn("--instruments", arguments)
+
+        target = TargetInterval("gap-01", 0, 20, "reported omission")
+        window = ProbeWindow("window-01", 0, 24, (target,))
+        spec = type(
+            "SpecFixture",
+            (),
+            {
+                "probe_id": "gap-probe-v1",
+                "canonical_duration_sec": 120,
+                "context_sec": 4,
+                "windows": (window,),
+            },
+        )()
+        fallback = plan_residual_fallback_windows(
+            spec,
+            [_event("middle", instrument="voice", onset=15, offset=16)],
+        )
+        self.assertEqual(
+            [(item.targets[0].start_sec, item.targets[0].end_sec) for item in fallback],
+            [(0, 15), (16, 20)],
+        )
+        self.assertTrue(all(item.window_id.startswith("fallback-window-") for item in fallback))
+
+    def test_unconstrained_fallback_preserves_predicted_instrument_as_provenance(
+        self,
+    ) -> None:
+        target = TargetInterval("fallback-01", 0, 15, "residual")
+        window = ProbeWindow("fallback-window-01", 0, 19, (target,))
+        shifted = shift_unconstrained_melody_candidates(
+            [
+                _event(
+                    "piano-melody",
+                    instrument="acoustic_piano",
+                    onset=2,
+                    offset=3,
+                    pitch=72,
+                ),
+                _event(
+                    "drum-hit",
+                    instrument="drums",
+                    onset=4,
+                    offset=5,
+                    pitch=36,
+                ),
+            ],
+            probe_id="gap-probe-v1",
+            window=window,
+        )
+        self.assertEqual(len(shifted), 1)
+        self.assertEqual(shifted[0].instrument, "voice")
+        self.assertEqual(
+            shifted[0].extra["residual_melody_fallback"][
+                "original_predicted_instrument"
+            ],
+            "acoustic_piano",
+        )
 
     def test_spec_is_explicit_and_rejects_overlapping_targets(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -292,7 +362,16 @@ class MuScriptorGapProbeTests(unittest.TestCase):
                     instrument="acoustic_piano",
                     onset=30,
                     offset=31,
-                )
+                ),
+                *[
+                    _event(
+                        f"piano-tail-{index}",
+                        instrument="acoustic_piano",
+                        onset=117.6 + (index * 0.3),
+                        offset=117.89 + (index * 0.3),
+                    )
+                    for index in range(8)
+                ],
             ]
             write_jsonl(source_piano, piano_events)
             source_manifest = project / "runs" / "source-run.json"
@@ -312,7 +391,7 @@ class MuScriptorGapProbeTests(unittest.TestCase):
                         "label": "voice",
                         "role": "candidate",
                         "instrument": "voice",
-                        "event_count": 1,
+                        "event_count": len(source_events),
                         "source_events_path": str(source_voice.relative_to(project)),
                         "provenance": {
                             "source_run_id": "source-run",
@@ -326,7 +405,7 @@ class MuScriptorGapProbeTests(unittest.TestCase):
                         "label": "acoustic piano",
                         "role": "candidate",
                         "instrument": "acoustic_piano",
-                        "event_count": 1,
+                        "event_count": len(piano_events),
                         "source_events_path": str(source_piano.relative_to(project)),
                         "provenance": {
                             "source_run_id": "source-run",
@@ -485,6 +564,12 @@ class MuScriptorGapProbeTests(unittest.TestCase):
                 "tracks/acoustic_piano.jsonl",
                 [record["path"] for record in automatic_bundle["outputs"]],
             )
+            cleaned_piano = read_jsonl(
+                automatic_output / "tracks" / "acoustic_piano.jsonl"
+            )
+            piano_record = automatic_canonical["tracks"][3]
+            self.assertEqual(piano_record["event_count"], len(cleaned_piano))
+            self.assertEqual(len(cleaned_piano), 2)
             for track in automatic_canonical["tracks"]:
                 self.assertTrue(
                     (project / track["source_events_path"]).is_file()

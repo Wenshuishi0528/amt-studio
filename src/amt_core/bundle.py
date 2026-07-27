@@ -20,6 +20,7 @@ from .canonical import (
 from .contracts import ContractValidationError, WorkerResultV1, load_worker_result
 from .events import NoteEvent, write_jsonl
 from .midi import export_performance_midi
+from .product_postprocess import clean_trailing_fragments
 from .project import load_project
 from .utils import atomic_write_json, sha256_file
 
@@ -346,6 +347,16 @@ def build_muscriptor_multitrack_bundle(
         raise BundleBuildError("default BPM must be in [1, 1000]")
 
     project_id, canonical_path, canonical_sha256 = _canonical_project_identity(project_dir)
+    project_manifest = load_project(project_dir)
+    canonical_metadata = project_manifest.get("canonical_audio", {}).get("metadata", {})
+    timeline_end = (
+        float(canonical_metadata["duration_sec"])
+        if isinstance(canonical_metadata, dict)
+        and isinstance(canonical_metadata.get("duration_sec"), (int, float))
+        and not isinstance(canonical_metadata.get("duration_sec"), bool)
+        and float(canonical_metadata["duration_sec"]) > 0
+        else None
+    )
     result = load_worker_result(run_dir)
     if result.worker != "muscriptor" or result.project_id != project_id:
         raise BundleBuildError("result is not a MuScriptor run for this project")
@@ -386,6 +397,8 @@ def build_muscriptor_multitrack_bundle(
         temporary_dir = Path(temporary_name)
         tracks_dir = temporary_dir / "tracks"
         tracks_dir.mkdir()
+        raw_tracks_dir = temporary_dir / "raw_tracks"
+        cleanup_records: list[dict[str, Any]] = []
         used_track_ids: set[str] = set()
         loaded: dict[str, list[NoteEvent]] = {}
         tracks: list[CanonicalTrack] = []
@@ -396,6 +409,35 @@ def build_muscriptor_multitrack_bundle(
             track_events = sorted(
                 grouped[instrument],
                 key=lambda event: (event.onset_sec, event.offset_sec, event.event_id),
+            )
+            source_track_events = track_events
+            cleanup = {
+                "decision": "not_applicable",
+                "group_count": 0,
+                "fragment_count": 0,
+                "merged_note_count": 0,
+                "source_overwritten": False,
+            }
+            if timeline_end is not None and instrument.lower() != "voice":
+                track_events, cleanup = clean_trailing_fragments(
+                    source_track_events,
+                    timeline_end=timeline_end,
+                    run_id=result.run_id,
+                )
+            if cleanup["group_count"]:
+                raw_tracks_dir.mkdir(exist_ok=True)
+                raw_path = raw_tracks_dir / f"{track_id}.jsonl"
+                write_jsonl(raw_path, source_track_events)
+                cleanup["raw_source_path"] = str(
+                    output_relative / "raw_tracks" / raw_path.name
+                )
+                cleanup["raw_source_sha256"] = sha256_file(raw_path)
+            cleanup_records.append(
+                {
+                    "track_id": track_id,
+                    "instrument": instrument,
+                    **cleanup,
+                }
             )
             track_path = tracks_dir / f"{track_id}.jsonl"
             write_jsonl(track_path, track_events)
@@ -410,7 +452,11 @@ def build_muscriptor_multitrack_bundle(
                     source_events_path=str(output_relative / "tracks" / track_path.name),
                     provenance=ProvenanceRef(
                         source_run_id=result.run_id,
-                        source_model=source_model,
+                        source_model=(
+                            "deterministic:instrument-aware-tail-cleanup"
+                            if cleanup["group_count"]
+                            else source_model
+                        ),
                         run_manifest_sha256=sha256_file(result.manifest_path),
                         normalized_artifact_sha256=sha256_file(track_path),
                     ),
@@ -479,6 +525,11 @@ def build_muscriptor_multitrack_bundle(
             "canonical_audio": {
                 "path": _project_relative(canonical_path, project_dir),
                 "sha256": canonical_sha256,
+                **(
+                    {"metadata": canonical_metadata}
+                    if isinstance(canonical_metadata, dict) and canonical_metadata
+                    else {}
+                ),
             },
             "worker_results": [
                 {
@@ -576,8 +627,25 @@ def build_muscriptor_multitrack_bundle(
                 "accuracy_claimed": False,
                 "tempo_inferred": rhythm is not None,
                 "score_notation_claimed": False,
+                "automatic_trailing_sustain_cleanup_performed": any(
+                    record["group_count"] for record in cleanup_records
+                ),
+                "automatic_trailing_sustain_cleanup_source_overwritten": False,
             },
         }
+        reports_dir = temporary_dir / "reports"
+        reports_dir.mkdir()
+        atomic_write_json(
+            reports_dir / "trailing_sustain_cleanup.json",
+            {
+                "schema_version": 1,
+                "artifact_type": "amt-trailing-sustain-cleanup-report",
+                "timeline_end_sec": timeline_end,
+                "tracks": cleanup_records,
+                "accuracy_claimed": False,
+                "source_overwritten": False,
+            },
+        )
         atomic_write_json(temporary_dir / "canonical_project.json", canonical_project)
         bundle_manifest = {
             "schema_version": 1,
@@ -602,6 +670,10 @@ def build_muscriptor_multitrack_bundle(
                     ]
                 ),
                 "Original normalized events and native MIDI remain preserved in the worker run.",
+                (
+                    "Pitched accompaniment tail-fragment cleanup is a conservative "
+                    "derived product view; raw source events remain preserved."
+                ),
             ],
         }
         atomic_write_json(temporary_dir / "bundle_manifest.json", bundle_manifest)

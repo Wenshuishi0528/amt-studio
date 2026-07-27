@@ -4,6 +4,45 @@ This project records changes by numbered research task until formal semantic
 versions and releases begin. Dates and commit identifiers refer to the local
 Git history.
 
+## Task 009B2S — Durable edits and bounded product postprocessing — 2026-07-26
+
+Commit: this task's final commit
+
+### Added
+
+- Added a visible `保存修改` command, saved-time status, and compatible
+  cross-version edit-session migration bound to the selected track artifact.
+- Added traceable accompaniment soft masking and a single non-recursive
+  unrestricted MuScriptor fallback for residual main-melody gaps.
+- Added per-track generated-product cleanup reports and preserved raw sidecars
+  for changed pitched sustain fragments and dense drum-tail repeats.
+
+### Changed
+
+- Automatic and user-selected main-melody recovery now merges only filtered
+  candidates into the preferred voice track. Raw directed and fallback
+  candidates remain immutable diagnostic artifacts.
+- New result bundles clean conservative accompaniment-tail artifacts during
+  packaging. Pitched tracks derive a sustain; drums retain one short hit rather
+  than becoming a long note.
+
+### Verified
+
+- On the current song, read-only application of the new mask keeps 160 of 841
+  raw candidates, rejects 606 accompaniment shadows and 75 polyphonic
+  competitors, and plans one fallback for the still-empty `0:00–0:15` opening.
+- Read-only tail analysis detects the same 51 guitar fragments, 10 bass
+  fragments, and 14 drum repeats reported by the app's manual analyzers.
+- The newest bundle opens with the prior clean-guitar edit restored as a
+  compatible session. Full `make check` passes 274 Python and 37 Swift tests
+  with three expected environment-gated skips. No new model job was submitted.
+
+### Limitations
+
+- Soft masking may reject a true melody doubled in unison with accompaniment.
+  The fallback and cleanup remain Beta derivations with provenance and no
+  accuracy claim.
+
 ## Task 009B2R — Task-focused note inspector — 2026-07-26
 
 Commit: this task's final commit

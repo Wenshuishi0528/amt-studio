@@ -17,6 +17,11 @@ from typing import Any
 from amt_core.canonical import MeterPoint, TempoPoint
 from amt_core.events import NoteEvent, read_jsonl, write_jsonl
 from amt_core.midi import export_performance_midi
+from amt_core.product_postprocess import (
+    clean_trailing_fragments,
+    residual_melody_gaps,
+    soft_mask_melody_candidates,
+)
 from amt_core.project import load_project
 from amt_core.utils import atomic_write_json, sha256_file
 try:
@@ -520,6 +525,155 @@ def shift_voice_candidates(
             )
         )
     return shifted
+
+
+def shift_unconstrained_melody_candidates(
+    events: list[NoteEvent],
+    *,
+    probe_id: str,
+    window: ProbeWindow,
+) -> list[NoteEvent]:
+    """Relabel non-percussion fallback predictions as traceable melody candidates."""
+
+    shifted: list[NoteEvent] = []
+    for event in events:
+        original_instrument = (event.instrument or "unknown").lower()
+        if "drum" in original_instrument or original_instrument == "percussion":
+            continue
+        original_onset = event.onset_sec + window.clip_start_sec
+        original_offset = event.offset_sec + window.clip_start_sec
+        matching = [
+            target
+            for target in window.targets
+            if original_offset > target.start_sec and original_onset < target.end_sec
+        ]
+        if len(matching) != 1:
+            continue
+        target = matching[0]
+        clipped_onset = max(original_onset, target.start_sec)
+        clipped_offset = min(original_offset, target.end_sec)
+        if clipped_offset <= clipped_onset:
+            continue
+        extra = dict(event.extra)
+        extra["residual_melody_fallback"] = {
+            "probe_id": probe_id,
+            "window_id": window.window_id,
+            "target_id": target.target_id,
+            "source_event_id": event.event_id,
+            "original_predicted_instrument": original_instrument,
+            "instrument_allowlist_used": False,
+            "accuracy_claimed": False,
+        }
+        shifted.append(
+            NoteEvent(
+                event_id=f"{probe_id}:{window.window_id}:fallback:{event.event_id}",
+                track_id="muscriptor-gap:voice",
+                instrument="voice",
+                onset_sec=clipped_onset,
+                offset_sec=clipped_offset,
+                pitch_midi=event.pitch_midi,
+                quantized_pitch_midi=event.quantized_pitch_midi,
+                velocity=event.velocity,
+                confidence=event.confidence,
+                is_main_melody_candidate=True,
+                source_run_id=event.source_run_id,
+                source_model=event.source_model,
+                source_event_ids=sorted({*event.source_event_ids, event.event_id}),
+                tags=sorted(
+                    {
+                        *event.tags,
+                        "candidate",
+                        "residual-melody-fallback",
+                        target.target_id,
+                    }
+                ),
+                extra=extra,
+            )
+        )
+    return shifted
+
+
+def load_accompaniment_events(
+    project_dir: Path,
+    source_canonical: dict[str, Any],
+    *,
+    source_track_id: str,
+) -> list[NoteEvent]:
+    """Load verified non-voice product tracks used only as a soft exclusion mask."""
+
+    accompaniment: list[NoteEvent] = []
+    for index, track in enumerate(source_canonical.get("tracks", []), start=1):
+        if not isinstance(track, dict) or track.get("track_id") == source_track_id:
+            continue
+        if track.get("role") == "diagnostic_candidate":
+            continue
+        instrument = str(track.get("instrument") or "").lower()
+        if instrument == "voice":
+            continue
+        track_id = _safe_identifier(
+            track.get("track_id"),
+            label=f"source accompaniment track {index}",
+        )
+        path = _resolve_inside(project_dir, track.get("source_events_path"))
+        expected_hash = track.get("provenance", {}).get(
+            "normalized_artifact_sha256"
+        )
+        if sha256_file(path) != expected_hash:
+            raise GapProbeError(
+                f"source accompaniment hash does not match: {track_id}"
+            )
+        accompaniment.extend(read_jsonl(path))
+    return accompaniment
+
+
+def plan_residual_fallback_windows(
+    spec: ProbeSpec,
+    candidates: list[NoteEvent],
+    *,
+    minimum_gap_sec: float = 3.0,
+    maximum_windows: int = 16,
+) -> tuple[ProbeWindow, ...]:
+    """Plan one bounded unconstrained fallback pass over still-empty target spans."""
+
+    windows: list[ProbeWindow] = []
+    for source_window in spec.windows:
+        for target in source_window.targets:
+            target_events = [
+                event
+                for event in candidates
+                if event.offset_sec > target.start_sec
+                and event.onset_sec < target.end_sec
+            ]
+            for start, end in residual_melody_gaps(
+                start_sec=target.start_sec,
+                end_sec=target.end_sec,
+                events=target_events,
+                minimum_gap_sec=minimum_gap_sec,
+            ):
+                index = len(windows) + 1
+                fallback_target = TargetInterval(
+                    target_id=f"fallback-{index:02d}",
+                    start_sec=round(start, 6),
+                    end_sec=round(end, 6),
+                    expectation="residual empty span after directed voice decode",
+                )
+                windows.append(
+                    ProbeWindow(
+                        window_id=f"fallback-window-{index:02d}",
+                        clip_start_sec=round(
+                            max(0.0, start - spec.context_sec),
+                            6,
+                        ),
+                        clip_end_sec=round(
+                            min(spec.canonical_duration_sec, end + spec.context_sec),
+                            6,
+                        ),
+                        targets=(fallback_target,),
+                    )
+                )
+                if len(windows) >= maximum_windows:
+                    return tuple(windows)
+    return tuple(windows)
 
 
 def _union_duration(events: list[NoteEvent], target: TargetInterval) -> float:
@@ -1069,6 +1223,15 @@ def build_automatic_bundle(
 
     project = load_project(project_dir)
     canonical = project["canonical_audio"]
+    metadata = canonical.get("metadata")
+    timeline_end = (
+        float(metadata["duration_sec"])
+        if isinstance(metadata, dict)
+        and isinstance(metadata.get("duration_sec"), (int, float))
+        and not isinstance(metadata.get("duration_sec"), bool)
+        and float(metadata["duration_sec"]) > 0
+        else None
+    )
     tempo, meter = _rhythm_points(source_canonical)
     enhanced = derive_automatic_voice(
         source_events,
@@ -1084,6 +1247,8 @@ def build_automatic_bundle(
         temporary = Path(temporary_name)
         tracks_dir = temporary / "tracks"
         tracks_dir.mkdir()
+        raw_tracks_dir = temporary / "raw_tracks"
+        cleanup_records: list[dict[str, Any]] = []
 
         raw_path = tracks_dir / "voice_raw.jsonl"
         shutil.copy2(source_voice_path, raw_path)
@@ -1172,15 +1337,58 @@ def build_automatic_bundle(
                     f"source accompaniment hash does not match: {track_id}"
                 )
             copied_path = tracks_dir / f"{track_id}.jsonl"
-            shutil.copy2(source_path, copied_path)
+            source_track_events = read_jsonl(source_path)
+            cleaned_events = source_track_events
+            cleanup = {
+                "decision": "not_applicable",
+                "group_count": 0,
+                "fragment_count": 0,
+                "merged_note_count": 0,
+                "source_overwritten": False,
+            }
+            if timeline_end is not None:
+                cleaned_events, cleanup = clean_trailing_fragments(
+                    source_track_events,
+                    timeline_end=timeline_end,
+                    run_id=spec.probe_id,
+                )
+            if cleanup["group_count"]:
+                raw_tracks_dir.mkdir(exist_ok=True)
+                raw_copy = raw_tracks_dir / f"{track_id}.jsonl"
+                shutil.copy2(source_path, raw_copy)
+                cleanup["raw_source_path"] = str(
+                    (output_dir / "raw_tracks" / raw_copy.name).relative_to(
+                        project_dir
+                    )
+                )
+                cleanup["raw_source_sha256"] = sha256_file(raw_copy)
+                write_jsonl(copied_path, cleaned_events)
+            else:
+                shutil.copy2(source_path, copied_path)
+            cleanup_records.append(
+                {
+                    "track_id": track_id,
+                    "instrument": track.get("instrument"),
+                    **cleanup,
+                }
+            )
             copied_track = dict(track)
             copied_track["source_events_path"] = str(
                 (output_dir / "tracks" / copied_path.name).relative_to(
                     project_dir
                 )
             )
+            if cleanup["group_count"]:
+                copied_track["event_count"] = len(cleaned_events)
+                copied_track["source_provenance"] = track.get("provenance")
+                copied_track["provenance"] = {
+                    "source_run_id": spec.probe_id,
+                    "source_model": "deterministic:trailing-sustain-cleanup",
+                    "run_manifest_sha256": parent_hash,
+                    "normalized_artifact_sha256": sha256_file(copied_path),
+                }
             track_records.append(copied_track)
-            midi_tracks[track_id] = read_jsonl(copied_path)
+            midi_tracks[track_id] = cleaned_events
 
         melodic_track_count = sum(track_id != "drums" for track_id in midi_tracks)
         if melodic_track_count <= 15:
@@ -1229,8 +1437,26 @@ def build_automatic_bundle(
                 "accuracy_claimed": False,
                 "owner_approved_derivation_performed": False,
                 "automatic_model_promotion": False,
+                "accompaniment_soft_mask_performed": True,
+                "automatic_trailing_sustain_cleanup_performed": any(
+                    record["group_count"] for record in cleanup_records
+                ),
+                "automatic_trailing_sustain_cleanup_source_overwritten": False,
             },
         }
+        reports_dir = temporary / "reports"
+        reports_dir.mkdir()
+        atomic_write_json(
+            reports_dir / "trailing_sustain_cleanup.json",
+            {
+                "schema_version": 1,
+                "artifact_type": "amt-trailing-sustain-cleanup-report",
+                "timeline_end_sec": timeline_end,
+                "tracks": cleanup_records,
+                "accuracy_claimed": False,
+                "source_overwritten": False,
+            },
+        )
         atomic_write_json(temporary / "canonical_project.json", canonical_project)
         outputs = [
             {
@@ -1255,7 +1481,9 @@ def build_automatic_bundle(
                 "Automatic long-gap detection cannot prove that singing is present.",
                 "voice_gap_candidate is a same-model recovery candidate, not a verified correction.",
                 "voice_auto_enhanced is preferred for convenience but makes no accuracy claim.",
+                "Recovered melody candidates are soft-filtered against preserved accompaniment events.",
                 "The original voice and every MuScriptor accompaniment track remain preserved.",
+                "Automatic sustain cleanup is conservative and excludes percussion from sustain merging.",
             ],
         }
         atomic_write_json(temporary / "bundle_manifest.json", bundle_manifest)
@@ -1290,9 +1518,9 @@ def _directed_child_arguments(
     weight_provenance: Path,
     child_run_id: str,
     device: str,
-    instrument: str,
+    instrument: str | None,
 ) -> list[str]:
-    return [
+    arguments = [
         "--project",
         str(project_dir),
         "--audio",
@@ -1308,10 +1536,94 @@ def _directed_child_arguments(
         "--device",
         device,
         "--prelude-forcing",
-        "--instruments",
-        instrument,
         "--skip-midi",
     ]
+    if instrument is not None:
+        arguments.extend(["--instruments", instrument])
+    return arguments
+
+
+def run_residual_fallbacks(
+    *,
+    project_dir: Path,
+    canonical_audio: Path,
+    run_dir: Path,
+    probe_id: str,
+    windows: tuple[ProbeWindow, ...],
+    worker_env: Path,
+    weight_provenance: Path,
+    ffmpeg: str,
+    device: str,
+) -> tuple[list[NoteEvent], list[dict[str, Any]]]:
+    """Run at most one unrestricted decode for each planned residual window."""
+
+    fallback_candidates: list[NoteEvent] = []
+    records: list[dict[str, Any]] = []
+    clips_dir = run_dir / "clips"
+    logs_dir = run_dir / "logs"
+    for window in windows:
+        clip_path = clips_dir / f"{window.window_id}.flac"
+        command = _clip_audio(
+            canonical_audio,
+            clip_path,
+            start_sec=window.clip_start_sec,
+            end_sec=window.clip_end_sec,
+            ffmpeg=ffmpeg,
+        )
+        atomic_write_json(
+            logs_dir / f"{window.window_id}-clip.json",
+            {
+                "argv": command,
+                "sha256": sha256_file(clip_path),
+                "clip_start_sec": window.clip_start_sec,
+                "clip_end_sec": window.clip_end_sec,
+                "fallback_pass": 1,
+            },
+        )
+        child_run_id = f"{probe_id}-{window.window_id}"
+        exit_code = run_baseline.main(
+            _directed_child_arguments(
+                project_dir=project_dir,
+                clip_path=clip_path,
+                worker_env=worker_env,
+                weight_provenance=weight_provenance,
+                child_run_id=child_run_id,
+                device=device,
+                instrument=None,
+            )
+        )
+        child_dir = project_dir / "runs" / child_run_id
+        child_manifest = child_dir / "run_manifest.json"
+        if exit_code != 0 or not child_manifest.is_file():
+            raise GapProbeError(
+                f"MuScriptor residual fallback failed: {child_run_id}"
+            )
+        child_value = _load_object(child_manifest)
+        if child_value.get("status") != "succeeded":
+            raise GapProbeError(
+                f"MuScriptor residual fallback did not succeed: {child_run_id}"
+            )
+        child_events = read_jsonl(child_dir / "normalized" / "events.jsonl")
+        window_candidates = shift_unconstrained_melody_candidates(
+            child_events,
+            probe_id=probe_id,
+            window=window,
+        )
+        fallback_candidates.extend(window_candidates)
+        records.append(
+            {
+                "window_id": window.window_id,
+                "run_id": child_run_id,
+                "run_manifest_path": _relative(child_manifest, project_dir),
+                "run_manifest_sha256": sha256_file(child_manifest),
+                "clip_sha256": sha256_file(clip_path),
+                "all_event_count": len(child_events),
+                "fallback_candidate_count": len(window_candidates),
+                "instrument_allowlist_used": False,
+                "fallback_pass": 1,
+            }
+        )
+    return fallback_candidates, records
 
 
 def run_probe(
@@ -1391,6 +1703,7 @@ def run_probe(
             "instrument_allowlist": ["voice"],
             "sampling": False,
             "device": device,
+            "residual_fallback_max_passes": 1 if automatic_enhanced else 0,
         },
         "execution_backend": execution_backend,
         "automatic_merge_performed": False,
@@ -1421,6 +1734,15 @@ def run_probe(
                     "path": "workers/muscriptor/run_baseline.py",
                     "sha256": sha256_file(Path(run_baseline.__file__).resolve()),
                 },
+                {
+                    "path": "src/amt_core/product_postprocess.py",
+                    "sha256": sha256_file(
+                        run_baseline.REPO_ROOT
+                        / "src"
+                        / "amt_core"
+                        / "product_postprocess.py"
+                    ),
+                },
                 _execution_source_record(
                     automatic_enhanced=automatic_enhanced,
                     execution_backend=execution_backend,
@@ -1430,8 +1752,14 @@ def run_probe(
         "error": None,
     }
     atomic_write_json(run_dir / "run_manifest.json", manifest)
+    raw_candidates: list[NoteEvent] = []
     candidates: list[NoteEvent] = []
     try:
+        accompaniment_events = load_accompaniment_events(
+            project_dir,
+            source_canonical,
+            source_track_id=spec.source_voice_track_id,
+        )
         for window in spec.windows:
             clip_path = clips_dir / f"{window.window_id}.flac"
             command = _clip_audio(
@@ -1475,7 +1803,7 @@ def run_probe(
                 probe_id=spec.probe_id,
                 window=window,
             )
-            candidates.extend(window_candidates)
+            raw_candidates.extend(window_candidates)
             manifest["child_runs"].append(
                 {
                     "window_id": window.window_id,
@@ -1487,10 +1815,57 @@ def run_probe(
                     "voice_gap_candidate_count": len(window_candidates),
                 }
             )
-        candidates.sort(key=lambda event: (event.onset_sec, event.pitch_midi, event.event_id))
+        raw_candidates.sort(
+            key=lambda event: (event.onset_sec, event.pitch_midi, event.event_id)
+        )
+        write_jsonl(
+            normalized_dir / "voice_gap_candidate.raw.jsonl",
+            raw_candidates,
+        )
+        directed_candidates, _directed_mask = soft_mask_melody_candidates(
+            raw_candidates,
+            accompaniment_events,
+            probe_id=f"{spec.probe_id}:directed",
+        )
+        fallback_windows = (
+            plan_residual_fallback_windows(spec, directed_candidates)
+            if automatic_enhanced
+            else ()
+        )
+        fallback_candidates: list[NoteEvent] = []
+        if fallback_windows:
+            fallback_candidates, fallback_records = run_residual_fallbacks(
+                project_dir=project_dir,
+                canonical_audio=canonical_audio,
+                run_dir=run_dir,
+                probe_id=spec.probe_id,
+                windows=fallback_windows,
+                worker_env=worker_env,
+                weight_provenance=weight_provenance,
+                ffmpeg=ffmpeg,
+                device=device,
+            )
+            manifest["child_runs"].extend(fallback_records)
+        write_jsonl(
+            normalized_dir / "voice_gap_fallback.raw.jsonl",
+            fallback_candidates,
+        )
+        candidates, mask_report = soft_mask_melody_candidates(
+            [*raw_candidates, *fallback_candidates],
+            accompaniment_events,
+            probe_id=spec.probe_id,
+        )
+        candidates.sort(
+            key=lambda event: (event.onset_sec, event.pitch_midi, event.event_id)
+        )
         candidate_path = normalized_dir / "voice_gap_candidate.jsonl"
         write_jsonl(candidate_path, candidates)
         report = build_coverage_report(spec, candidates)
+        report["raw_directed_candidate_note_count"] = len(raw_candidates)
+        report["raw_fallback_candidate_note_count"] = len(fallback_candidates)
+        report["residual_fallback_window_count"] = len(fallback_windows)
+        report["residual_fallback_max_passes"] = 1 if automatic_enhanced else 0
+        report["accompaniment_soft_mask"] = mask_report
         atomic_write_json(normalized_dir / "gap_report.json", report)
         manifest["status"] = "succeeded"
     except (GapProbeError, OSError, RuntimeError, ValueError) as exc:

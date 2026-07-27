@@ -72,6 +72,7 @@ private struct EditSessionHeader: Codable {
   let contractVersion: String
   let projectID: String
   let baseFingerprint: String
+  let baseTrackSHA256: String?
   let selectedTrackID: String
   let headOperationID: UUID?
   let redoOperationIDs: [UUID]
@@ -88,6 +89,8 @@ public struct EditorProject: Sendable {
   public private(set) var operations: [EditOperation]
   public private(set) var headOperationID: UUID?
   public private(set) var redoOperationIDs: [UUID]
+  public private(set) var restoredFromCompatibleVersion: Bool
+  public private(set) var persistedUpdatedAt: Date?
   private var materializedNotesCache: [EditorNote]
 
   public var canUndo: Bool { headOperationID != nil }
@@ -127,6 +130,8 @@ public struct EditorProject: Sendable {
     operations = []
     headOperationID = nil
     redoOperationIDs = []
+    restoredFromCompatibleVersion = false
+    persistedUpdatedAt = nil
     materializedNotesCache = []
     try loadPersistedSessionIfPresent()
     materializedNotesCache = try replay()
@@ -423,6 +428,7 @@ public struct EditorProject: Sendable {
       contractVersion: "amt-note-edit-session/v1",
       projectID: snapshot.manifest.projectID,
       baseFingerprint: snapshot.baseFingerprint,
+      baseTrackSHA256: baseTrackSHA256,
       selectedTrackID: selectedTrack.id,
       headOperationID: headOperationID,
       redoOperationIDs: redoOperationIDs,
@@ -459,6 +465,8 @@ public struct EditorProject: Sendable {
       to: sessionURL
     )
     try saveWorkspaceSelection()
+    persistedUpdatedAt = header.updatedAt
+    restoredFromCompatibleVersion = false
   }
 
   public func saveWorkspaceSelection() throws {
@@ -533,6 +541,12 @@ public struct EditorProject: Sendable {
     snapshot.notes.filter { $0.trackID == selectedTrack.id }
   }
 
+  private var baseTrackSHA256: String? {
+    snapshot.canonicalProject.tracks.first {
+      $0.trackID == selectedTrack.id
+    }?.provenance.normalizedArtifactSHA256
+  }
+
   private mutating func append(
     kind: EditOperation.Kind,
     before: [EditorNote],
@@ -601,7 +615,7 @@ public struct EditorProject: Sendable {
   }
 
   private mutating func loadPersistedSessionIfPresent() throws {
-    let safeSessionDirectoryURL = try checkedProjectDirectory(
+    let currentDirectory = try checkedProjectDirectory(
       rootURL: snapshot.rootURL,
       components: [
         "annotations",
@@ -610,15 +624,91 @@ public struct EditorProject: Sendable {
       ],
       create: false
     )
-    let headerURL = safeSessionDirectoryURL.appendingPathComponent(
+    let headerURL = currentDirectory.appendingPathComponent(
       "session.json"
     )
-    let operationsURL = safeSessionDirectoryURL.appendingPathComponent(
-      "operations.jsonl"
-    )
-    guard FileManager.default.fileExists(atPath: headerURL.path) else {
+    if FileManager.default.fileExists(atPath: headerURL.path) {
+      let session = try decodeSession(at: currentDirectory)
+      guard session.header.projectID == snapshot.manifest.projectID,
+        session.header.baseFingerprint == snapshot.baseFingerprint,
+        session.header.selectedTrackID == selectedTrack.id
+      else {
+        throw AMTProjectError.editSessionMismatch
+      }
+      apply(session)
       return
     }
+
+    let correctionsDirectory = try checkedProjectDirectory(
+      rootURL: snapshot.rootURL,
+      components: ["annotations", "corrections"],
+      create: false
+    )
+    guard
+      FileManager.default.fileExists(atPath: correctionsDirectory.path)
+    else {
+      return
+    }
+
+    let candidates = try FileManager.default.contentsOfDirectory(
+      at: correctionsDirectory,
+      includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
+      options: [.skipsHiddenFiles]
+    ).filter { candidate in
+      guard candidate != currentDirectory, !isSymbolicLink(candidate) else {
+        return false
+      }
+      return
+        (try? candidate.resourceValues(forKeys: [.isDirectoryKey]))
+        .flatMap(\.isDirectory) == true
+        && FileManager.default.fileExists(
+          atPath: candidate.appendingPathComponent("session.json").path
+        )
+    }
+
+    var compatible: [(header: EditSessionHeader, operations: [EditOperation])] =
+      []
+    for candidate in candidates {
+      guard let session = try? decodeSession(at: candidate),
+        session.header.projectID == snapshot.manifest.projectID,
+        session.header.selectedTrackID == selectedTrack.id,
+        session.header.operationCount > 0,
+        session.header.baseTrackSHA256 == baseTrackSHA256
+          || (session.header.baseTrackSHA256 == nil
+            && session.operations.contains {
+              !$0.beforeEvents.isEmpty
+            })
+      else {
+        continue
+      }
+      let previousOperations = operations
+      let previousHead = headOperationID
+      let previousRedo = redoOperationIDs
+      apply(session)
+      let canReplay = (try? replay()) != nil
+      operations = previousOperations
+      headOperationID = previousHead
+      redoOperationIDs = previousRedo
+      if canReplay {
+        compatible.append(session)
+      }
+    }
+    guard
+      let newest = compatible.max(by: {
+        $0.header.updatedAt < $1.header.updatedAt
+      })
+    else {
+      return
+    }
+    apply(newest)
+    restoredFromCompatibleVersion = true
+  }
+
+  private func decodeSession(
+    at directory: URL
+  ) throws -> (header: EditSessionHeader, operations: [EditOperation]) {
+    let headerURL = directory.appendingPathComponent("session.json")
+    let operationsURL = directory.appendingPathComponent("operations.jsonl")
     try checkProjectFile(
       headerURL,
       rootURL: snapshot.rootURL,
@@ -631,10 +721,7 @@ public struct EditorProject: Sendable {
       from: Data(contentsOf: headerURL)
     )
     guard header.schemaVersion == 1,
-      header.contractVersion == "amt-note-edit-session/v1",
-      header.projectID == snapshot.manifest.projectID,
-      header.baseFingerprint == snapshot.baseFingerprint,
-      header.selectedTrackID == selectedTrack.id
+      header.contractVersion == "amt-note-edit-session/v1"
     else {
       throw AMTProjectError.editSessionMismatch
     }
@@ -666,9 +753,16 @@ public struct EditorProject: Sendable {
     else {
       throw AMTProjectError.malformedManifest("编辑操作数量或 ID 无效")
     }
-    operations = loaded
-    headOperationID = header.headOperationID
-    redoOperationIDs = header.redoOperationIDs
+    return (header, loaded)
+  }
+
+  private mutating func apply(
+    _ session: (header: EditSessionHeader, operations: [EditOperation])
+  ) {
+    operations = session.operations
+    headOperationID = session.header.headOperationID
+    redoOperationIDs = session.header.redoOperationIDs
+    persistedUpdatedAt = session.header.updatedAt
   }
 }
 

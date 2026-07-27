@@ -16,7 +16,51 @@ consumer and adds instrument-aware cleanup on every track. Task 009B2Q fixes
 gap recovery to constrain MuScriptor during decoding instead of discarding
 non-target instruments only after an unconstrained decode. Task 009B2R makes
 the inspector task-focused by hiding empty confidence controls and collapsing
-diagnostic provenance.
+diagnostic provenance. Task 009B2S makes compatible edits survive a newer
+result version, filters recovery candidates against accompaniment, performs at
+most one residual fallback, and derives instrument-aware tail cleanup while
+preserving raw events.
+
+## Task 009B2S: durable edits and bounded product postprocessing
+
+Implemented:
+
+- every saved edit session records the selected-track artifact hash. A newer
+  bundle restores the latest session only when that track is unchanged; legacy
+  sessions must carry before-state operations that replay exactly;
+- compatible migrated edits are immediately saved under the new bundle. The
+  toolbar exposes `保存修改` with `Command-S`, and the sidebar reports the last
+  persisted time;
+- directed main-melody candidates remain in raw JSONL. The preferred product
+  candidate removes strong same-pitch/time copies of verified accompaniment
+  and selects a monophonic non-overlapping path;
+- residual target gaps of at least three seconds receive one and only one
+  contextual decode without an instrument allowlist. Non-percussion events
+  retain the model's original instrument label in provenance before entering
+  the same soft mask;
+- every generated accompaniment track is processed independently at packaging
+  time. Conservative pitched fragments derive one sustain; conservative dense
+  drum repeats derive one short hit. Changed pre-cleanup events are copied to
+  `raw_tracks/`, and a JSON report records source IDs and counts;
+- all raw worker runs, source bundles, and prior canonical bundles remain
+  unchanged. None of these derived tracks claim formal accuracy.
+
+Verification:
+
+- read-only validation of the owner's current 841-note recovery keeps 160
+  filtered candidates, removes 606 accompaniment shadows and 75 overlapping
+  alternatives, then plans four residual windows including the owner-reported
+  `0:00–0:15` opening. The real result itself was not rewritten;
+- the current accompaniment yields five clean-guitar groups/51 fragments, one
+  bass group/10 fragments, and two drum groups/14 hits under the shared
+  conservative rules;
+- focused Python and Swift suites pass, including source preservation,
+  one-pass fallback planning, percussion-as-short-hit behavior, and
+  cross-version edit migration;
+- the configured newest private bundle opens with the prior clean-guitar edit
+  restored. Full `make check` passes 274 Python and 37 Swift tests with three
+  expected environment-gated skips;
+- no Hyak or local inference was submitted during implementation.
 
 ## Objective
 

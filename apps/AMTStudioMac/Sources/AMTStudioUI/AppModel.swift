@@ -233,6 +233,7 @@ public final class AppModel: ObservableObject {
   @Published public private(set) var isCheckingLocalCompute = false
   @Published public private(set) var trailingCleanupSummaries: [String: TrailingCleanupSummary] =
     [:]
+  @Published public private(set) var lastSavedAt: Date?
 
   public let transport = AudioTransport()
 
@@ -506,6 +507,11 @@ public final class AppModel: ObservableObject {
 
   public var trackChoices: [EditorTrack] {
     snapshot?.tracks ?? []
+  }
+
+  public var saveStatusLabel: String {
+    guard let lastSavedAt else { return "尚无人工修改" }
+    return "已保存 \(lastSavedAt.formatted(date: .omitted, time: .shortened))"
   }
 
   public var visibleTrackChoices: [EditorTrack] {
@@ -820,6 +826,7 @@ public final class AppModel: ObservableObject {
         : try editor.mergeSustainFragments(groups)
       try editor.save()
       self.editor = editor
+      recordSave(editor)
       selectedNoteID = merged.first?.id
       statusMessage =
         isPercussion
@@ -1126,6 +1133,7 @@ public final class AppModel: ObservableObject {
     )
     try editor.saveWorkspaceSelection()
     self.editor = editor
+    lastSavedAt = editor.persistedUpdatedAt
     selectedNoteID = editor.notes.first?.id
     statusMessage = "音轨 \(editor.selectedTrack.label)，\(editor.notes.count) 个音符"
     errorMessage = nil
@@ -1221,6 +1229,7 @@ public final class AppModel: ObservableObject {
       try editor.create(note)
       try editor.save()
       self.editor = editor
+      recordSave(editor)
       selectedNoteID = note.id
       statusMessage =
         "已在播放头新增 1 个音符，长度为当前一拍；可拖动或调整两端"
@@ -1269,6 +1278,7 @@ public final class AppModel: ObservableObject {
       try editor.update(note)
       try editor.save()
       self.editor = editor
+      recordSave(editor)
       selectedNoteID = note.id
       statusMessage = "编辑已保存（原始模型输出未修改）"
       errorMessage = nil
@@ -1286,6 +1296,7 @@ public final class AppModel: ObservableObject {
       try editor.delete(noteID: selectedNoteID)
       try editor.save()
       self.editor = editor
+      recordSave(editor)
       self.selectedNoteID = editor.notes.first?.id
       statusMessage = "删除操作已记录，可撤销"
       errorMessage = nil
@@ -1303,6 +1314,7 @@ public final class AppModel: ObservableObject {
       try editor.undo()
       try editor.save()
       self.editor = editor
+      recordSave(editor)
       if let selectedNoteID,
         !editor.notes.contains(where: { $0.id == selectedNoteID })
       {
@@ -1324,6 +1336,7 @@ public final class AppModel: ObservableObject {
       try editor.redo()
       try editor.save()
       self.editor = editor
+      recordSave(editor)
       statusMessage = "已重做并保存"
       errorMessage = nil
       updateMelodyCoverage()
@@ -1339,6 +1352,7 @@ public final class AppModel: ObservableObject {
       guard var editor else { return }
       try editor.save()
       self.editor = editor
+      recordSave(editor)
       statusMessage = "项目选择与编辑历史已保存"
       errorMessage = nil
     } catch {
@@ -1438,6 +1452,7 @@ public final class AppModel: ObservableObject {
     }
     snapshot = prepared.snapshot
     editor = prepared.editor
+    lastSavedAt = prepared.editor?.persistedUpdatedAt
     if let editor = prepared.editor,
       pendingSelectedTrackID == editor.selectedTrack.id,
       let pendingSelectedNoteID,
@@ -1467,6 +1482,7 @@ public final class AppModel: ObservableObject {
     catalog = prepared.catalog
     snapshot = prepared.snapshot
     editor = prepared.editor
+    lastSavedAt = prepared.editor?.persistedUpdatedAt
     selectedNoteID = prepared.editor?.notes.first?.id
     lastMelodyGapID = nil
     lastProjectReviewIssueID = nil
@@ -1592,6 +1608,10 @@ public final class AppModel: ObservableObject {
         )
       }
     }
+  }
+
+  private func recordSave(_ editor: EditorProject) {
+    lastSavedAt = editor.persistedUpdatedAt ?? Date()
   }
 
   private func scheduleMIDIPreviewRefresh() {
@@ -1976,6 +1996,7 @@ private struct PreparedSelection: Sendable {
       bundleID: bundleID,
       selectedTrackID: trackID
     )
+    let restoredCompatibleEdits = editor.restoredFromCompatibleVersion
     let repairedCount: Int
     if let duration =
       snapshot.manifest.canonicalAudio.metadata?.durationSec
@@ -1989,17 +2010,25 @@ private struct PreparedSelection: Sendable {
     } else {
       repairedCount = 0
     }
-    try? editor.saveWorkspaceSelection()
+    if restoredCompatibleEdits {
+      try editor.save()
+    } else {
+      try? editor.saveWorkspaceSelection()
+    }
     let label = MelodyTrackSelector.displayLabel(for: editor.selectedTrack)
     let repairMessage =
       repairedCount > 0
       ? "；已把 \(repairedCount) 个旧版结尾延音截到真实音频终点"
       : ""
+    let restoredMessage =
+      restoredCompatibleEdits
+      ? "；已恢复上一识别版本的人工修改"
+      : ""
     return PreparedSelection(
       snapshot: snapshot,
       editor: editor,
       statusMessage:
-        "音轨 \(label)，\(editor.notes.count) 个音符\(repairMessage)"
+        "音轨 \(label)，\(editor.notes.count) 个音符\(repairMessage)\(restoredMessage)"
     )
   }
 }
@@ -2058,11 +2087,14 @@ private struct PreparedProject: Sendable {
         else {
           throw AMTProjectError.editSessionMismatch
         }
-        let editor = try EditorProject(
+        var editor = try EditorProject(
           snapshot: snapshot,
           bundleID: workspace.canonicalBundleID,
           selectedTrackID: workspace.selectedTrackID
         )
+        if editor.restoredFromCompatibleVersion {
+          try editor.save()
+        }
         return PreparedProject(
           catalog: catalog,
           snapshot: snapshot,
@@ -2098,12 +2130,16 @@ private struct PreparedProject: Sendable {
       ?? (snapshot.tracks.count == 1 ? snapshot.tracks[0] : nil)
     let editor: EditorProject?
     if let preferredTrack {
-      let opened = try EditorProject(
+      var opened = try EditorProject(
         snapshot: snapshot,
         bundleID: bundle.id,
         selectedTrackID: preferredTrack.id
       )
-      try? opened.saveWorkspaceSelection()
+      if opened.restoredFromCompatibleVersion {
+        try opened.save()
+      } else {
+        try? opened.saveWorkspaceSelection()
+      }
       editor = opened
     } else {
       editor = nil

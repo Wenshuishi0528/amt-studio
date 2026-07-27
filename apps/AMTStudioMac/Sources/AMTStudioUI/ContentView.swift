@@ -74,6 +74,13 @@ public struct ContentView: View {
         }
         .disabled(model.betaProjectURL == nil || model.isBetaBusy)
         .accessibilityIdentifier("refresh-beta-job")
+        Button("保存修改", systemImage: "checkmark.circle") {
+          model.save()
+        }
+        .keyboardShortcut("s", modifiers: [.command])
+        .disabled(model.editor == nil)
+        .help(model.saveStatusLabel)
+        .accessibilityIdentifier("save-edits")
         Menu("项目", systemImage: "folder") {
           Button("打开已有项目", systemImage: "folder") {
             openProjectPanel()
@@ -605,6 +612,7 @@ public struct ContentView: View {
         Section("当前编辑音轨") {
           LabeledContent("名称", value: editor.selectedTrack.label)
           LabeledContent("音符", value: "\(editor.notes.count)")
+          LabeledContent("修改", value: model.saveStatusLabel)
           Text("钢琴窗只编辑当前轨；合奏试听与标准完整多轨不会覆盖模型原始 JSONL。")
             .font(.caption)
             .foregroundStyle(.secondary)

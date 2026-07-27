@@ -39,6 +39,7 @@ def _project(root: Path) -> tuple[Path, str]:
             "canonical_audio": {
                 "path": "audio/canonical/mix.flac",
                 "sha256": canonical_hash,
+                "metadata": {"duration_sec": 10},
             },
         },
     )
@@ -150,6 +151,69 @@ def _beat_run(project: Path, canonical_hash: str) -> Path:
 
 
 class BundleTests(unittest.TestCase):
+    def test_multitrack_bundle_derives_tail_sustain_and_preserves_raw_events(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            project, canonical_hash = _project(Path(temporary))
+            run_id = "muscriptor-tail"
+            run_dir = project / "runs" / run_id
+            events_path = run_dir / "normalized" / "events.jsonl"
+            fragments = [
+                NoteEvent(
+                    event_id=f"tail-{index}",
+                    track_id="muscriptor-native:clean_electric_guitar",
+                    instrument="clean_electric_guitar",
+                    onset_sec=8 + index * 0.27,
+                    offset_sec=8.25 + index * 0.27,
+                    pitch_midi=64,
+                    source_run_id=run_id,
+                    source_model="muscriptor-model",
+                )
+                for index in range(8)
+            ]
+            write_jsonl(events_path, fragments)
+            atomic_write_json(
+                run_dir / "run_manifest.json",
+                {
+                    "schema_version": 1,
+                    "run_id": run_id,
+                    "project_id": project.name,
+                    "worker": "muscriptor",
+                    "status": "succeeded",
+                    "input_lineage": {
+                        "canonical_mix_sha256": canonical_hash
+                    },
+                    "outputs": [_output(events_path, run_dir)],
+                },
+            )
+
+            output = project / "exports" / "muscriptor-tail-product"
+            build_muscriptor_multitrack_bundle(project, run_dir, output)
+            canonical = json.loads(
+                (output / "canonical_project.json").read_text(encoding="utf-8")
+            )
+            report = json.loads(
+                (
+                    output / "reports" / "trailing_sustain_cleanup.json"
+                ).read_text(encoding="utf-8")
+            )
+
+            self.assertEqual(canonical["tracks"][0]["event_count"], 1)
+            self.assertEqual(report["tracks"][0]["group_count"], 1)
+            self.assertEqual(
+                len(
+                    (output / "raw_tracks" / "clean_electric_guitar.jsonl")
+                    .read_text(encoding="utf-8")
+                    .splitlines()
+                ),
+                8,
+            )
+            self.assertEqual(
+                len(events_path.read_text(encoding="utf-8").splitlines()),
+                8,
+            )
+
     def test_builds_muscriptor_instrument_tracks_with_voice_first(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             project, canonical_hash = _project(Path(temporary))

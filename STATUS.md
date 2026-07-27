@@ -1,14 +1,45 @@
 # Project status
 
-Current product milestone: Task 009B2R task-focused note inspector is
-implemented while Hyak remains the default
+Current product milestone: Task 009B2S durable edits and non-destructive
+product postprocessing are implemented while Hyak remains the default
 Research status: Gate 4 remains not passed for the rejected fusion routes; no
 new dataset, fusion, retuning, or training work is in the product critical path
-Current task: the right inspector keeps direct note editing visible while
-hiding unavailable confidence controls and collapsing optional diagnostics
-Next task: wait for the active constrained recovery, then listen to only its
-new candidate spans
+Current task: recovered melody is accompaniment-masked with one bounded
+residual fallback; generated accompaniment tracks receive instrument-aware
+tail cleanup; compatible edits follow a newer result version
+Next task: run one new-song result when the owner chooses, then listen only to
+the filtered/fallback melody spans and confirm the conservative cleanup
 Current branch: `main`
+
+Implemented and verified for Task 009B2S:
+
+- main-melody gap recovery now preserves the raw directed candidates, removes
+  same-pitch/time accompaniment shadows, and keeps a monophonic derived
+  candidate path. It does not perform unsafe literal audio or MIDI subtraction;
+- if a selected main-melody target still has an empty span of at least three
+  seconds, the same MuScriptor model runs exactly one contextual fallback
+  without an instrument allowlist. Original predicted instrument labels remain
+  in note provenance, percussion is excluded, and the result passes through the
+  same accompaniment mask. Retries never recurse;
+- generated product bundles now clean each accompaniment track independently.
+  Conservative pitched tail fragments become sustains; dense drum-tail repeats
+  become one short hit. Changed source events remain under `raw_tracks/`, and
+  `reports/trailing_sustain_cleanup.json` records the derivation;
+- edit sessions now bind the selected-track hash and migrate across a newer
+  bundle only when the base track is compatible. Legacy before-state edits are
+  replay-checked. A visible `保存修改` control and saved timestamp remove the
+  prior ambiguity;
+- read-only validation on the current song reduced 841 raw recovery candidates
+  to 160, rejecting 606 accompaniment shadows and 75 polyphonic competitors.
+  It then identified the still-empty `0:00–0:15` opening for the one fallback
+  pass. This is diagnostic evidence, not an accuracy score;
+- the same read-only song check found five guitar sustain groups (51
+  fragments), one bass group (10 fragments), and two drum-repeat groups (14
+  hits). No existing private result was rewritten and no new inference job was
+  submitted;
+- the configured real-project test proves the previous clean-guitar correction
+  is compatible with the newest bundle. Full `make check` passes 274 Python and
+  37 Swift tests with three expected environment-gated skips.
 
 Implemented and visually verified for Task 009B2R:
 
