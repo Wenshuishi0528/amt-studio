@@ -1,0 +1,759 @@
+from __future__ import annotations
+
+import argparse
+import json
+import math
+import os
+import platform
+import shutil
+import tempfile
+from pathlib import Path
+from typing import Any
+
+from amt_core.events import NoteEvent, read_jsonl, write_jsonl
+from amt_core.midi import export_performance_midi
+from amt_core.project import load_project
+from amt_core.utils import atomic_write_json, sha256_file
+from workers.muscriptor import gap_probe, run_baseline
+
+
+class TargetedGapRecoveryError(RuntimeError):
+    """Raised when a user-selected gap recovery request is unsafe or incomplete."""
+
+
+def _target_instrument(
+    source_canonical: dict[str, Any],
+    source_track_id: str,
+) -> tuple[dict[str, Any], str]:
+    matches = [
+        track
+        for track in source_canonical.get("tracks", [])
+        if isinstance(track, dict) and track.get("track_id") == source_track_id
+    ]
+    if len(matches) != 1:
+        raise TargetedGapRecoveryError("source track is missing or ambiguous")
+    track = matches[0]
+    instrument = track.get("instrument")
+    if not isinstance(instrument, str) or not instrument:
+        raise TargetedGapRecoveryError(
+            "the selected track has no instrument label for directed recovery"
+        )
+    return track, instrument.lower()
+
+
+def plan_selected_gaps(
+    project_dir: Path,
+    *,
+    probe_id: str,
+    source_bundle_id: str,
+    source_track_id: str,
+    intervals: list[tuple[float, float]],
+    context_sec: float = 4.0,
+    maximum_target_duration_sec: float = 80.0,
+    maximum_targets: int = 16,
+) -> gap_probe.ProbeSpec:
+    project_dir = project_dir.expanduser().resolve()
+    probe_id = gap_probe._safe_identifier(probe_id, label="probe_id")
+    source_bundle_id = gap_probe._safe_identifier(
+        source_bundle_id,
+        label="source_bundle_id",
+    )
+    source_track_id = gap_probe._safe_identifier(
+        source_track_id,
+        label="source_track_id",
+    )
+    if not math.isfinite(context_sec) or context_sec < 0:
+        raise TargetedGapRecoveryError("context_sec must be finite and non-negative")
+    if (
+        not math.isfinite(maximum_target_duration_sec)
+        or maximum_target_duration_sec <= 0
+    ):
+        raise TargetedGapRecoveryError(
+            "maximum_target_duration_sec must be finite and positive"
+        )
+    if not intervals:
+        raise TargetedGapRecoveryError("at least one gap must be selected")
+
+    project = load_project(project_dir)
+    metadata = project.get("canonical_audio", {}).get("metadata")
+    if not isinstance(metadata, dict):
+        raise TargetedGapRecoveryError("canonical audio metadata is unavailable")
+    duration = gap_probe._finite_number(
+        metadata.get("duration_sec"),
+        label="canonical_audio.metadata.duration_sec",
+    )
+    if duration <= 0:
+        raise TargetedGapRecoveryError("canonical audio duration must be positive")
+
+    ordered = sorted(intervals)
+    previous_end = -1.0
+    targets: list[gap_probe.TargetInterval] = []
+    for interval_index, (start_value, end_value) in enumerate(ordered, start=1):
+        start = float(start_value)
+        end = float(end_value)
+        if (
+            not math.isfinite(start)
+            or not math.isfinite(end)
+            or start < 0
+            or end <= start
+            or end > duration + 0.02
+        ):
+            raise TargetedGapRecoveryError(
+                f"selected gap {interval_index} is outside the song timeline"
+            )
+        if start < previous_end:
+            raise TargetedGapRecoveryError("selected gaps must not overlap")
+        previous_end = end
+        boundary_inset = min(0.001, (end - start) / 1000)
+        start += boundary_inset
+        end -= boundary_inset
+        part_count = max(
+            1,
+            math.ceil((end - start) / maximum_target_duration_sec),
+        )
+        part_duration = (end - start) / part_count
+        for part_index in range(part_count):
+            part_start = start + part_index * part_duration
+            part_end = (
+                end
+                if part_index == part_count - 1
+                else start + (part_index + 1) * part_duration
+            )
+            targets.append(
+                gap_probe.TargetInterval(
+                    target_id=f"gap-{len(targets) + 1:02d}",
+                    start_sec=round(part_start, 6),
+                    end_sec=round(part_end, 6),
+                    expectation="user-selected empty-track recovery candidate",
+                )
+            )
+    if len(targets) > maximum_targets:
+        raise TargetedGapRecoveryError(
+            f"one recovery job supports at most {maximum_targets} target windows"
+        )
+
+    windows = tuple(
+        gap_probe.ProbeWindow(
+            window_id=f"window-{index:02d}",
+            clip_start_sec=round(max(0.0, target.start_sec - context_sec), 6),
+            clip_end_sec=round(min(duration, target.end_sec + context_sec), 6),
+            targets=(target,),
+        )
+        for index, target in enumerate(targets, start=1)
+    )
+    spec = gap_probe.ProbeSpec(
+        probe_id=probe_id,
+        source_bundle_id=source_bundle_id,
+        source_voice_track_id=source_track_id,
+        canonical_duration_sec=duration,
+        context_sec=context_sec,
+        windows=windows,
+    )
+    _project, _audio, source_path, source_canonical = gap_probe._source_context(
+        project_dir,
+        spec,
+    )
+    _target_instrument(source_canonical, source_track_id)
+    gap_probe.validate_empty_source_gaps(read_jsonl(source_path), spec)
+    return spec
+
+
+def shift_target_candidates(
+    events: list[NoteEvent],
+    *,
+    probe_id: str,
+    window: gap_probe.ProbeWindow,
+    source_track_id: str,
+    instrument: str,
+    main_melody: bool,
+) -> list[NoteEvent]:
+    shifted: list[NoteEvent] = []
+    normalized_instrument = instrument.lower()
+    for event in events:
+        if (event.instrument or "").lower() != normalized_instrument:
+            continue
+        original_onset = event.onset_sec + window.clip_start_sec
+        original_offset = event.offset_sec + window.clip_start_sec
+        matching = [
+            target
+            for target in window.targets
+            if original_offset > target.start_sec
+            and original_onset < target.end_sec
+        ]
+        if not matching:
+            continue
+        if len(matching) != 1:
+            raise TargetedGapRecoveryError(
+                f"candidate overlaps multiple targets: {event.event_id}"
+            )
+        target = matching[0]
+        clipped_onset = max(original_onset, target.start_sec)
+        clipped_offset = min(original_offset, target.end_sec)
+        if clipped_offset <= clipped_onset:
+            continue
+        extra = dict(event.extra)
+        extra["targeted_gap_recovery"] = {
+            "probe_id": probe_id,
+            "source_track_id": source_track_id,
+            "window_id": window.window_id,
+            "target_id": target.target_id,
+            "clip_start_sec": window.clip_start_sec,
+            "clip_onset_sec": event.onset_sec,
+            "clip_offset_sec": event.offset_sec,
+            "source_event_id": event.event_id,
+            "automatic_accuracy_claimed": False,
+        }
+        shifted.append(
+            NoteEvent(
+                event_id=f"{probe_id}:{window.window_id}:{event.event_id}",
+                track_id=f"targeted-gap:{source_track_id}",
+                instrument=instrument,
+                onset_sec=clipped_onset,
+                offset_sec=clipped_offset,
+                pitch_midi=event.pitch_midi,
+                quantized_pitch_midi=event.quantized_pitch_midi,
+                velocity=event.velocity,
+                confidence=event.confidence,
+                is_main_melody_candidate=main_melody,
+                source_run_id=event.source_run_id,
+                source_model=event.source_model,
+                source_event_ids=sorted(
+                    {*event.source_event_ids, event.event_id}
+                ),
+                tags=sorted(
+                    {
+                        *event.tags,
+                        "candidate",
+                        "targeted-gap-recovery",
+                        target.target_id,
+                    }
+                ),
+                extra=extra,
+            )
+        )
+    return shifted
+
+
+def _coverage_report(
+    spec: gap_probe.ProbeSpec,
+    candidates: list[NoteEvent],
+) -> dict[str, Any]:
+    targets = []
+    for window in spec.windows:
+        target = window.targets[0]
+        notes = [
+            event
+            for event in candidates
+            if event.offset_sec > target.start_sec
+            and event.onset_sec < target.end_sec
+        ]
+        targets.append(
+            {
+                "target_id": target.target_id,
+                "start_sec": target.start_sec,
+                "end_sec": target.end_sec,
+                "duration_sec": round(target.duration_sec, 6),
+                "candidate_note_count": len(notes),
+                "owner_review_required": True,
+            }
+        )
+    return {
+        "schema_version": 1,
+        "artifact_type": "amt-targeted-gap-recovery-report",
+        "probe_id": spec.probe_id,
+        "source_bundle_id": spec.source_bundle_id,
+        "source_track_id": spec.source_voice_track_id,
+        "candidate_note_count": len(candidates),
+        "targets": targets,
+        "accuracy_claimed": False,
+        "decision": "awaiting_owner_review",
+    }
+
+
+def _copy_track(
+    project_dir: Path,
+    output_dir: Path,
+    tracks_dir: Path,
+    track: dict[str, Any],
+    *,
+    index: int,
+) -> tuple[dict[str, Any], list[NoteEvent]]:
+    track_id = gap_probe._safe_identifier(
+        track.get("track_id"),
+        label=f"source track {index}",
+    )
+    source_path = gap_probe._resolve_inside(
+        project_dir,
+        track.get("source_events_path"),
+    )
+    expected_hash = track.get("provenance", {}).get(
+        "normalized_artifact_sha256"
+    )
+    if sha256_file(source_path) != expected_hash:
+        raise TargetedGapRecoveryError(
+            f"source track hash does not match: {track_id}"
+        )
+    destination = tracks_dir / f"{track_id}.jsonl"
+    shutil.copy2(source_path, destination)
+    copied = dict(track)
+    copied["source_events_path"] = str(
+        (output_dir / "tracks" / destination.name).relative_to(project_dir)
+    )
+    return copied, read_jsonl(destination)
+
+
+def build_recovery_bundle(
+    project_dir: Path,
+    *,
+    spec: gap_probe.ProbeSpec,
+    source_canonical: dict[str, Any],
+    source_events: list[NoteEvent],
+    candidates: list[NoteEvent],
+    run_manifest_path: Path,
+    output_dir: Path,
+) -> dict[str, Any]:
+    project_dir = project_dir.expanduser().resolve()
+    run_manifest_path = run_manifest_path.expanduser().resolve(strict=True)
+    output_dir = output_dir.expanduser().resolve(strict=False)
+    if output_dir.exists() or output_dir.is_symlink():
+        raise TargetedGapRecoveryError(
+            f"recovery bundle already exists: {output_dir}"
+        )
+    source_tracks = source_canonical.get("tracks")
+    if not isinstance(source_tracks, list) or not source_tracks:
+        raise TargetedGapRecoveryError("source bundle has no tracks")
+    source_track, instrument = _target_instrument(
+        source_canonical,
+        spec.source_voice_track_id,
+    )
+    project = load_project(project_dir)
+    canonical = project["canonical_audio"]
+    tempo, meter = gap_probe._rhythm_points(source_canonical)
+    merged = [*source_events, *candidates]
+    merged.sort(
+        key=lambda event: (
+            event.onset_sec,
+            event.offset_sec,
+            event.pitch_midi,
+            event.event_id,
+        )
+    )
+    if len({event.event_id for event in merged}) != len(merged):
+        raise TargetedGapRecoveryError("recovered track has duplicate event IDs")
+
+    output_dir.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(
+        prefix=f".{output_dir.name}.",
+        dir=output_dir.parent,
+    ) as temporary_name:
+        temporary = Path(temporary_name)
+        tracks_dir = temporary / "tracks"
+        tracks_dir.mkdir()
+        records: list[dict[str, Any]] = []
+        midi_tracks: dict[str, list[NoteEvent]] = {}
+        parent_hash = sha256_file(run_manifest_path)
+        for index, track in enumerate(source_tracks, start=1):
+            if not isinstance(track, dict):
+                raise TargetedGapRecoveryError("source track record is malformed")
+            track_id = track.get("track_id")
+            if track_id == spec.source_voice_track_id:
+                destination = tracks_dir / f"{track_id}.jsonl"
+                write_jsonl(destination, merged)
+                record = dict(track)
+                record["label"] = f"{track.get('label', track_id)} · 所选空缺重算"
+                record["event_count"] = len(merged)
+                record["source_events_path"] = str(
+                    (output_dir / "tracks" / destination.name).relative_to(
+                        project_dir
+                    )
+                )
+                candidate_model = (
+                    candidates[0].source_model
+                    if candidates
+                    else "no-candidate"
+                )
+                record["provenance"] = {
+                    "source_run_id": spec.probe_id,
+                    "source_model": (
+                        f"deterministic:{track_id}+targeted-gap:"
+                        f"{candidate_model}"
+                    ),
+                    "run_manifest_sha256": parent_hash,
+                    "normalized_artifact_sha256": sha256_file(destination),
+                }
+                events = merged
+            else:
+                record, events = _copy_track(
+                    project_dir,
+                    output_dir,
+                    tracks_dir,
+                    track,
+                    index=index,
+                )
+            records.append(record)
+            if record.get("role") != "diagnostic_candidate":
+                midi_tracks[str(track_id)] = events
+
+        melodic_count = sum(track_id != "drums" for track_id in midi_tracks)
+        if melodic_count <= 15:
+            midi_report = export_performance_midi(
+                temporary / "performance.mid",
+                midi_tracks,
+                tempo,
+                meter,
+            )
+            performance_path: str | None = "performance.mid"
+        else:
+            midi_report = {
+                "status": "unavailable",
+                "reason": "more than 15 melodic tracks require multiple MIDI ports",
+                "track_count": len(midi_tracks),
+                "note_count": sum(len(events) for events in midi_tracks.values()),
+            }
+            performance_path = None
+
+        claims = dict(source_canonical.get("claims", {}))
+        claims.update(
+            {
+                "targeted_gap_recovery_performed": True,
+                "targeted_source_bundle_id": spec.source_bundle_id,
+                "targeted_source_track_id": spec.source_voice_track_id,
+                "selected_gap_count": len(spec.windows),
+                "recovered_candidate_note_count": len(candidates),
+                "accuracy_claimed": False,
+                "source_bundle_overwritten": False,
+            }
+        )
+        canonical_project = {
+            "schema_version": 1,
+            "artifact_type": "amt-canonical-project",
+            "project_id": project["project_id"],
+            "timeline_basis": "original_canonical_mix_seconds",
+            "canonical_audio": canonical,
+            "worker_results": source_canonical.get("worker_results", []),
+            "tracks": records,
+            "main_melody_track_id": source_canonical.get(
+                "main_melody_track_id"
+            ),
+            "rhythm": source_canonical["rhythm"],
+            "exports": {
+                "performance_midi": {
+                    "path": performance_path,
+                    "representation": "performance",
+                    "report": midi_report,
+                }
+            },
+            "claims": claims,
+        }
+        atomic_write_json(temporary / "canonical_project.json", canonical_project)
+        outputs = [
+            {
+                "path": str(path.relative_to(temporary)),
+                "sha256": sha256_file(path),
+                "size_bytes": path.stat().st_size,
+            }
+            for path in sorted(temporary.rglob("*"))
+            if path.is_file()
+        ]
+        bundle_manifest = {
+            "schema_version": 1,
+            "artifact_type": "amt-canonical-bundle",
+            "status": "succeeded",
+            "project_id": project["project_id"],
+            "canonical_audio_sha256": canonical["sha256"],
+            "bundle_id": output_dir.name,
+            "tracks": [record["track_id"] for record in records],
+            "outputs": outputs,
+            "claims": claims,
+            "limitations": [
+                (
+                    f"Only user-selected empty spans of {spec.source_voice_track_id} "
+                    "were rerun; the source bundle remains unchanged."
+                ),
+                (
+                    f"Recovered {instrument} notes are same-model candidates and "
+                    "require listening review."
+                ),
+                "An empty selected span may be intentional silence.",
+                "No accuracy claim or owner approval is inferred.",
+            ],
+        }
+        atomic_write_json(temporary / "bundle_manifest.json", bundle_manifest)
+        temporary.replace(output_dir)
+    return bundle_manifest
+
+
+def run_selected_recovery(
+    project_dir: Path,
+    config_path: Path,
+    *,
+    output_bundle_id: str,
+    worker_env: Path,
+    weight_provenance: Path,
+    ffmpeg: str,
+    device: str = "cuda",
+    require_slurm: bool = True,
+    execution_backend: str = "slurm",
+) -> dict[str, Any]:
+    if require_slurm and not os.environ.get("SLURM_JOB_ID"):
+        raise TargetedGapRecoveryError(
+            "targeted gap recovery requires an active Slurm allocation"
+        )
+    hostname = platform.node()
+    if require_slurm and "login" in hostname:
+        raise TargetedGapRecoveryError(
+            "refusing targeted recovery on a login node"
+        )
+    if device not in {"cuda", "mps", "cpu", "auto"}:
+        raise TargetedGapRecoveryError("unsupported MuScriptor device")
+    if execution_backend not in {"slurm", "local"}:
+        raise TargetedGapRecoveryError("unsupported execution backend")
+    if require_slurm != (execution_backend == "slurm"):
+        raise TargetedGapRecoveryError(
+            "execution backend does not match the Slurm requirement"
+        )
+
+    project_dir = project_dir.expanduser().resolve()
+    config_path = config_path.expanduser().resolve()
+    output_bundle_id = gap_probe._safe_identifier(
+        output_bundle_id,
+        label="output_bundle_id",
+    )
+    spec = gap_probe.load_spec(config_path)
+    project, canonical_audio, source_path, source_canonical = (
+        gap_probe._source_context(project_dir, spec)
+    )
+    source_track, instrument = _target_instrument(
+        source_canonical,
+        spec.source_voice_track_id,
+    )
+    source_events = read_jsonl(source_path)
+    gap_probe.validate_empty_source_gaps(source_events, spec)
+    run_dir = project_dir / "runs" / spec.probe_id
+    output_dir = project_dir / "exports" / output_bundle_id
+    if run_dir.exists() or run_dir.is_symlink():
+        raise TargetedGapRecoveryError(f"recovery run already exists: {run_dir}")
+    if output_dir.exists() or output_dir.is_symlink():
+        raise TargetedGapRecoveryError(
+            f"recovery bundle already exists: {output_dir}"
+        )
+    clips_dir = run_dir / "clips"
+    normalized_dir = run_dir / "normalized"
+    logs_dir = run_dir / "logs"
+    for directory in (clips_dir, normalized_dir, logs_dir):
+        directory.mkdir(parents=True)
+
+    request = {
+        "schema_version": 1,
+        "artifact_type": "amt-targeted-gap-recovery-request",
+        "probe_id": spec.probe_id,
+        "project_id": project["project_id"],
+        "source_bundle_id": spec.source_bundle_id,
+        "source_track_id": spec.source_voice_track_id,
+        "source_instrument": instrument,
+        "config_path": gap_probe._relative(config_path, project_dir),
+        "config_sha256": sha256_file(config_path),
+        "canonical_audio_sha256": sha256_file(canonical_audio),
+        "selected_gap_count": len(spec.windows),
+        "device": device,
+        "execution_backend": execution_backend,
+        "source_bundle_overwritten": False,
+    }
+    atomic_write_json(run_dir / "request.json", request)
+    manifest: dict[str, Any] = {
+        "schema_version": 1,
+        "artifact_type": "amt-targeted-gap-recovery-run",
+        "probe_id": spec.probe_id,
+        "project_id": project["project_id"],
+        "status": "running",
+        "started_at": gap_probe._utc_now(),
+        "ended_at": None,
+        "hostname": hostname,
+        "slurm_job_id": os.environ.get("SLURM_JOB_ID"),
+        "execution_backend": execution_backend,
+        "request_sha256": sha256_file(run_dir / "request.json"),
+        "child_runs": [],
+        "outputs": [],
+        "error": None,
+    }
+    atomic_write_json(run_dir / "run_manifest.json", manifest)
+    candidates: list[NoteEvent] = []
+    try:
+        for window in spec.windows:
+            clip_path = clips_dir / f"{window.window_id}.flac"
+            command = gap_probe._clip_audio(
+                canonical_audio,
+                clip_path,
+                start_sec=window.clip_start_sec,
+                end_sec=window.clip_end_sec,
+                ffmpeg=ffmpeg,
+            )
+            atomic_write_json(
+                logs_dir / f"{window.window_id}-clip.json",
+                {
+                    "argv": command,
+                    "sha256": sha256_file(clip_path),
+                    "clip_start_sec": window.clip_start_sec,
+                    "clip_end_sec": window.clip_end_sec,
+                },
+            )
+            child_run_id = f"{spec.probe_id}-{window.window_id}"
+            exit_code = run_baseline.main(
+                [
+                    "--project",
+                    str(project_dir),
+                    "--audio",
+                    str(clip_path),
+                    "--worker-env",
+                    str(worker_env),
+                    "--weight-provenance",
+                    str(weight_provenance),
+                    "--run-id",
+                    child_run_id,
+                    "--beam-size",
+                    "4",
+                    "--device",
+                    device,
+                    "--prelude-forcing",
+                    "--skip-midi",
+                ]
+            )
+            child_dir = project_dir / "runs" / child_run_id
+            child_manifest = child_dir / "run_manifest.json"
+            if exit_code != 0 or not child_manifest.is_file():
+                raise TargetedGapRecoveryError(
+                    f"MuScriptor child run failed: {child_run_id}"
+                )
+            child_value = gap_probe._load_object(child_manifest)
+            if child_value.get("status") != "succeeded":
+                raise TargetedGapRecoveryError(
+                    f"MuScriptor child run did not succeed: {child_run_id}"
+                )
+            child_events = read_jsonl(
+                child_dir / "normalized" / "events.jsonl"
+            )
+            window_candidates = shift_target_candidates(
+                child_events,
+                probe_id=spec.probe_id,
+                window=window,
+                source_track_id=spec.source_voice_track_id,
+                instrument=instrument,
+                main_melody=(
+                    source_canonical.get("main_melody_track_id")
+                    == spec.source_voice_track_id
+                    or source_track.get("instrument") == "voice"
+                ),
+            )
+            candidates.extend(window_candidates)
+            manifest["child_runs"].append(
+                {
+                    "window_id": window.window_id,
+                    "run_id": child_run_id,
+                    "run_manifest_path": gap_probe._relative(
+                        child_manifest,
+                        project_dir,
+                    ),
+                    "run_manifest_sha256": sha256_file(child_manifest),
+                    "clip_sha256": sha256_file(clip_path),
+                    "all_event_count": len(child_events),
+                    "target_candidate_count": len(window_candidates),
+                }
+            )
+        candidates.sort(
+            key=lambda event: (
+                event.onset_sec,
+                event.pitch_midi,
+                event.event_id,
+            )
+        )
+        write_jsonl(normalized_dir / "target_gap_candidates.jsonl", candidates)
+        atomic_write_json(
+            normalized_dir / "recovery_report.json",
+            _coverage_report(spec, candidates),
+        )
+        manifest["status"] = "succeeded"
+    except (
+        TargetedGapRecoveryError,
+        OSError,
+        RuntimeError,
+        ValueError,
+    ) as exc:
+        manifest["status"] = "failed"
+        manifest["error"] = {"type": type(exc).__name__, "message": str(exc)}
+    finally:
+        manifest["ended_at"] = gap_probe._utc_now()
+        manifest["outputs"] = gap_probe._artifact_records(run_dir)
+        atomic_write_json(run_dir / "run_manifest.json", manifest)
+    if manifest["status"] != "succeeded":
+        return manifest
+    try:
+        build_recovery_bundle(
+            project_dir,
+            spec=spec,
+            source_canonical=source_canonical,
+            source_events=source_events,
+            candidates=candidates,
+            run_manifest_path=run_dir / "run_manifest.json",
+            output_dir=output_dir,
+        )
+    except (
+        TargetedGapRecoveryError,
+        gap_probe.GapProbeError,
+        OSError,
+        RuntimeError,
+        ValueError,
+    ) as exc:
+        manifest["status"] = "failed"
+        manifest["ended_at"] = gap_probe._utc_now()
+        manifest["error"] = {
+            "type": type(exc).__name__,
+            "message": f"recovery bundle failed: {exc}",
+        }
+        atomic_write_json(run_dir / "run_manifest.json", manifest)
+    return manifest
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Rerun MuScriptor over user-selected empty spans of one track."
+    )
+    parser.add_argument("--project", type=Path, required=True)
+    parser.add_argument("--config", type=Path, required=True)
+    parser.add_argument("--output-bundle", required=True)
+    parser.add_argument("--worker-env", type=Path, required=True)
+    parser.add_argument("--weight-provenance", type=Path, required=True)
+    parser.add_argument("--ffmpeg", default=shutil.which("ffmpeg") or "ffmpeg")
+    parser.add_argument("--device", default="cuda")
+    parser.add_argument("--allow-local", action="store_true")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    try:
+        manifest = run_selected_recovery(
+            args.project,
+            args.config,
+            output_bundle_id=args.output_bundle,
+            worker_env=args.worker_env,
+            weight_provenance=args.weight_provenance,
+            ffmpeg=args.ffmpeg,
+            device=args.device,
+            require_slurm=not args.allow_local,
+            execution_backend="local" if args.allow_local else "slurm",
+        )
+    except (
+        TargetedGapRecoveryError,
+        gap_probe.GapProbeError,
+        OSError,
+        RuntimeError,
+        ValueError,
+    ) as exc:
+        print(json.dumps({"status": "failed", "error": str(exc)}))
+        return 1
+    print(json.dumps(manifest, ensure_ascii=False, sort_keys=True))
+    return 0 if manifest.get("status") == "succeeded" else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

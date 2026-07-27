@@ -305,6 +305,23 @@ class PrivateBetaTests(unittest.TestCase):
             final_bundle.write_text("{}", encoding="utf-8")
             self.assertEqual(_pipeline_stage(connection, state), "packaging")
 
+            targeted = {
+                "task_kind": "targeted_gap_recovery",
+                "remote_project_dir": str(project / "targeted"),
+                "run_id": "gap-run",
+                "bundle_id": "gap-run-multitrack",
+            }
+            self.assertEqual(_pipeline_stage(connection, targeted), "starting")
+            targeted_manifest = (
+                project / "targeted/runs/gap-run/run_manifest.json"
+            )
+            targeted_manifest.parent.mkdir(parents=True)
+            targeted_manifest.write_text("{}", encoding="utf-8")
+            self.assertEqual(
+                _pipeline_stage(connection, targeted),
+                "targeted_gap_recovery",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

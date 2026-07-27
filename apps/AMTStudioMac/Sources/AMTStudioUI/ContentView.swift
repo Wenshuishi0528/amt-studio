@@ -9,6 +9,7 @@ import UniformTypeIdentifiers
 public struct ContentView: View {
   @ObservedObject private var model: AppModel
   @State private var isShowingAppearanceSettings = false
+  @State private var isConfirmingGapRecovery = false
 
   public init(model: AppModel) {
     self.model = model
@@ -146,6 +147,23 @@ public struct ContentView: View {
     }
     .sheet(isPresented: $isShowingAppearanceSettings) {
       AppearanceSettingsView(model: model)
+    }
+    .confirmationDialog(
+      "重新分析所选空缺？",
+      isPresented: $isConfirmingGapRecovery,
+      titleVisibility: .visible
+    ) {
+      Button(
+        "提交到 \(model.computeMode.label)",
+        role: .none
+      ) {
+        model.recoverSelectedGaps()
+      }
+      Button("取消", role: .cancel) {}
+    } message: {
+      Text(
+        "会把所选 \(model.selectedMelodyGaps.count) 段合并为一个任务，只重算这些片段并生成新版本；当前识别版本不会被覆盖。"
+      )
     }
   }
 
@@ -478,7 +496,7 @@ public struct ContentView: View {
       }
 
       if !model.melodyGaps.isEmpty {
-        Section("主旋律覆盖") {
+        Section("当前音轨空缺") {
           Label(
             "\(model.melodyCoverageTrackLabel) 有 \(model.melodyGaps.count) 段 ≥3 秒的疑似空缺",
             systemImage: "waveform.path.badge.minus"
@@ -493,20 +511,80 @@ public struct ContentView: View {
             model.seekToNextMelodyGap()
           }
           .accessibilityIdentifier("next-melody-gap")
-          ForEach(Array(model.melodyGaps.prefix(4))) { gap in
-            VStack(alignment: .leading, spacing: 2) {
-              Text(
-                "\(formatTime(gap.startSec))–\(formatTime(gap.endSec)) · \(formatTime(gap.duration))"
-              )
-              .font(.caption.monospacedDigit())
-              Text(
-                "同期其他 \(gap.otherTrackCount) 轨有 \(gap.otherNoteCount) 个音符，可逐轨独奏寻找补全候选"
-              )
-              .font(.caption2)
-              .foregroundStyle(.secondary)
+          HStack {
+            Button("全选") {
+              model.selectAllGaps()
             }
+            .disabled(
+              model.selectedMelodyGaps.count == model.melodyGaps.count
+            )
+            Button("清除") {
+              model.clearGapSelection()
+            }
+            .disabled(model.selectedMelodyGaps.isEmpty)
+            Spacer()
+            Text("已选 \(model.selectedMelodyGaps.count) 段")
+              .font(.caption)
+              .foregroundStyle(.secondary)
           }
-          Text("原始 voice 不会被覆盖；自动增强只是可追溯候选，不代表系统确认音符正确。")
+          ForEach(model.melodyGaps) { gap in
+            Toggle(
+              isOn: Binding(
+                get: { model.isGapSelected(gap) },
+                set: { model.setGapSelected(gap, selected: $0) }
+              )
+            ) {
+              VStack(alignment: .leading, spacing: 2) {
+                Text(
+                  "\(formatTime(gap.startSec))–\(formatTime(gap.endSec)) · \(formatTime(gap.duration))"
+                )
+                .font(.caption.monospacedDigit())
+                Text(
+                  "同期其他 \(gap.otherTrackCount) 轨有 \(gap.otherNoteCount) 个音符"
+                )
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+              }
+            }
+            .toggleStyle(.checkbox)
+            .accessibilityIdentifier("gap-selection-\(gap.id)")
+          }
+          Button {
+            isConfirmingGapRecovery = true
+          } label: {
+            Label(
+              model.hasActiveBetaJob
+                && model.betaTaskKind == "targeted_gap_recovery"
+                ? "所选空缺正在重算"
+                : "重新分析所选 \(model.selectedMelodyGaps.count) 段",
+              systemImage: "arrow.triangle.2.circlepath.circle"
+            )
+            .frame(maxWidth: .infinity)
+          }
+          .buttonStyle(.borderedProminent)
+          .disabled(
+            model.selectedMelodyGaps.isEmpty
+              || model.selectedMelodyGaps.count > 16
+              || model.isBetaBusy
+              || model.hasActiveBetaJob
+          )
+          .accessibilityIdentifier("submit-selected-gap-recovery")
+          Text(
+            "多段会合并为一个 \(model.computeMode.label) 任务；只上传/读取所需项目数据，不重跑整首。结果作为新识别版本返回。"
+          )
+          .font(.caption2)
+          .foregroundStyle(.secondary)
+          if model.hasActiveBetaJob
+            && model.betaTaskKind == "targeted_gap_recovery"
+          {
+            Label(
+              "Job \(model.betaJobID ?? "—") · \(model.betaSlurmState ?? "准备中")",
+              systemImage: "clock.arrow.circlepath"
+            )
+            .font(.caption)
+            .foregroundStyle(.orange)
+          }
+          Text("当前识别版本不会被覆盖；空白也可能是原曲本来没有该乐器，结果仍需试听。")
             .font(.caption2)
             .foregroundStyle(.secondary)
         }

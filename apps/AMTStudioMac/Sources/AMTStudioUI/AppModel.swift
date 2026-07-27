@@ -191,6 +191,7 @@ public final class AppModel: ObservableObject {
   @Published public private(set) var betaJobID: String?
   @Published public private(set) var betaSlurmState: String?
   @Published public private(set) var betaPipelineStage: String?
+  @Published public private(set) var betaTaskKind: String?
   @Published public private(set) var betaProjectURL: URL?
   @Published public private(set) var isBetaBusy = false
   @Published public private(set) var hyakConnectionState: HyakConnectionState = .unknown
@@ -204,6 +205,7 @@ public final class AppModel: ObservableObject {
   @Published public private(set) var isRefreshingLibrary = false
   @Published public private(set) var isLoadingSelection = false
   @Published public private(set) var melodyGaps: [MelodyGap] = []
+  @Published public private(set) var selectedGapIDs = Set<String>()
   @Published public private(set) var showMelodyVersions = false
   @Published public private(set) var appearanceMode: AMTAppearanceMode =
     .precision
@@ -236,6 +238,8 @@ public final class AppModel: ObservableObject {
   private var lastProjectReviewIssueID: String?
   private var pendingSelectedNoteID: String?
   private var pendingSelectedTrackID: String?
+  private var pendingCompletedBundleID: String?
+  private var pendingCompletedTrackID: String?
   private var selectionLoadTask: Task<Void, Never>?
   private var selectionLoadGeneration = UUID()
 
@@ -394,6 +398,60 @@ public final class AppModel: ObservableObject {
       }
       if accessing {
         audioURL.stopAccessingSecurityScopedResource()
+      }
+      isBetaBusy = false
+    }
+  }
+
+  public func recoverSelectedGaps() {
+    guard !isBetaBusy, !hasActiveBetaJob else { return }
+    guard let catalog, let editor, let sourceBundleID = selectedBundleID else {
+      present(AMTProjectError.missingCanonicalBundle)
+      return
+    }
+    let gaps = selectedMelodyGaps
+    guard !gaps.isEmpty else {
+      statusMessage = "请先勾选至少一段空缺"
+      return
+    }
+    guard gaps.count <= 16 else {
+      statusMessage = "一次最多重算 16 段，请减少选择后再提交"
+      return
+    }
+    guard editor.selectedTrack.instrument?.isEmpty == false else {
+      statusMessage = "当前音轨没有可用于定向重算的乐器标签"
+      return
+    }
+    let projectURL = catalog.rootURL
+    let sourceTrackID = editor.selectedTrack.id
+    let requestedMode = computeMode
+    pendingCompletedTrackID = sourceTrackID
+    isBetaBusy = true
+    statusMessage =
+      "正在把所选 \(gaps.count) 段空缺合并为一个\(requestedMode.label)任务…"
+    errorMessage = nil
+    Task {
+      do {
+        let backend = try PrivateBetaBackend.locate()
+        let response = try await Task.detached(priority: .userInitiated) {
+          try backend.startGapRecovery(
+            projectURL: projectURL,
+            sourceBundleID: sourceBundleID,
+            sourceTrackID: sourceTrackID,
+            gaps: gaps,
+            computeMode: requestedMode
+          )
+        }.value
+        try handleBetaResponse(response)
+        if requestedMode == .hyak {
+          hyakConnectionState = .connected
+        }
+        if let betaProjectURL {
+          startMonitoring(projectURL: betaProjectURL)
+        }
+      } catch {
+        pendingCompletedTrackID = nil
+        presentBetaError(error)
       }
       isBetaBusy = false
     }
@@ -691,36 +749,24 @@ public final class AppModel: ObservableObject {
   }
 
   private func updateMelodyCoverage() {
-    guard let snapshot else {
+    guard let snapshot, let track = editor?.selectedTrack else {
       melodyGaps = []
+      selectedGapIDs = []
       return
     }
-    let selectedVoiceTrack =
-      editor?.selectedTrack.instrument?.lowercased() == "voice"
-      ? editor?.selectedTrack
-      : nil
-    guard
-      let voiceTrack =
-        selectedVoiceTrack
-        ?? MelodyTrackSelector.preferred(in: snapshot.tracks)
-    else {
-      melodyGaps = []
-      return
-    }
-    let voiceNotes =
-      editor?.selectedTrack.id == voiceTrack.id
-      ? notes
-      : snapshot.notes.filter { $0.trackID == voiceTrack.id }
+    let sourceNotes = snapshot.notes.filter { $0.trackID == track.id }
     let duration = max(
-      transport.duration,
+      snapshot.manifest.canonicalAudio.metadata?.durationSec
+        ?? transport.duration,
       snapshot.notes.map(\.offsetSec).max() ?? 0
     )
     melodyGaps = MelodyCoverageAnalyzer.gaps(
-      voiceNotes: voiceNotes,
+      voiceNotes: sourceNotes,
       allNotes: snapshot.notes,
-      voiceTrackID: voiceTrack.id,
+      voiceTrackID: track.id,
       duration: duration
     )
+    selectedGapIDs = Set(melodyGaps.map(\.id))
   }
 
   public var melodyGapDuration: Double {
@@ -728,12 +774,37 @@ public final class AppModel: ObservableObject {
   }
 
   public var melodyCoverageTrackLabel: String {
-    guard let snapshot else { return "主唱候选" }
-    let track =
-      editor?.selectedTrack.instrument?.lowercased() == "voice"
-      ? editor?.selectedTrack
-      : MelodyTrackSelector.preferred(in: snapshot.tracks)
-    return track.map(MelodyTrackSelector.displayLabel) ?? "主唱候选"
+    editor.map { MelodyTrackSelector.displayLabel(for: $0.selectedTrack) }
+      ?? "当前音轨"
+  }
+
+  public var selectedMelodyGaps: [MelodyGap] {
+    melodyGaps.filter { selectedGapIDs.contains($0.id) }
+  }
+
+  public var selectedMelodyGapDuration: Double {
+    selectedMelodyGaps.reduce(0) { $0 + $1.duration }
+  }
+
+  public func isGapSelected(_ gap: MelodyGap) -> Bool {
+    selectedGapIDs.contains(gap.id)
+  }
+
+  public func setGapSelected(_ gap: MelodyGap, selected: Bool) {
+    guard melodyGaps.contains(where: { $0.id == gap.id }) else { return }
+    if selected {
+      selectedGapIDs.insert(gap.id)
+    } else {
+      selectedGapIDs.remove(gap.id)
+    }
+  }
+
+  public func selectAllGaps() {
+    selectedGapIDs = Set(melodyGaps.map(\.id))
+  }
+
+  public func clearGapSelection() {
+    selectedGapIDs = []
   }
 
   public var hasEnhancedVoiceTrack: Bool {
@@ -772,7 +843,7 @@ public final class AppModel: ObservableObject {
     lastMelodyGapID = next.id
     transport.seek(to: max(0, next.startSec - 0.5))
     statusMessage =
-      "已定位 voice 疑似空缺 \(formatClock(next.startSec))–\(formatClock(next.endSec))；可独奏其他轨寻找补全候选"
+      "已定位 \(melodyCoverageTrackLabel) 疑似空缺 \(formatClock(next.startSec))–\(formatClock(next.endSec))"
   }
 
   public var reviewPositionDescription: String {
@@ -794,6 +865,7 @@ public final class AppModel: ObservableObject {
     projectLoadGeneration = generation
     isLoadingProject = true
     melodyGaps = []
+    selectedGapIDs = []
     statusMessage = "正在后台校验并打开 \(url.lastPathComponent)…"
     errorMessage = nil
     projectLoadTask = Task { [weak self] in
@@ -838,6 +910,7 @@ public final class AppModel: ObservableObject {
     editor = nil
     selectedNoteID = nil
     lastMelodyGapID = nil
+    selectedGapIDs = []
     transport.stop()
     discardMIDIPreviewArtifact()
     restoreMixerSettings(for: snapshot)
@@ -853,7 +926,10 @@ public final class AppModel: ObservableObject {
     }
   }
 
-  public func chooseBundle(_ id: String) {
+  public func chooseBundle(
+    _ id: String,
+    preferredTrackID: String? = nil
+  ) {
     guard let catalog else { return }
     selectionLoadTask?.cancel()
     let generation = UUID()
@@ -863,7 +939,11 @@ public final class AppModel: ObservableObject {
     selectionLoadTask = Task { [weak self] in
       do {
         let prepared = try await Task.detached(priority: .userInitiated) {
-          try PreparedSelection.loadBundle(catalog: catalog, bundleID: id)
+          try PreparedSelection.loadBundle(
+            catalog: catalog,
+            bundleID: id,
+            preferredTrackID: preferredTrackID
+          )
         }.value
         guard !Task.isCancelled, let self,
           self.selectionLoadGeneration == generation
@@ -1260,6 +1340,7 @@ public final class AppModel: ObservableObject {
       betaJobID = state.jobID
       betaSlurmState = state.slurmState
       betaPipelineStage = state.pipelineStage
+      betaTaskKind = state.taskKind
       activeComputeMode = ComputeMode.resolve(
         backend: state.backend,
         localDevice: state.localDevice
@@ -1276,6 +1357,14 @@ public final class AppModel: ObservableObject {
       }
     }
     refreshProjectLibrary()
+    if let bundleID = pendingCompletedBundleID,
+      prepared.catalog.bundles.contains(where: { $0.id == bundleID })
+    {
+      let trackID = pendingCompletedTrackID
+      pendingCompletedBundleID = nil
+      pendingCompletedTrackID = nil
+      chooseBundle(bundleID, preferredTrackID: trackID)
+    }
   }
 
   private func refreshMIDIPreview() {
@@ -1448,20 +1537,32 @@ public final class AppModel: ObservableObject {
       backend: response.backend,
       localDevice: response.localDevice
     )
+    betaTaskKind = response.taskKind ?? betaTaskKind
     betaJobID = response.jobID ?? betaJobID
     betaSlurmState = response.slurmState ?? betaSlurmState
     betaPipelineStage = response.pipelineStage ?? betaPipelineStage
+    if betaTaskKind == "targeted_gap_recovery",
+      let bundleID = response.bundleID
+    {
+      pendingCompletedBundleID = bundleID
+      pendingCompletedTrackID =
+        response.sourceTrackID ?? pendingCompletedTrackID
+    }
     switch response.status {
     case "succeeded":
       guard let betaProjectURL else { return }
       clearActiveBetaProject()
       openProject(betaProjectURL)
       statusMessage =
-        activeComputeMode == .hyak
-        ? "Hyak 识别流程完成，完整多轨与默认主旋律已取回"
-        : "本机识别完成，完整多轨与默认主旋律已生成"
+        betaTaskKind == "targeted_gap_recovery"
+        ? "所选空缺已重算；正在打开新识别版本"
+        : activeComputeMode == .hyak
+          ? "Hyak 识别流程完成，完整多轨与默认主旋律已取回"
+          : "本机识别完成，完整多轨与默认主旋律已生成"
     case "failed", "cancelled":
       clearActiveBetaProject()
+      pendingCompletedBundleID = nil
+      pendingCompletedTrackID = nil
       if response.status == "cancelled" {
         errorMessage = nil
         statusMessage = "本机计算已停止；未完成项目与日志已经保留"
@@ -1475,6 +1576,9 @@ public final class AppModel: ObservableObject {
     case "running":
       rememberActiveBetaProject()
       switch betaPipelineStage {
+      case "targeted_gap_recovery":
+        statusMessage =
+          "\(activeComputeMode?.label ?? "计算任务")正在重算所选空缺（\(betaJobID ?? "未知")）"
       case "automatic_gap_recovery":
         statusMessage =
           "\(activeComputeMode?.label ?? "计算任务")正在自动补漏主旋律（\(betaJobID ?? "未知")）"
@@ -1489,9 +1593,11 @@ public final class AppModel: ObservableObject {
     default:
       rememberActiveBetaProject()
       statusMessage =
-        activeComputeMode == .hyak
-        ? "Hyak 任务已排队（\(betaSlurmState ?? "PENDING")）"
-        : "本机后台任务正在启动"
+        betaTaskKind == "targeted_gap_recovery"
+        ? "\(activeComputeMode?.label ?? "计算任务")空缺重算已提交（\(betaSlurmState ?? "PENDING")）"
+        : activeComputeMode == .hyak
+          ? "Hyak 任务已排队（\(betaSlurmState ?? "PENDING")）"
+          : "本机后台任务正在启动"
     }
     refreshProjectLibrary()
   }
@@ -1553,7 +1659,10 @@ public final class AppModel: ObservableObject {
     {
       hyakConnectionState = .loginRequired
       errorMessage = nil
-      statusMessage = "Hyak 登录已过期；作业仍在运行。重新连接后会自动恢复。"
+      statusMessage =
+        hasActiveBetaJob
+        ? "Hyak 登录已过期；作业仍在运行。重新连接后会自动恢复。"
+        : "Hyak 尚未连接；请先在 Terminal 完成密码与 Duo，再重新提交。"
       return
     }
     present(error)
@@ -1663,6 +1772,7 @@ private struct PrivateBetaJobState: Decodable, Sendable {
   let pipelineStage: String?
   let backend: String?
   let localDevice: String?
+  let taskKind: String?
 
   enum CodingKeys: String, CodingKey {
     case jobID = "job_id"
@@ -1670,6 +1780,7 @@ private struct PrivateBetaJobState: Decodable, Sendable {
     case pipelineStage = "pipeline_stage"
     case backend
     case localDevice = "local_device"
+    case taskKind = "task_kind"
   }
 }
 
@@ -1680,11 +1791,15 @@ private struct PreparedSelection: Sendable {
 
   static func loadBundle(
     catalog: ProjectCatalog,
-    bundleID: String
+    bundleID: String,
+    preferredTrackID: String? = nil
   ) throws -> PreparedSelection {
     let snapshot = try ProjectLoader.open(catalog, bundleID: bundleID)
     let preferredTrack =
-      MelodyTrackSelector.preferred(in: snapshot.tracks)
+      preferredTrackID.flatMap { id in
+        snapshot.tracks.first(where: { $0.id == id })
+      }
+      ?? MelodyTrackSelector.preferred(in: snapshot.tracks)
       ?? (snapshot.tracks.count == 1 ? snapshot.tracks[0] : nil)
     guard let preferredTrack else {
       return PreparedSelection(

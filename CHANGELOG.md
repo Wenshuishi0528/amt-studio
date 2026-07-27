@@ -4,6 +4,52 @@ This project records changes by numbered research task until formal semantic
 versions and releases begin. Dates and commit identifiers refer to the local
 Git history.
 
+## Task 009B2M — User-selected targeted gap recovery — 2026-07-26
+
+Commit: this task's final commit
+
+### Added
+
+- Added per-gap checkboxes, select-all/clear controls, confirmation, and one
+  action that sends the selected current-track gaps to Hyak GPU, local GPU, or
+  local CPU as one recovery task.
+- Added a generic MuScriptor targeted-recovery worker and L40 Slurm entry point
+  that follow the selected track's instrument label instead of being limited
+  to voice.
+- Added recovery task state, pipeline progress, reconnect/resume, child-run
+  result fetching, previous-job history, and automatic opening of the returned
+  bundle and target track.
+
+### Changed
+
+- Current-track coverage now uses the canonical source version and canonical
+  audio duration, lists every gap rather than only the first four, and works
+  for accompaniment tracks as well as the main voice candidate.
+- Selected spans receive bounded context windows and run sequentially in one
+  allocation. A successful result creates a new complete multitrack bundle and
+  augments only the selected track; the source bundle is never overwritten.
+
+### Verified
+
+- The current `ピカソ-ビギン-ザ-ナイト` voice result plans five safe windows,
+  including the two large owner-reported gaps, without writing project state
+  or submitting a job.
+- `make check` passes 263 Python and 29 Swift tests with three expected
+  environment-gated skips. Focused tests cover multi-gap planning, generic
+  accompaniment filtering, source preservation, task stages, UI arguments,
+  selection controls, and real-project loading.
+- One narrowly scoped `/review` was invoked for Task 009B2M only. It returned
+  no findings or other output for more than eight minutes after the network
+  interruption, so the stalled process was stopped and was not rerun; the
+  targeted manual P0/P1 and secret/path checks found no blocking issue.
+
+### Limitations
+
+- Empty spans can be intentional silence. Recovered notes are same-model
+  candidates and require listening review.
+- One request supports at most 16 bounded target windows. No real GPU or local
+  inference job was submitted during implementation.
+
 ## Task 009B2L — Beat-aware editing and result acceptance — 2026-07-26
 
 Commit: this task's final commit

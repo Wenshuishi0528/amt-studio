@@ -142,6 +142,36 @@ final class AppModelTests: XCTestCase {
     XCTAssertTrue(arguments.contains("start-local"))
     XCTAssertTrue(arguments.contains("mps"))
     XCTAssertFalse(arguments.contains("start"))
+
+    let recoveryArguments = PrivateBetaBackend.gapRecoveryArguments(
+      projectURL: URL(fileURLWithPath: "/tmp/projects/song"),
+      sourceBundleID: "source-bundle",
+      sourceTrackID: "clean_electric_guitar",
+      gaps: [
+        MelodyGap(
+          startSec: 10,
+          endSec: 30,
+          otherTrackCount: 2,
+          otherNoteCount: 20
+        ),
+        MelodyGap(
+          startSec: 80,
+          endSec: 100,
+          otherTrackCount: 3,
+          otherNoteCount: 30
+        ),
+      ],
+      computeMode: .hyak,
+      repositoryRoot: URL(fileURLWithPath: "/tmp/repository")
+    )
+    XCTAssertTrue(recoveryArguments.contains("start-gap-recovery"))
+    XCTAssertTrue(recoveryArguments.contains("clean_electric_guitar"))
+    XCTAssertEqual(
+      recoveryArguments.filter { $0 == "--gap" }.count,
+      2
+    )
+    XCTAssertTrue(recoveryArguments.contains("10.000000:30.000000"))
+    XCTAssertFalse(recoveryArguments.contains("mps"))
   }
 
   func testTransportErrorsAreVisibleAndShortNotesKeepMoveHitArea() {
@@ -467,6 +497,13 @@ final class AppModelTests: XCTestCase {
     model.chooseTrack("candidate-ui")
     await model.waitForSelectionLoadForTesting()
     XCTAssertEqual(model.editor?.selectedTrack.id, "candidate-ui")
+    XCTAssertEqual(model.melodyGaps.count, 1)
+    XCTAssertEqual(model.selectedMelodyGaps.count, 1)
+    let selectedGap = try XCTUnwrap(model.melodyGaps.first)
+    model.clearGapSelection()
+    XCTAssertTrue(model.selectedMelodyGaps.isEmpty)
+    model.setGapSelected(selectedGap, selected: true)
+    XCTAssertEqual(model.selectedMelodyGaps, [selectedGap])
     let original = try XCTUnwrap(model.notes.first)
     let originalEvents = try Data(contentsOf: fixture.eventsURL)
 
@@ -632,6 +669,9 @@ private final class AppFixtureProject {
         "canonical_audio": [
           "path": "audio/canonical/mix.wav",
           "sha256": audioHash,
+          "metadata": [
+            "duration_sec": 20.0
+          ],
         ],
       ],
       to: root.appendingPathComponent("manifest.json")
@@ -680,6 +720,9 @@ private final class AppFixtureProject {
         "canonical_audio": [
           "path": "audio/canonical/mix.wav",
           "sha256": audioHash,
+          "metadata": [
+            "duration_sec": 20.0
+          ],
         ],
         "tracks": [
           [

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 import shlex
@@ -17,7 +18,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 from uuid import uuid4
 
-from .project import initialize_project
+from .project import initialize_project, load_project
 from .utils import atomic_write_json, slugify
 
 STATE_IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,159}")
@@ -29,6 +30,7 @@ TERMINAL_STATUSES = {"succeeded", "failed", "cancelled"}
 JOB_STATUSES = TERMINAL_STATUSES | {"submitted", "running"}
 COMPUTE_BACKENDS = {"hyak", "local"}
 LOCAL_DEVICES = {"mps", "cpu"}
+TASK_KINDS = {"full_transcription", "targeted_gap_recovery"}
 
 
 class PrivateBetaError(RuntimeError):
@@ -159,6 +161,12 @@ def _safe_host(value: str) -> str:
     return value
 
 
+def _require_safe_identifier(value: str, *, label: str) -> str:
+    if STATE_IDENTIFIER.fullmatch(value) is None or ".." in value:
+        raise PrivateBetaError(f"{label} 标识无效")
+    return value
+
+
 def _load_hyak_configuration(
     repo_root: Path,
     *,
@@ -237,6 +245,11 @@ def _validate_state(project_dir: Path, state: dict[str, Any]) -> dict[str, Any]:
         "local_pid",
         "local_log_path",
         "failure_reason",
+        "task_kind",
+        "source_bundle_id",
+        "source_track_id",
+        "recovery_request_path",
+        "selected_gap_count",
     }
     if set(state) - allowed:
         raise PrivateBetaError("任务状态文件包含未知字段")
@@ -263,6 +276,10 @@ def _validate_state(project_dir: Path, state: dict[str, Any]) -> dict[str, Any]:
     if backend not in COMPUTE_BACKENDS:
         raise PrivateBetaError("任务状态 backend 无效")
     state["backend"] = backend
+    task_kind = state.get("task_kind", "full_transcription")
+    if task_kind not in TASK_KINDS:
+        raise PrivateBetaError("任务状态 task_kind 无效")
+    state["task_kind"] = task_kind
     job_id = _require_state_string(state, "job_id")
     if backend == "hyak":
         host = _safe_host(_require_state_string(state, "host"))
@@ -292,6 +309,30 @@ def _validate_state(project_dir: Path, state: dict[str, Any]) -> dict[str, Any]:
     bundle_id = _require_state_string(state, "bundle_id", pattern=STATE_IDENTIFIER)
     if bundle_id != f"{run_id}-multitrack":
         raise PrivateBetaError("任务状态 bundle_id 与 run_id 不匹配")
+    if task_kind == "targeted_gap_recovery":
+        _require_state_string(
+            state,
+            "source_bundle_id",
+            pattern=STATE_IDENTIFIER,
+        )
+        _require_state_string(
+            state,
+            "source_track_id",
+            pattern=STATE_IDENTIFIER,
+        )
+        request = _require_state_string(state, "recovery_request_path")
+        request_path = Path(request)
+        try:
+            request_path.expanduser().resolve(strict=True).relative_to(project_dir)
+        except (OSError, ValueError) as exc:
+            raise PrivateBetaError("任务状态 recovery_request_path 无效") from exc
+        selected_gap_count = state.get("selected_gap_count")
+        if (
+            not isinstance(selected_gap_count, int)
+            or isinstance(selected_gap_count, bool)
+            or not 1 <= selected_gap_count <= 16
+        ):
+            raise PrivateBetaError("任务状态 selected_gap_count 无效")
 
     status = _require_state_string(state, "status")
     if status not in JOB_STATUSES:
@@ -319,6 +360,7 @@ def _validate_state(project_dir: Path, state: dict[str, Any]) -> dict[str, Any]:
         "rhythm_analysis",
         "gap_planning",
         "automatic_gap_recovery",
+        "targeted_gap_recovery",
         "packaging",
         "complete",
         "failed",
@@ -376,6 +418,20 @@ def _load_state(project_dir: Path) -> dict[str, Any]:
 def _write_state(project_dir: Path, state: dict[str, Any]) -> None:
     state["updated_at"] = _utc_now()
     atomic_write_json(_state_path(project_dir), state)
+
+
+def _archive_previous_state(project_dir: Path) -> None:
+    path = _state_path(project_dir)
+    if not path.exists():
+        return
+    state = _load_state(project_dir)
+    if state["status"] not in TERMINAL_STATUSES:
+        raise PrivateBetaError("当前项目已有计算任务，不能重复提交空缺重算")
+    history = project_dir / "app/job_history"
+    history.mkdir(parents=True, exist_ok=True)
+    destination = history / f"{state['job_id']}.json"
+    if not destination.exists():
+        atomic_write_json(destination, state)
 
 
 def _unique_project_dir(local_root: Path, stem: str) -> Path:
@@ -695,6 +751,33 @@ def _sync_project_to_hyak(
     )
 
 
+def _sync_bundle_to_hyak(
+    connection: HyakConnection,
+    project_dir: Path,
+    remote_project: str,
+    bundle_id: str,
+) -> None:
+    bundle_id = _require_safe_identifier(bundle_id, label="source bundle")
+    source = project_dir / "exports" / bundle_id
+    if not (source / "bundle_manifest.json").is_file():
+        raise PrivateBetaError(f"找不到源识别版本：{bundle_id}")
+    remote_bundle = f"{remote_project}/exports/{bundle_id}"
+    connection.remote(f"mkdir -p {shlex.quote(remote_bundle)}")
+    _run(
+        [
+            "rsync",
+            "-az",
+            "--partial",
+            "--delete",
+            "-e",
+            connection.rsync_shell(),
+            f"{source}/",
+            f"{connection.host}:{remote_bundle}/",
+        ],
+        timeout=1800,
+    )
+
+
 def _discover_weight_provenance(
     connection: HyakConnection,
     remote_root: str,
@@ -815,6 +898,316 @@ def start_job(
     return state
 
 
+def _prepare_gap_recovery_request(
+    project_dir: Path,
+    *,
+    run_id: str,
+    source_bundle_id: str,
+    source_track_id: str,
+    intervals: list[tuple[float, float]],
+) -> Path:
+    from workers.muscriptor.targeted_gap_recovery import (
+        TargetedGapRecoveryError,
+        plan_selected_gaps,
+    )
+
+    project_dir = project_dir.expanduser().resolve()
+    _require_safe_identifier(run_id, label="recovery run")
+    _require_safe_identifier(source_bundle_id, label="source bundle")
+    _require_safe_identifier(source_track_id, label="source track")
+    try:
+        spec = plan_selected_gaps(
+            project_dir,
+            probe_id=run_id,
+            source_bundle_id=source_bundle_id,
+            source_track_id=source_track_id,
+            intervals=intervals,
+        )
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise PrivateBetaError(str(exc)) from exc
+    request_path = project_dir / "requests" / f"{run_id}.json"
+    if request_path.exists() or request_path.is_symlink():
+        raise PrivateBetaError("空缺重算请求标识发生冲突，请重试")
+    request_path.parent.mkdir(parents=True, exist_ok=True)
+    from workers.muscriptor.gap_probe import spec_as_dict
+
+    atomic_write_json(request_path, spec_as_dict(spec))
+    return request_path
+
+
+def start_gap_recovery_job(
+    project_dir: Path,
+    *,
+    repo_root: Path,
+    source_bundle_id: str,
+    source_track_id: str,
+    intervals: list[tuple[float, float]],
+    host: str | None,
+    remote_root: str | None,
+    weight_provenance: str | None,
+) -> dict[str, Any]:
+    project_dir = project_dir.expanduser().resolve()
+    repo_root = repo_root.expanduser().resolve()
+    project = load_project(project_dir)
+    project_id = project["project_id"]
+    if _canonical_filesystem_text(project_dir.name) != _canonical_filesystem_text(
+        project_id
+    ):
+        raise PrivateBetaError("项目目录与项目身份不匹配")
+    _archive_previous_state(project_dir)
+    host, remote_root = _load_hyak_configuration(
+        repo_root,
+        host=host,
+        remote_root=remote_root,
+    )
+    connection = HyakConnection.discover(host)
+    provenance = _discover_weight_provenance(
+        connection,
+        remote_root,
+        weight_provenance,
+    )
+    run_id = (
+        f"gap-recovery-{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}-"
+        f"{uuid4().hex[:8]}"
+    )
+    bundle_id = f"{run_id}-multitrack"
+    request_path = _prepare_gap_recovery_request(
+        project_dir,
+        run_id=run_id,
+        source_bundle_id=source_bundle_id,
+        source_track_id=source_track_id,
+        intervals=intervals,
+    )
+    remote_project = f"{remote_root}/projects/private/{project_id}"
+    code_commit = _sync_code(connection, repo_root, remote_root)
+    _sync_project_to_hyak(connection, project_dir, remote_project)
+    _sync_bundle_to_hyak(
+        connection,
+        project_dir,
+        remote_project,
+        source_bundle_id,
+    )
+    remote_repo = f"{remote_root}/repo"
+    remote_logs = f"{remote_project}/logs"
+    remote_request = (
+        f"{remote_project}/{request_path.relative_to(project_dir).as_posix()}"
+    )
+    connection.remote(f"mkdir -p {shlex.quote(remote_logs)}")
+    exports = {
+        "AMT_REPO_ROOT": remote_repo,
+        "PROJECT_DIR": remote_project,
+        "MUSCRIPTOR_WEIGHT_PROVENANCE": provenance,
+        "TARGETED_GAP_CONFIG": remote_request,
+        "AMT_BUNDLE_ID": bundle_id,
+    }
+    env_prefix = " ".join(
+        f"{key}={shlex.quote(value)}" for key, value in exports.items()
+    )
+    submit = (
+        f"cd {shlex.quote(remote_repo)} && {env_prefix} "
+        "sbatch --parsable "
+        f"--output={shlex.quote(remote_logs + '/slurm-%j.out')} "
+        f"--error={shlex.quote(remote_logs + '/slurm-%j.err')} "
+        "slurm/42_targeted_gap_recovery.slurm"
+    )
+    job_id = connection.remote(submit).split(";", 1)[0].strip()
+    if not job_id.isdigit():
+        raise PrivateBetaError(f"Hyak 返回了无效 job id：{job_id!r}")
+    state: dict[str, Any] = {
+        "schema_version": 1,
+        "task_kind": "targeted_gap_recovery",
+        "backend": "hyak",
+        "status": "submitted",
+        "submitted_at": _utc_now(),
+        "project_id": project_id,
+        "local_project_dir": str(project_dir),
+        "remote_project_dir": remote_project,
+        "host": host,
+        "remote_root": remote_root,
+        "job_id": job_id,
+        "run_id": run_id,
+        "bundle_id": bundle_id,
+        "source_bundle_id": source_bundle_id,
+        "source_track_id": source_track_id,
+        "recovery_request_path": str(request_path),
+        "selected_gap_count": len(intervals),
+        "weight_provenance_path": provenance,
+        "code_commit": code_commit,
+        "slurm_state": "PENDING",
+        "pipeline_stage": "queued",
+    }
+    _write_state(project_dir, state)
+    return state
+
+
+def start_local_gap_recovery_job(
+    project_dir: Path,
+    *,
+    repo_root: Path,
+    source_bundle_id: str,
+    source_track_id: str,
+    intervals: list[tuple[float, float]],
+    device: str,
+    weight_provenance: str | None,
+) -> dict[str, Any]:
+    project_dir = project_dir.expanduser().resolve()
+    repo_root = repo_root.expanduser().resolve()
+    project = load_project(project_dir)
+    project_id = project["project_id"]
+    if _canonical_filesystem_text(project_dir.name) != _canonical_filesystem_text(
+        project_id
+    ):
+        raise PrivateBetaError("项目目录与项目身份不匹配")
+    _archive_previous_state(project_dir)
+    readiness = local_readiness(
+        repo_root,
+        device=device,
+        weight_provenance=weight_provenance,
+    )
+    if readiness["ready"] is not True:
+        raise PrivateBetaError(str(readiness["readiness_message"]))
+    run_id = (
+        f"gap-recovery-local-{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}-"
+        f"{uuid4().hex[:8]}"
+    )
+    bundle_id = f"{run_id}-multitrack"
+    request_path = _prepare_gap_recovery_request(
+        project_dir,
+        run_id=run_id,
+        source_bundle_id=source_bundle_id,
+        source_track_id=source_track_id,
+        intervals=intervals,
+    )
+    job_id = f"local-{uuid4().hex[:12]}"
+    log_path = project_dir / "logs/local-compute.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    code_commit = _run(
+        ["git", "rev-parse", "--verify", "HEAD"],
+        cwd=repo_root,
+    ).stdout.strip()
+    state: dict[str, Any] = {
+        "schema_version": 1,
+        "task_kind": "targeted_gap_recovery",
+        "backend": "local",
+        "status": "submitted",
+        "submitted_at": _utc_now(),
+        "project_id": project_id,
+        "local_project_dir": str(project_dir),
+        "job_id": job_id,
+        "run_id": run_id,
+        "bundle_id": bundle_id,
+        "source_bundle_id": source_bundle_id,
+        "source_track_id": source_track_id,
+        "recovery_request_path": str(request_path),
+        "selected_gap_count": len(intervals),
+        "weight_provenance_path": readiness["weight_provenance_path"],
+        "code_commit": code_commit,
+        "slurm_state": "PENDING",
+        "pipeline_stage": "starting",
+        "local_device": device,
+        "local_log_path": str(log_path),
+    }
+    _write_state(project_dir, state)
+    environment = os.environ.copy()
+    background_threads = max(1, (os.cpu_count() or 2) // 2)
+    environment.update(
+        {
+            "PYTHONUNBUFFERED": "1",
+            "OMP_NUM_THREADS": str(background_threads),
+            "MKL_NUM_THREADS": str(background_threads),
+        }
+    )
+    if device == "mps":
+        environment["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+    with log_path.open("a", encoding="utf-8") as log_handle:
+        try:
+            process = subprocess.Popen(
+                _local_worker_command(project_dir, repo_root=repo_root),
+                cwd=repo_root,
+                env=environment,
+                stdin=subprocess.PIPE,
+                stdout=log_handle,
+                stderr=subprocess.STDOUT,
+                text=True,
+                start_new_session=True,
+                close_fds=True,
+            )
+        except OSError as exc:
+            state["status"] = "failed"
+            state["slurm_state"] = "FAILED"
+            state["pipeline_stage"] = "failed"
+            state["completed_at"] = _utc_now()
+            state["failure_reason"] = f"无法启动本机后台任务：{exc}"
+            state["local_pid"] = 2
+            _write_state(project_dir, state)
+            raise PrivateBetaError(state["failure_reason"]) from exc
+    state["local_pid"] = process.pid
+    state["status"] = "running"
+    state["slurm_state"] = "RUNNING"
+    state["pipeline_stage"] = "targeted_gap_recovery"
+    _write_state(project_dir, state)
+    if process.stdin is not None:
+        process.stdin.write("start\n")
+        process.stdin.close()
+    return state
+
+
+def _run_local_gap_recovery_pipeline(
+    project_dir: Path,
+    *,
+    repo_root: Path,
+    state: dict[str, Any],
+) -> int:
+    from workers.muscriptor.targeted_gap_recovery import run_selected_recovery
+
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg is None:
+        raise PrivateBetaError("本机找不到 ffmpeg")
+    try:
+        state["status"] = "running"
+        state["slurm_state"] = "RUNNING"
+        state["pipeline_stage"] = "targeted_gap_recovery"
+        _write_state(project_dir, state)
+        manifest = run_selected_recovery(
+            project_dir,
+            Path(state["recovery_request_path"]),
+            output_bundle_id=state["bundle_id"],
+            worker_env=repo_root / "workers/muscriptor/.venv",
+            weight_provenance=Path(
+                state["weight_provenance_path"]
+            ).expanduser().resolve(),
+            ffmpeg=ffmpeg,
+            device=state["local_device"],
+            require_slurm=False,
+            execution_backend="local",
+        )
+        if manifest.get("status") != "succeeded":
+            raise PrivateBetaError("本机所选空缺重算未成功")
+        state["pipeline_stage"] = "packaging"
+        _write_state(project_dir, state)
+        if not (
+            project_dir
+            / "exports"
+            / state["bundle_id"]
+            / "bundle_manifest.json"
+        ).is_file():
+            raise PrivateBetaError("本机空缺重算没有生成最终版本")
+        state["status"] = "succeeded"
+        state["slurm_state"] = "COMPLETED"
+        state["pipeline_stage"] = "complete"
+        state["completed_at"] = _utc_now()
+        _write_state(project_dir, state)
+        return 0
+    except (OSError, RuntimeError, ValueError) as exc:
+        state["status"] = "failed"
+        state["slurm_state"] = "FAILED"
+        state["pipeline_stage"] = "failed"
+        state["completed_at"] = _utc_now()
+        state["failure_reason"] = str(exc)
+        _write_state(project_dir, state)
+        return 1
+
+
 def _run_local_pipeline(project_dir: Path, *, repo_root: Path) -> int:
     from .bundle import build_muscriptor_multitrack_bundle
     from workers.muscriptor import gap_probe, run_baseline
@@ -830,6 +1223,12 @@ def _run_local_pipeline(project_dir: Path, *, repo_root: Path) -> int:
         os.nice(10)
     except OSError:
         pass
+    if state.get("task_kind", "full_transcription") == "targeted_gap_recovery":
+        return _run_local_gap_recovery_pipeline(
+            project_dir,
+            repo_root=repo_root,
+            state=state,
+        )
 
     run_dir = project_dir / "runs" / state["run_id"]
     raw_bundle = project_dir / "exports" / f"{state['bundle_id']}-raw"
@@ -1015,6 +1414,40 @@ def _fetch_results(
             ],
             timeout=1800,
         )
+    if state.get("task_kind", "full_transcription") == "targeted_gap_recovery":
+        manifest_path = (
+            project_dir / "runs" / state["run_id"] / "run_manifest.json"
+        )
+        if manifest_path.is_file():
+            try:
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                manifest = {}
+            for child in manifest.get("child_runs", []):
+                child_run_id = (
+                    child.get("run_id") if isinstance(child, dict) else None
+                )
+                if (
+                    not isinstance(child_run_id, str)
+                    or STATE_IDENTIFIER.fullmatch(child_run_id) is None
+                ):
+                    continue
+                remote_path = f"{remote_project}/runs/{child_run_id}"
+                local_path = project_dir / "runs" / child_run_id
+                local_path.parent.mkdir(parents=True, exist_ok=True)
+                _run(
+                    [
+                        "rsync",
+                        "-az",
+                        "--partial",
+                        "-e",
+                        connection.rsync_shell(),
+                        f"{connection.host}:{remote_path}/",
+                        f"{local_path}/",
+                    ],
+                    timeout=1800,
+                )
+        return
     probe_id = f"{state['run_id']}-auto-gap"
     rhythm_run_id = f"{state['run_id']}-rhythm"
     for relative in (
@@ -1051,6 +1484,20 @@ def _pipeline_stage(
     remote_project = state["remote_project_dir"]
     run_id = state["run_id"]
     bundle_id = state["bundle_id"]
+    if state.get("task_kind", "full_transcription") == "targeted_gap_recovery":
+        bundle_manifest = (
+            f"{remote_project}/exports/{bundle_id}/bundle_manifest.json"
+        )
+        run_manifest = f"{remote_project}/runs/{run_id}/run_manifest.json"
+        command = (
+            f"if test -f {shlex.quote(bundle_manifest)}; "
+            "then printf packaging; "
+            f"elif test -f {shlex.quote(run_manifest)}; "
+            "then printf targeted_gap_recovery; "
+            "else printf starting; fi"
+        )
+        stage = connection.remote(command, timeout=15)
+        return stage if stage else "starting"
     probe_id = f"{run_id}-auto-gap"
     rhythm_run_id = f"{run_id}-rhythm"
     raw_bundle_id = f"{bundle_id}-raw"
@@ -1162,6 +1609,25 @@ def connection_status(host: str) -> dict[str, Any]:
     }
 
 
+def _gap_interval_argument(value: str) -> tuple[float, float]:
+    try:
+        start_text, end_text = value.split(":", 1)
+        start = float(start_text)
+        end = float(end_text)
+    except (ValueError, TypeError) as exc:
+        raise argparse.ArgumentTypeError(
+            "gap must use start_seconds:end_seconds"
+        ) from exc
+    if (
+        not math.isfinite(start)
+        or not math.isfinite(end)
+        or start < 0
+        or end <= start
+    ):
+        raise argparse.ArgumentTypeError("gap interval is invalid")
+    return start, end
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="amt-private-beta")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -1183,6 +1649,45 @@ def build_parser() -> argparse.ArgumentParser:
     start_local.add_argument("--local-root", type=Path, required=True)
     start_local.add_argument("--device", choices=sorted(LOCAL_DEVICES), required=True)
     start_local.add_argument(
+        "--weight-provenance",
+        default=os.environ.get("MUSCRIPTOR_WEIGHT_PROVENANCE"),
+    )
+
+    recover = subparsers.add_parser("start-gap-recovery")
+    recover.add_argument("project", type=Path)
+    recover.add_argument("--repo-root", type=Path, required=True)
+    recover.add_argument("--source-bundle", required=True)
+    recover.add_argument("--source-track", required=True)
+    recover.add_argument(
+        "--gap",
+        action="append",
+        type=_gap_interval_argument,
+        required=True,
+    )
+    recover.add_argument("--host")
+    recover.add_argument("--remote-root")
+    recover.add_argument(
+        "--weight-provenance",
+        default=os.environ.get("MUSCRIPTOR_WEIGHT_PROVENANCE"),
+    )
+
+    recover_local = subparsers.add_parser("start-local-gap-recovery")
+    recover_local.add_argument("project", type=Path)
+    recover_local.add_argument("--repo-root", type=Path, required=True)
+    recover_local.add_argument("--source-bundle", required=True)
+    recover_local.add_argument("--source-track", required=True)
+    recover_local.add_argument(
+        "--gap",
+        action="append",
+        type=_gap_interval_argument,
+        required=True,
+    )
+    recover_local.add_argument(
+        "--device",
+        choices=sorted(LOCAL_DEVICES),
+        required=True,
+    )
+    recover_local.add_argument(
         "--weight-provenance",
         default=os.environ.get("MUSCRIPTOR_WEIGHT_PROVENANCE"),
     )
@@ -1229,6 +1734,27 @@ def main(argv: list[str] | None = None) -> int:
                 args.audio,
                 repo_root=args.repo_root,
                 local_root=args.local_root,
+                device=args.device,
+                weight_provenance=args.weight_provenance,
+            )
+        elif args.command == "start-gap-recovery":
+            result = start_gap_recovery_job(
+                args.project,
+                repo_root=args.repo_root,
+                source_bundle_id=args.source_bundle,
+                source_track_id=args.source_track,
+                intervals=args.gap,
+                host=args.host,
+                remote_root=args.remote_root,
+                weight_provenance=args.weight_provenance,
+            )
+        elif args.command == "start-local-gap-recovery":
+            result = start_local_gap_recovery_job(
+                args.project,
+                repo_root=args.repo_root,
+                source_bundle_id=args.source_bundle,
+                source_track_id=args.source_track,
+                intervals=args.gap,
                 device=args.device,
                 weight_provenance=args.weight_provenance,
             )

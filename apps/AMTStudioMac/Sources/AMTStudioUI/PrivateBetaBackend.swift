@@ -19,6 +19,10 @@ struct PrivateBetaResponse: Decodable, Sendable {
   let host: String?
   let user: String?
   let controlPath: String?
+  let taskKind: String?
+  let sourceBundleID: String?
+  let sourceTrackID: String?
+  let selectedGapCount: Int?
 
   enum CodingKeys: String, CodingKey {
     case ok
@@ -39,6 +43,10 @@ struct PrivateBetaResponse: Decodable, Sendable {
     case host
     case user
     case controlPath = "control_path"
+    case taskKind = "task_kind"
+    case sourceBundleID = "source_bundle_id"
+    case sourceTrackID = "source_track_id"
+    case selectedGapCount = "selected_gap_count"
   }
 }
 
@@ -136,6 +144,24 @@ struct PrivateBetaBackend: Sendable {
     ])
   }
 
+  func startGapRecovery(
+    projectURL: URL,
+    sourceBundleID: String,
+    sourceTrackID: String,
+    gaps: [MelodyGap],
+    computeMode: ComputeMode
+  ) throws -> PrivateBetaResponse {
+    try execute(
+      Self.gapRecoveryArguments(
+        projectURL: projectURL,
+        sourceBundleID: sourceBundleID,
+        sourceTrackID: sourceTrackID,
+        gaps: gaps,
+        computeMode: computeMode,
+        repositoryRoot: repositoryRoot
+      ))
+  }
+
   func connection() throws -> PrivateBetaResponse {
     try execute([
       "run",
@@ -190,6 +216,47 @@ struct PrivateBetaBackend: Sendable {
       "--local-root",
       localProjectsRoot.path,
     ]
+    if let device = computeMode.localDevice {
+      arguments.append(contentsOf: ["--device", device])
+    }
+    return arguments
+  }
+
+  static func gapRecoveryArguments(
+    projectURL: URL,
+    sourceBundleID: String,
+    sourceTrackID: String,
+    gaps: [MelodyGap],
+    computeMode: ComputeMode,
+    repositoryRoot: URL
+  ) -> [String] {
+    var arguments = [
+      "run",
+      "amt-private-beta",
+      computeMode == .hyak
+        ? "start-gap-recovery"
+        : "start-local-gap-recovery",
+      projectURL.path,
+      "--repo-root",
+      repositoryRoot.path,
+      "--source-bundle",
+      sourceBundleID,
+      "--source-track",
+      sourceTrackID,
+    ]
+    for gap in gaps {
+      let start = String(
+        format: "%.6f",
+        locale: Locale(identifier: "en_US_POSIX"),
+        gap.startSec
+      )
+      let end = String(
+        format: "%.6f",
+        locale: Locale(identifier: "en_US_POSIX"),
+        gap.endSec
+      )
+      arguments.append(contentsOf: ["--gap", "\(start):\(end)"])
+    }
     if let device = computeMode.localDevice {
       arguments.append(contentsOf: ["--device", device])
     }

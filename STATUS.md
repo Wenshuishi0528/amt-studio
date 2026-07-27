@@ -1,17 +1,49 @@
 # Project status
 
-Current product milestone: Task 009B2L beat-aware editing and song-level result
-acceptance are implemented while Hyak remains the default
+Current product milestone: Task 009B2M user-selected targeted gap recovery is
+implemented while Hyak remains the default
 Research status: Gate 4 remains not passed for the rejected fusion routes; no
 new dataset, fusion, retuning, or training work is in the product critical path
-Current task: real new-song Job `37746586` completed on Hyak L40 with exit
-`0:0` in `00:21:19`; its final bundle was fetched and the rebuilt app was
-reopened
-Next task: owner review of the completed new-song multitrack and automatic
-voice-gap result. This old-code result truthfully retains the default
-120 BPM / 4/4 grid; the next uploaded Hyak song will also run Beat This inside
-the same job and return estimated BPM, meter, and beat positions
+Current task: the completed new-song result now exposes every current-track
+gap as an individually selectable recovery target; no recovery job was
+submitted on the owner's behalf
+Next task: the owner may select the two large voice gaps, or any other subset,
+and submit one targeted Hyak job from the app
 Current branch: `main`
+
+Implemented and code-verified for Task 009B2M:
+
+- the former read-only voice coverage list is now a current-track gap control:
+  every gap has a checkbox plus select-all/clear actions, and the owner can
+  submit any subset as one compute job;
+- selected spans are split only when needed for bounded inference, include
+  four seconds of context, and run sequentially inside one Hyak L40 allocation
+  or the explicitly selected local backend. The whole song is not
+  retranscribed;
+- recovery follows the selected track's MuScriptor instrument label, so the
+  same flow supports the main voice candidate and accompaniment tracks such as
+  guitar or bass. Silence can be intentional and remains labeled for listening
+  review;
+- the source bundle is hash-checked and retained unchanged. A successful task
+  copies all tracks into a new bundle, augments only the selected track, keeps
+  candidate provenance, automatically opens the new version, and allows
+  another targeted pass over any remaining gaps;
+- the previous job state is archived before a new project task replaces the
+  active state. Login-node execution, overlapping/nonempty targets, unsafe
+  paths, duplicate active tasks, and more than 16 target windows are rejected;
+- the real `ピカソ-ビギン-ザ-ナイト` result was checked read-only. Its
+  `voice_auto_enhanced` track contains 322 notes and five ≥3-second gaps:
+  `0:00–1:00.51`, `1:21.75–2:00.09`, `2:03.34–2:10.72`,
+  `3:29.26–3:35.73`, and `4:14.04–4:31.81`. The former UI displayed only the
+  first four; the new list displays all five. Its first automatic gap candidate
+  contained zero notes, which is why a manual second-pass entry is useful;
+- `make check` passes 263 Python and 29 Swift tests with three expected
+  environment-gated skips. Focused real-project loading and read-only planning
+  also pass; no GPU job or local model inference was started;
+- one Task-only `/review` was invoked. It produced no output for more than
+  eight minutes after the network interruption, so the stalled process was
+  stopped and not rerun. A bounded manual P0/P1 plus secret/path check found
+  no blocking issue.
 
 Implemented and code-verified for Task 009B2L:
 

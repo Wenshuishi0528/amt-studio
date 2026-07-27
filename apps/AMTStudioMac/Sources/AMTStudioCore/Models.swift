@@ -40,8 +40,17 @@ public enum AMTProjectError: Error, LocalizedError, Equatable, Sendable {
 
 public struct ProjectManifest: Decodable, Sendable, Equatable {
   public struct AudioRecord: Decodable, Sendable, Equatable {
+    public struct Metadata: Decodable, Sendable, Equatable {
+      public let durationSec: Double?
+
+      enum CodingKeys: String, CodingKey {
+        case durationSec = "duration_sec"
+      }
+    }
+
     public let path: String
     public let sha256: String
+    public let metadata: Metadata?
   }
 
   public let schemaVersion: Int

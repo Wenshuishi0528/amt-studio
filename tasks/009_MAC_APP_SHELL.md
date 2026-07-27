@@ -146,6 +146,52 @@ Verification boundary:
   MuScriptor pass succeeded before the job continued into bundle/gap
   processing. No job was submitted, cancelled, or altered for this task.
 
+## Task 009B2M: user-selected targeted gap recovery
+
+Implemented:
+
+- every ≥3-second empty span of the selected canonical track is now shown with
+  a checkbox. The owner can select all, clear all, or choose any subset and
+  submit one recovery task;
+- the selected compute mode is respected. Multiple gaps become bounded
+  four-second-context windows inside one Hyak Slurm job or one local worker;
+  neither the whole song nor one separate job per gap is required;
+- recovery selects child MuScriptor events using the current track's
+  instrument, so voice and normal accompaniment tracks share the same path;
+- the source bundle is verified and immutable. The returned bundle preserves
+  every track, adds only recovered candidates to the selected track, records
+  their source windows, opens automatically, and can itself be used for a
+  later targeted pass;
+- one active project task is allowed. Previous terminal state is archived,
+  login-node and non-allocation inference are refused, unsafe or nonempty
+  target intervals are rejected, and Hyak reconnect uses the existing
+  Terminal/Duo boundary.
+
+Current-song evidence:
+
+- `voice_auto_enhanced` contains 322 notes and five ≥3-second gaps:
+  `0.00–60.51`, `81.75–120.09`, `123.34–130.72`, `209.26–215.73`, and
+  `254.04–271.81` seconds;
+- the previous UI exposed only the first four because of a display prefix.
+  The new UI exposes all five. The first automatic `voice_gap_candidate` has
+  zero notes, so an explicit user-selected second pass is a real missing
+  product control rather than a duplicate of a successful result;
+- a read-only plan over all five spans produced five bounded windows. No
+  recovery job was submitted because the owner must choose the desired subset.
+
+Verification:
+
+- `make check` passes 263 Python and 29 Swift tests with three expected
+  environment-gated skips;
+- focused tests cover two selected gaps in one request, target-instrument
+  filtering for accompaniment, rejection of overlapping or nonempty spans,
+  immutable source bundles, task-stage reporting, UI command construction,
+  selection controls, and real-project loading.
+- one focused `/review` was invoked only for these Task 009B2M files. It
+  returned no output for over eight minutes after the network interruption,
+  so the stalled process was stopped rather than repeated. The bounded manual
+  P0/P1 and secret/path review found no blocker.
+
 ## Task 009B2L: beat-aware editing and result acceptance
 
 Implemented:
