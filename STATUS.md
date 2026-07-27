@@ -1,15 +1,32 @@
 # Project status
 
-Current product milestone: Task 009B2Q instrument-constrained gap decoding is
+Current product milestone: Task 009B2R task-focused note inspector is
 implemented while Hyak remains the default
 Research status: Gate 4 remains not passed for the rejected fusion routes; no
 new dataset, fusion, retuning, or training work is in the product critical path
-Current task: automatic and user-selected gap recovery now constrain MuScriptor
-during decoding to the requested instrument instead of filtering an
-unconstrained arrangement afterward
-Next task: rerun only the owner-confirmed missing melody spans and listen to the
-new constrained candidate before considering source separation
+Current task: the right inspector keeps direct note editing visible while
+hiding unavailable confidence controls and collapsing optional diagnostics
+Next task: wait for the active constrained recovery, then listen to only its
+new candidate spans
 Current branch: `main`
+
+Implemented and visually verified for Task 009B2R:
+
+- the screenshot's `待复核 0/0` panel had no action value because all 338
+  selected-track notes lacked source confidence. It is now omitted whenever a
+  track has no real confidence data and remains available for models that do;
+- pitch, onset, offset, duration, and note deletion remain immediately
+  visible. Model ID, run ID, and confidence provenance are preserved under the
+  collapsed `来源信息` disclosure;
+- the 1,663 cross-track review hints no longer occupy a permanent full panel.
+  They are available under one collapsed `高级诊断` row. Current-track tail
+  cleanup remains directly visible only when its conservative detector finds a
+  candidate;
+- the rebuilt signed app was checked on the current project. The owner-started
+  constrained Hyak recovery remained `RUNNING` across the app restart;
+- full `make check` passes 267 Python and 36 Swift tests with three expected
+  environment-gated skips. Strict Swift formatting and `git diff --check`
+  pass.
 
 Implemented and code-verified for Task 009B2Q:
 

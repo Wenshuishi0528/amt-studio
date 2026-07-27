@@ -14,7 +14,9 @@ selectable gap recovery, launch repair, conservative sustain cleanup, and one
 canonical product timeline. Task 009B2P applies that boundary to every product
 consumer and adds instrument-aware cleanup on every track. Task 009B2Q fixes
 gap recovery to constrain MuScriptor during decoding instead of discarding
-non-target instruments only after an unconstrained decode.
+non-target instruments only after an unconstrained decode. Task 009B2R makes
+the inspector task-focused by hiding empty confidence controls and collapsing
+diagnostic provenance.
 
 ## Objective
 
@@ -214,6 +216,31 @@ Verification:
   `voice` and accompaniment allowlists;
 - full `make check` passes 267 Python and 36 Swift tests with three expected
   environment-gated skips. No Hyak or local model job was submitted.
+
+## Task 009B2R: task-focused note inspector
+
+Implemented:
+
+- the selected note's pitch, onset, offset, duration, and delete action now
+  occupy the primary inspector surface;
+- the confidence-review panel is absent when the selected model provided no
+  confidence values. It remains available for tracks with real source
+  confidence;
+- model ID, run ID, and confidence provenance are retained under a collapsed
+  `来源信息` disclosure;
+- cross-track short-note and low-confidence hints are retained under one
+  collapsed `高级诊断` row. Per-track trailing cleanup appears only when the
+  current track actually has a candidate.
+
+Verification:
+
+- the rebuilt signed app was visually checked on the active private project.
+  The previous `待复核 0/0` and full-height `整曲验收` blocks are gone, while
+  direct note editing remains visible;
+- the owner-submitted Hyak recovery remained `RUNNING` across the app restart;
+- full `make check` passes 267 Python and 36 Swift tests with three expected
+  environment-gated skips. Strict Swift formatting and `git diff --check`
+  pass.
 
 ## Task 009B2O: canonical timeline repair
 

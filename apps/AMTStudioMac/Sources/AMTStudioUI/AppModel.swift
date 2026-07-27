@@ -710,6 +710,10 @@ public final class AppModel: ObservableObject {
     notes.lazy.filter { $0.confidence == nil }.count
   }
 
+  public var hasConfidenceReviewData: Bool {
+    notes.contains { $0.confidence != nil }
+  }
+
   public var rhythm: RhythmMap? {
     snapshot?.canonicalProject.rhythm
   }

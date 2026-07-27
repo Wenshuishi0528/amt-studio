@@ -4,6 +4,29 @@ This project records changes by numbered research task until formal semantic
 versions and releases begin. Dates and commit identifiers refer to the local
 Git history.
 
+## Task 009B2R — Task-focused note inspector — 2026-07-26
+
+Commit: this task's final commit
+
+### Changed
+
+- Made pitch, onset, offset, duration, and note deletion the primary inspector
+  content.
+- Hid the confidence-review panel when a track provides no confidence values;
+  tracks with real source confidence keep the existing threshold workflow.
+- Collapsed model/run provenance under `来源信息` and cross-track review hints
+  under `高级诊断`. Trailing cleanup stays visible only for a flagged current
+  track.
+
+### Verified
+
+- The signed app was rebuilt and visually checked on the active private
+  project. The submitted Hyak recovery remained running through the app
+  restart.
+- Full `make check` passes 267 Python and 36 Swift tests with three expected
+  environment-gated skips. Strict Swift formatting and `git diff --check`
+  pass.
+
 ## Task 009B2Q — Instrument-constrained gap decoding — 2026-07-26
 
 Commit: this task's final commit

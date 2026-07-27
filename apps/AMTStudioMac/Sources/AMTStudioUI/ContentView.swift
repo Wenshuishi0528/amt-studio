@@ -1321,6 +1321,7 @@ private struct WorkspaceView: View {
   let editor: EditorProject
   let theme: AMTTheme
   @State private var pianoRollDisplayMode: PianoRollDisplayMode = .allTracks
+  @State private var isShowingProjectDiagnostics = false
 
   var body: some View {
     HSplitView {
@@ -1403,10 +1404,6 @@ private struct WorkspaceView: View {
   @ViewBuilder
   private var inspector: some View {
     VStack(spacing: 0) {
-      ResultReviewPanel(model: model)
-      Divider()
-      ConfidenceReviewPanel(model: model)
-      Divider()
       if let note = model.selectedNote {
         NoteInspector(
           note: note,
@@ -1428,6 +1425,36 @@ private struct WorkspaceView: View {
           .keyboardShortcut("n", modifiers: [.command, .shift])
           .accessibilityIdentifier("add-note-empty-inspector")
         }
+      }
+      if model.currentTrailingCleanupSummary != nil {
+        Divider()
+        TrailingCleanupPanel(model: model)
+      }
+      if model.hasConfidenceReviewData {
+        Divider()
+        ConfidenceReviewPanel(model: model)
+      }
+      if !model.projectReviewIssues.isEmpty {
+        Divider()
+        DisclosureGroup(
+          isExpanded: $isShowingProjectDiagnostics
+        ) {
+          ProjectReviewPanel(model: model)
+            .padding(.top, 8)
+        } label: {
+          HStack {
+            Label(
+              "高级诊断",
+              systemImage: "waveform.badge.magnifyingglass"
+            )
+            Spacer()
+            Text("\(model.projectReviewIssues.count) 项")
+              .font(.caption.monospacedDigit())
+              .foregroundStyle(.secondary)
+          }
+        }
+        .padding(12)
+        .accessibilityIdentifier("project-diagnostics-disclosure")
       }
     }
   }
@@ -1767,20 +1794,11 @@ private struct ConfidenceReviewPanel: View {
   }
 }
 
-private struct ResultReviewPanel: View {
+private struct ProjectReviewPanel: View {
   @ObservedObject var model: AppModel
-  @State private var isConfirmingTrailingCleanup = false
 
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
-      HStack {
-        Label("整曲验收", systemImage: "checklist")
-          .font(.headline)
-        Spacer()
-        Text("\(model.snapshot?.tracks.count ?? 0) 轨")
-          .font(.caption.monospacedDigit())
-          .foregroundStyle(.secondary)
-      }
       Text(model.projectReviewSummary)
         .font(.caption)
         .foregroundStyle(.secondary)
@@ -1790,11 +1808,20 @@ private struct ResultReviewPanel: View {
       .buttonStyle(.bordered)
       .disabled(model.projectReviewIssues.isEmpty)
       .accessibilityIdentifier("review-next-project-issue")
-      Text("这里只提示低置信度和异常短音；它们是复核线索，不会被自动删除。")
+      Text("低置信度和异常短音只是可选复核线索，不会被自动删除。")
         .font(.caption2)
         .foregroundStyle(.secondary)
+    }
+  }
+}
+
+private struct TrailingCleanupPanel: View {
+  @ObservedObject var model: AppModel
+  @State private var isConfirmingTrailingCleanup = false
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 8) {
       if let summary = model.currentTrailingCleanupSummary {
-        Divider()
         Label(
           summary.kind == .percussionRepeats
             ? "结尾疑似重复打击"
@@ -2672,6 +2699,7 @@ private struct NoteInspector: View {
 
   @State private var onset: Double
   @State private var offset: Double
+  @State private var isShowingProvenance = false
 
   init(
     note: EditorNote,
@@ -2730,18 +2758,25 @@ private struct NoteInspector: View {
         )
       }
 
-      Section("来源与不确定性") {
-        LabeledContent("模型", value: note.sourceModel)
-        LabeledContent("Run", value: note.sourceRunID)
-        LabeledContent(
-          "置信度",
-          value: note.confidence.map {
-            $0.formatted(.percent.precision(.fractionLength(1)))
-          } ?? "模型未提供"
-        )
-        Text("“未提供”不等于低置信度。当前候选轨没有被声明为最终准确结果。")
-          .font(.caption)
-          .foregroundStyle(.secondary)
+      Section {
+        DisclosureGroup(
+          isExpanded: $isShowingProvenance
+        ) {
+          LabeledContent("模型", value: note.sourceModel)
+          LabeledContent("Run", value: note.sourceRunID)
+          LabeledContent(
+            "置信度",
+            value: note.confidence.map {
+              $0.formatted(.percent.precision(.fractionLength(1)))
+            } ?? "模型未提供"
+          )
+          Text("来源信息用于排查和追溯，不影响当前音符编辑。")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        } label: {
+          Label("来源信息", systemImage: "info.circle")
+        }
+        .accessibilityIdentifier("note-provenance-disclosure")
       }
 
       Section {
