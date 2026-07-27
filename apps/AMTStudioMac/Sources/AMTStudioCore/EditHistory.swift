@@ -278,6 +278,10 @@ public struct EditorProject: Sendable {
         }
         chainEnd = max(chainEnd, note.offsetSec)
       }
+      let mergedEnd = min(chainEnd, group.offsetSec)
+      guard mergedEnd > first.onsetSec else {
+        throw AMTProjectError.invalidEvent("延音合并范围不在歌曲时间轴内")
+      }
       let confidence =
         notes.contains(where: { $0.confidence == nil })
         ? nil
@@ -294,7 +298,7 @@ public struct EditorProject: Sendable {
           sourceTrackID: first.sourceTrackID,
           instrument: first.instrument,
           onsetSec: first.onsetSec,
-          offsetSec: chainEnd,
+          offsetSec: mergedEnd,
           pitchMIDI: first.pitchMIDI,
           velocity: first.velocity,
           confidence: confidence,
@@ -309,6 +313,29 @@ public struct EditorProject: Sendable {
     }
     try append(kind: .merge, before: before, after: merged)
     return merged
+  }
+
+  @discardableResult
+  public mutating func repairLegacySustainOverflow(
+    timelineEnd: Double
+  ) throws -> Int {
+    guard timelineEnd.isFinite, timelineEnd > 0 else { return 0 }
+    let before = materializedNotesCache.filter {
+      $0.tags.contains("app-sustain-merge")
+        && $0.onsetSec < timelineEnd
+        && $0.offsetSec > timelineEnd
+    }
+    guard !before.isEmpty else { return 0 }
+    let after = before.map { note in
+      var repaired = note
+      repaired.offsetSec = timelineEnd
+      repaired.tags = Set(
+        note.tags + ["app-timeline-clamp"]
+      ).sorted()
+      return repaired
+    }
+    try append(kind: .update, before: before, after: after)
+    return after.count
   }
 
   public mutating func undo() throws {

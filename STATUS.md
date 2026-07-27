@@ -1,15 +1,38 @@
 # Project status
 
-Current product milestone: Task 009B2N gap-submission repair and conservative
-trailing-sustain cleanup are implemented while Hyak remains the default
+Current product milestone: Task 009B2O canonical-timeline repair is implemented
+while Hyak remains the default
 Research status: Gate 4 remains not passed for the rejected fusion routes; no
 new dataset, fusion, retuning, or training work is in the product critical path
-Current task: the owner-reported `workers` import failure is fixed, and the
-current song's fragmented ending chord is detected as an undoable correction
-candidate; no recovery job was submitted on the owner's behalf
-Next task: the owner may retry the selected-gap Hyak action and, after choosing
-the clean-electric-guitar track, confirm the offered trailing-sustain merge
+Current task: the owner-reported final-gap rejection is fixed by using canonical
+audio duration instead of model-note spill as the product timeline; no recovery
+job was submitted on the owner's behalf
+Next task: the owner may retry the five selected gaps in the rebuilt app
 Current branch: `main`
+
+Implemented and verified for Task 009B2O:
+
+- the current song's canonical audio is `271.805147` seconds, while MuScriptor
+  emitted accompaniment notes through `274.96`. The App incorrectly used the
+  later MIDI offset as the song duration, displayed a false `4:34` endpoint,
+  and sent the fifth gap beyond the authoritative audio boundary;
+- product timeline, bar/beat position, gap detection, and trailing-sustain
+  review now use canonical-audio duration whenever it is available. MIDI note
+  spill no longer extends the song;
+- the corrected five `voice_auto_enhanced` gaps are `0–60.51`,
+  `81.75–120.09`, `123.34–130.72`, `209.26–215.73`, and
+  `254.04–271.805147`. A read-only real-project planning check accepts all five
+  as one request and writes no request file or Slurm job;
+- the backend continues to reject genuinely out-of-range selections. A gap
+  ending exactly at the audio boundary is covered by a regression test;
+- new trailing-sustain merges clamp to the canonical endpoint. The owner had
+  already used the old merge action, producing five app-owned correction notes
+  ending at `274.96`; reopening that track in the rebuilt App repairs those
+  legacy app-generated notes to `271.805147` as one undoable update. Original
+  MuScriptor JSONL remains unchanged;
+- focused Python, Swift, and configured real-project checks pass. Full
+  `make check` passes 265 Python and 33 Swift tests with three expected
+  environment-gated skips. No Hyak or local inference was started.
 
 Implemented and code-verified for Task 009B2N:
 
@@ -25,8 +48,9 @@ Implemented and code-verified for Task 009B2N:
   request;
 - the real `clean_electric_guitar` ending contains five synchronized pitch
   chains. They cover 121 contiguous events, and from `270.12` seconds the
-  model repeats the same five-note chord every `0.23` seconds. This is model
-  fragmentation rather than a piano-roll drawing artifact;
+  model repeats the same five-note chord every `0.23` seconds. Later Task
+  009B2O established that events after `271.805147` are also model spill beyond
+  the canonical audio endpoint, not valid extension of the song;
 - the current-track review panel now offers a conservative
   `合并为延长音` action only when at least four same-pitch, contiguous notes
   reach the song tail, span at least two seconds, and are predominantly short.

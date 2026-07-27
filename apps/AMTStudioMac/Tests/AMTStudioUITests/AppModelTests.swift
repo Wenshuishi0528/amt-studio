@@ -29,6 +29,12 @@ final class AppModelTests: XCTestCase {
     XCTAssertEqual(model.catalog?.rootURL.path, projectPath)
     XCTAssertNotNil(model.snapshot)
     XCTAssertNotNil(model.editor)
+    if let duration =
+      model.snapshot?.manifest.canonicalAudio.metadata?.durationSec
+    {
+      XCTAssertEqual(model.canonicalTimelineDuration, duration)
+      XCTAssertTrue(model.melodyGaps.allSatisfy { $0.endSec <= duration })
+    }
     if let expectedTrack = ProcessInfo.processInfo.environment[
       "AMT_STUDIO_REAL_TRACK"
     ] {
@@ -494,12 +500,14 @@ final class AppModelTests: XCTestCase {
     await model.waitForProjectLoadForTesting()
     XCTAssertEqual(model.bundleChoices.map(\.id), ["bundle-ui"])
     XCTAssertEqual(model.editor?.selectedTrack.id, "candidate-ui")
+    XCTAssertEqual(model.canonicalTimelineDuration, 20)
     model.chooseTrack("candidate-ui")
     await model.waitForSelectionLoadForTesting()
     XCTAssertEqual(model.editor?.selectedTrack.id, "candidate-ui")
     XCTAssertEqual(model.melodyGaps.count, 1)
     XCTAssertEqual(model.selectedMelodyGaps.count, 1)
     let selectedGap = try XCTUnwrap(model.melodyGaps.first)
+    XCTAssertEqual(selectedGap.endSec, 20)
     model.clearGapSelection()
     XCTAssertTrue(model.selectedMelodyGaps.isEmpty)
     model.setGapSelected(selectedGap, selected: true)

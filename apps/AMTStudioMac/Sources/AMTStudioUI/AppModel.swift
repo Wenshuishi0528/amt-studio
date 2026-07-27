@@ -695,6 +695,20 @@ public final class AppModel: ObservableObject {
     rhythm.flatMap(RhythmTimeline.representativeBPM)
   }
 
+  public var canonicalTimelineDuration: Double {
+    if let duration =
+      snapshot?.manifest.canonicalAudio.metadata?.durationSec,
+      duration.isFinite,
+      duration > 0
+    {
+      return duration
+    }
+    return max(
+      transport.duration,
+      snapshot?.notes.map(\.offsetSec).max() ?? 1
+    )
+  }
+
   public var currentMeterLabel: String {
     guard let rhythm else { return "—" }
     let meter = RhythmTimeline.meter(
@@ -708,10 +722,7 @@ public final class AppModel: ObservableObject {
     guard let rhythm else { return nil }
     return RhythmTimeline.position(
       at: transport.currentTime,
-      duration: max(
-        transport.duration,
-        snapshot?.notes.map(\.offsetSec).max() ?? 1
-      ),
+      duration: canonicalTimelineDuration,
       rhythm: rhythm
     )
   }
@@ -750,13 +761,9 @@ public final class AppModel: ObservableObject {
 
   public var trailingSustainFragmentGroups: [SustainFragmentGroup] {
     guard let editor else { return [] }
-    let timelineEnd = max(
-      snapshot?.manifest.canonicalAudio.metadata?.durationSec ?? 0,
-      editor.notes.map(\.offsetSec).max() ?? 0
-    )
     return SustainFragmentAnalyzer.trailingGroups(
       notes: editor.notes,
-      timelineEnd: timelineEnd
+      timelineEnd: canonicalTimelineDuration
     )
   }
 
@@ -797,16 +804,11 @@ public final class AppModel: ObservableObject {
       return
     }
     let sourceNotes = snapshot.notes.filter { $0.trackID == track.id }
-    let duration = max(
-      snapshot.manifest.canonicalAudio.metadata?.durationSec
-        ?? transport.duration,
-      snapshot.notes.map(\.offsetSec).max() ?? 0
-    )
     melodyGaps = MelodyCoverageAnalyzer.gaps(
       voiceNotes: sourceNotes,
       allNotes: snapshot.notes,
       voiceTrackID: track.id,
-      duration: duration
+      duration: canonicalTimelineDuration
     )
     selectedGapIDs = Set(melodyGaps.map(\.id))
   }
@@ -1862,17 +1864,35 @@ private struct PreparedSelection: Sendable {
     bundleID: String,
     trackID: String
   ) throws -> PreparedSelection {
-    let editor = try EditorProject(
+    var editor = try EditorProject(
       snapshot: snapshot,
       bundleID: bundleID,
       selectedTrackID: trackID
     )
+    let repairedCount: Int
+    if let duration =
+      snapshot.manifest.canonicalAudio.metadata?.durationSec
+    {
+      repairedCount = try editor.repairLegacySustainOverflow(
+        timelineEnd: duration
+      )
+      if repairedCount > 0 {
+        try editor.save()
+      }
+    } else {
+      repairedCount = 0
+    }
     try? editor.saveWorkspaceSelection()
     let label = MelodyTrackSelector.displayLabel(for: editor.selectedTrack)
+    let repairMessage =
+      repairedCount > 0
+      ? "；已把 \(repairedCount) 个旧版结尾延音截到真实音频终点"
+      : ""
     return PreparedSelection(
       snapshot: snapshot,
       editor: editor,
-      statusMessage: "音轨 \(label)，\(editor.notes.count) 个音符"
+      statusMessage:
+        "音轨 \(label)，\(editor.notes.count) 个音符\(repairMessage)"
     )
   }
 }

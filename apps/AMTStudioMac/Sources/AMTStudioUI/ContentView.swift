@@ -1369,11 +1369,7 @@ private struct WorkspaceView: View {
   }
 
   private var timelineDuration: Double {
-    max(
-      transport.duration,
-      editor.snapshot.notes.map(\.offsetSec).max() ?? 1,
-      1
-    )
+    max(model.canonicalTimelineDuration, 1)
   }
 
   private var overviewTracks: [EditorTrack] {

@@ -4,6 +4,30 @@ This project records changes by numbered research task until formal semantic
 versions and releases begin. Dates and commit identifiers refer to the local
 Git history.
 
+## Task 009B2O — Canonical timeline repair — 2026-07-26
+
+Commit: this task's final commit
+
+### Fixed
+
+- Fixed the final selected gap being rejected when accompaniment MIDI extended
+  past the canonical audio. Product timing now uses the audio manifest's
+  duration rather than the latest predicted note offset.
+- Fixed bar/beat position, all-track timeline, gap detection, and
+  trailing-sustain cleanup sharing inconsistent song endpoints.
+- Clamped new sustain merges to the real audio endpoint and added a narrow,
+  undoable repair for legacy app-generated sustain merges that exceed it.
+
+### Verified
+
+- The real audio ends at `271.805147` seconds; model notes extend to `274.96`.
+  The corrected fifth gap ends at `271.805147`, and all five current gaps pass
+  read-only request planning as one bounded task.
+- A true selection beyond the audio endpoint remains rejected. No request file,
+  Slurm job, or local model task was created during diagnosis or verification.
+- Focused tests, configured real-project checks, and full `make check` pass:
+  265 Python and 33 Swift tests with three expected environment-gated skips.
+
 ## Task 009B2N — Gap launch repair and trailing sustain cleanup — 2026-07-26
 
 Commit: this task's final commit
@@ -31,7 +55,9 @@ Commit: this task's final commit
   created.
 - The current song's `clean_electric_guitar` track has five trailing pitch
   groups containing 121 contiguous events. From `270.12` seconds, the same
-  five-note chord is split at `0.23`-second intervals.
+  five-note chord is split at `0.23`-second intervals. Task 009B2O later
+  established that the portion after the `271.805147`-second canonical audio
+  endpoint is model spill and must be clamped, not treated as song duration.
 - A real-project integration check detects exactly five groups and 121
   fragments. `make check` passes 264 Python and 31 Swift tests with three
   expected environment-gated skips.

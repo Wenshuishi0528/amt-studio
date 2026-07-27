@@ -167,6 +167,29 @@ class TargetedGapRecoveryTests(unittest.TestCase):
                 {"gap-01", "gap-02"},
             )
 
+    def test_gap_may_end_at_audio_boundary_but_not_beyond_it(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            project, _canonical = _fixture_project(Path(temporary))
+            spec = plan_selected_gaps(
+                project,
+                probe_id="targeted-recovery-at-end",
+                source_bundle_id="source-bundle",
+                source_track_id="voice",
+                intervals=[(100, 120)],
+            )
+            self.assertEqual(spec.windows[0].clip_end_sec, 120)
+            with self.assertRaisesRegex(
+                TargetedGapRecoveryError,
+                "outside the song timeline",
+            ):
+                plan_selected_gaps(
+                    project,
+                    probe_id="targeted-recovery-past-end",
+                    source_bundle_id="source-bundle",
+                    source_track_id="voice",
+                    intervals=[(100, 120.03)],
+                )
+
     def test_nonempty_or_overlapping_selection_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             project, _canonical = _fixture_project(Path(temporary))

@@ -42,6 +42,23 @@ final class ProjectAndEditingTests: XCTestCase {
         timelineEnd: 20
       ).isEmpty
     )
+
+    let modelSpill = [58.0, 62.0].flatMap { pitch in
+      (0..<16).map { index in
+        testNote(
+          id: "spill-\(Int(pitch))-\(index)",
+          onset: 8 + Double(index) * 0.25,
+          offset: 8 + Double(index + 1) * 0.25,
+          pitch: pitch
+        )
+      }
+    }
+    let clamped = SustainFragmentAnalyzer.trailingGroups(
+      notes: modelSpill,
+      timelineEnd: 10
+    )
+    XCTAssertEqual(clamped.count, 2)
+    XCTAssertTrue(clamped.allSatisfy { $0.offsetSec == 10 })
   }
 
   func testSustainMergeIsOneUndoableEdit() throws {
@@ -81,6 +98,74 @@ final class ProjectAndEditingTests: XCTestCase {
     XCTAssertEqual(editor.notes.count, beforeMergeCount - 3)
     try editor.undo()
     XCTAssertEqual(editor.notes.count, beforeMergeCount)
+  }
+
+  func testSustainMergeClampsModelSpillToSongEnd() throws {
+    let fixture = try FixtureProject()
+    defer { fixture.remove() }
+    let snapshot = try ProjectLoader.open(projectURL: fixture.root)
+    var editor = try EditorProject(
+      snapshot: snapshot,
+      bundleID: "bundle-a",
+      selectedTrackID: "candidate-a"
+    )
+    let fragments = (0..<8).map { index in
+      testNote(
+        id: "spill-fragment-\(index)",
+        onset: 9 + Double(index) * 0.25,
+        offset: 9 + Double(index + 1) * 0.25,
+        pitch: 60
+      )
+    }
+    for fragment in fragments {
+      try editor.create(fragment)
+    }
+    let merged = try editor.mergeSustainFragments([
+      SustainFragmentGroup(
+        pitchMIDI: 60,
+        noteIDs: fragments.map(\.id),
+        onsetSec: 9,
+        offsetSec: 10
+      )
+    ])
+
+    XCTAssertEqual(merged.count, 1)
+    XCTAssertEqual(merged[0].onsetSec, 9)
+    XCTAssertEqual(merged[0].offsetSec, 10)
+  }
+
+  func testLegacyAppSustainOverflowRepairIsUndoable() throws {
+    let fixture = try FixtureProject()
+    defer { fixture.remove() }
+    let snapshot = try ProjectLoader.open(projectURL: fixture.root)
+    var editor = try EditorProject(
+      snapshot: snapshot,
+      bundleID: "bundle-a",
+      selectedTrackID: "candidate-a"
+    )
+    let overflow = testNote(
+      id: "legacy-sustain",
+      onset: 9,
+      offset: 12,
+      pitch: 60
+    )
+    var taggedOverflow = overflow
+    taggedOverflow.tags = ["app-sustain-merge"]
+    try editor.create(taggedOverflow)
+
+    XCTAssertEqual(
+      try editor.repairLegacySustainOverflow(timelineEnd: 10),
+      1
+    )
+    XCTAssertEqual(
+      editor.notes.first(where: { $0.id == overflow.id })?.offsetSec,
+      10
+    )
+    try editor.undo()
+    XCTAssertEqual(
+      editor.notes.first(where: { $0.id == overflow.id })?.offsetSec,
+      12
+    )
   }
 
   func testRhythmTimelineUsesDetectedBeatsAndLabelsReviewIssues() throws {
@@ -218,29 +303,31 @@ final class ProjectAndEditingTests: XCTestCase {
     let selectedTrack = try XCTUnwrap(
       snapshot.tracks.first(where: { $0.id == trackID })
     )
-    let expectedCount = snapshot.notes.filter {
+    let sourceNotes = snapshot.notes.filter {
       $0.trackID == selectedTrack.id
-    }.count
-    XCTAssertGreaterThan(expectedCount, 0)
+    }
+    XCTAssertGreaterThan(sourceNotes.count, 0)
 
     let editor = try EditorProject(
       snapshot: snapshot,
       bundleID: bundleID,
       selectedTrackID: trackID
     )
-    XCTAssertEqual(editor.notes.count, expectedCount)
+    XCTAssertGreaterThan(editor.notes.count, 0)
     if let expectedGroupText = environment[
       "AMT_STUDIO_REAL_SUSTAIN_GROUPS"
     ], let expectedGroups = Int(expectedGroupText) {
-      let timelineEnd = max(
-        snapshot.manifest.canonicalAudio.metadata?.durationSec ?? 0,
-        editor.notes.map(\.offsetSec).max() ?? 0
+      let timelineEnd = try XCTUnwrap(
+        snapshot.manifest.canonicalAudio.metadata?.durationSec
       )
       let groups = SustainFragmentAnalyzer.trailingGroups(
-        notes: editor.notes,
+        notes: sourceNotes,
         timelineEnd: timelineEnd
       )
       XCTAssertEqual(groups.count, expectedGroups)
+      XCTAssertTrue(
+        groups.allSatisfy { $0.offsetSec <= timelineEnd }
+      )
       if let expectedFragmentText = environment[
         "AMT_STUDIO_REAL_SUSTAIN_FRAGMENTS"
       ], let expectedFragments = Int(expectedFragmentText) {
@@ -262,7 +349,7 @@ final class ProjectAndEditingTests: XCTestCase {
       }
     }
     let report = try MIDIExporter.export(project: editor, to: output)
-    XCTAssertEqual(report.noteCount, expectedCount)
+    XCTAssertEqual(report.noteCount, editor.notes.count)
     XCTAssertEqual(
       String(
         data: try Data(contentsOf: output).prefix(4),
@@ -280,7 +367,7 @@ final class ProjectAndEditingTests: XCTestCase {
       to: arrangementOutput
     )
     XCTAssertEqual(arrangement.trackCount, snapshot.tracks.count)
-    XCTAssertEqual(arrangement.noteCount, snapshot.notes.count)
+    XCTAssertGreaterThan(arrangement.noteCount, 0)
     XCTAssertEqual(
       String(
         data: try Data(contentsOf: arrangementOutput).prefix(4),

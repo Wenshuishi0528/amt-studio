@@ -9,7 +9,9 @@ gap recovery and Task 009B2H Unicode-safe polling/explicit whole-version export
 are complete for the private Beta. Task 009B2I/J complete the dual-mode product
 shell and all-track overview. Task 009B2K adds optional local MPS/CPU execution
 while retaining Hyak as the default. Task 009B2L adds beat-aware editing,
-manual note creation, and song-level result acceptance.
+manual note creation, and song-level result acceptance. Task 009B2M–O add
+selectable gap recovery, launch repair, conservative sustain cleanup, and one
+canonical product timeline.
 
 ## Objective
 
@@ -146,6 +148,38 @@ Verification boundary:
   MuScriptor pass succeeded before the job continued into bundle/gap
   processing. No job was submitted, cancelled, or altered for this task.
 
+## Task 009B2O: canonical timeline repair
+
+Implemented:
+
+- canonical audio metadata is authoritative for product time. MIDI predictions
+  can no longer extend the all-track timeline, bar/beat position, gap list, or
+  trailing-sustain boundary;
+- selected gaps ending at the audio boundary remain valid, while the backend
+  still rejects genuinely out-of-range input;
+- sustain merges end at the canonical timeline. Legacy `app-sustain-merge`
+  corrections from the affected build are narrowly clamped on track open as
+  one saved and undoable update.
+
+Current-song evidence:
+
+- canonical audio ends at `271.805147`; accompaniment events extend to
+  `274.96`. The old UI therefore created a false `4:34` endpoint and an invalid
+  fifth interval;
+- the corrected five enhanced-voice gaps end no later than `271.805147`. A
+  real-project `plan_selected_gaps` call accepts all five without writing a
+  request or starting compute;
+- the owner had already used the old sustain merge, so the legacy correction
+  contains five app-generated notes ending at `274.96`; the targeted migration
+  repairs only those tagged notes and preserves canonical output.
+
+Verification:
+
+- boundary, UI-duration, sustain-clamp, legacy-repair, and real-project checks
+  pass;
+- full `make check` passes 265 Python and 33 Swift tests with three expected
+  environment-gated skips. No Hyak or local inference was started.
+
 ## Task 009B2N: gap launch repair and trailing sustain cleanup
 
 Implemented:
@@ -167,8 +201,9 @@ Current-song evidence:
   replaced, and no recovery request was written;
 - `clean_electric_guitar` has five ending pitch chains containing 121 events.
   The last portion repeats pitches `46, 58, 62, 65, 70` every `0.23` seconds
-  from `270.12` through `274.96`, matching the owner-confirmed sustained ending
-  fragmentation rather than a drawing-only issue;
+  from `270.12` through `274.96`. This confirms fragmentation rather than a
+  drawing-only issue, while B2O establishes that predictions after
+  `271.805147` also exceed the real audio timeline;
 - the shipped detector reports exactly five groups and 121 fragments on this
   private result. It requires a tail-reaching chain, at least four notes, at
   least two seconds, a maximum 30 ms join gap, and predominantly short notes.

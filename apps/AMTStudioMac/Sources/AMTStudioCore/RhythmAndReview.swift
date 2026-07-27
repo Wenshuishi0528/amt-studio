@@ -201,10 +201,6 @@ public enum SustainFragmentAnalyzer {
     shortDurationThreshold: Double = 0.35
   ) -> [SustainFragmentGroup] {
     guard timelineEnd.isFinite, timelineEnd > 0 else { return [] }
-    let effectiveEnd = max(
-      timelineEnd,
-      notes.map(\.offsetSec).max() ?? timelineEnd
-    )
     var result: [SustainFragmentGroup] = []
     for pitchNotes in Dictionary(grouping: notes, by: \.pitchMIDI).values {
       let ordered = pitchNotes.sorted {
@@ -217,7 +213,7 @@ public enum SustainFragmentAnalyzer {
         if !chain.isEmpty, note.onsetSec > chainEnd + maximumGap {
           if let candidate = candidate(
             chain,
-            effectiveEnd: effectiveEnd,
+            effectiveEnd: timelineEnd,
             shortDurationThreshold: shortDurationThreshold
           ) {
             result.append(candidate)
@@ -230,7 +226,7 @@ public enum SustainFragmentAnalyzer {
       }
       if let candidate = candidate(
         chain,
-        effectiveEnd: effectiveEnd,
+        effectiveEnd: timelineEnd,
         shortDurationThreshold: shortDurationThreshold
       ) {
         result.append(candidate)
@@ -265,7 +261,10 @@ public enum SustainFragmentAnalyzer {
       pitchMIDI: first.pitchMIDI,
       noteIDs: notes.map(\.id),
       onsetSec: first.onsetSec,
-      offsetSec: notes.map(\.offsetSec).max() ?? last.offsetSec
+      offsetSec: min(
+        effectiveEnd,
+        notes.map(\.offsetSec).max() ?? last.offsetSec
+      )
     )
   }
 }
