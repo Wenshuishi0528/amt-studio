@@ -253,6 +253,10 @@ public struct ContentView: View {
             ? "将折叠“\(track.label)”尾部 \(summary.fragmentCount) 个疑似重复短击。真实鼓点也可能相似，操作会立即保存但可以撤销。"
             : "将把“\(track.label)”中的 \(summary.fragmentCount) 个首尾相接同音片段合并为延长音。原识别版本不变，操作会立即保存且可以撤销。"
         )
+      } else if let track = trackPendingFragmentRepair {
+        Text(
+          "会重新扫描“\(track.label)”整条音轨；如果当前没有符合保守规则的候选，将不修改任何音符。"
+        )
       }
     }
   }
@@ -611,21 +615,12 @@ public struct ContentView: View {
                   Button("编辑这条音轨", systemImage: "pencil") {
                     model.chooseTrack(track.id)
                   }
-                  if let cleanup = model.trailingCleanupSummaries[track.id] {
-                    Button(
-                      cleanup.kind == .percussionRepeats
-                        ? "智能处理尾部重复打击"
-                        : "智能修复延音碎片",
-                      systemImage: "wand.and.sparkles"
-                    ) {
-                      trackPendingFragmentRepair = track
-                    }
-                  } else {
-                    Button(
-                      "未发现可修复碎片",
-                      systemImage: "checkmark.seal"
-                    ) {}
-                    .disabled(true)
+                  Button(
+                    model.fragmentRepairActionLabel(for: track.id),
+                    systemImage: "wand.and.sparkles"
+                  ) {
+                    model.refreshFragmentRepairDiagnostics()
+                    trackPendingFragmentRepair = track
                   }
                   Divider()
                   Button("复制、合并或删除音轨…", systemImage: "square.stack.3d.up") {
@@ -1290,7 +1285,7 @@ private struct SettingsView: View {
           .foregroundStyle(theme.mutedText)
         if model.recognitionMode == .gameVocal {
           Label(
-            "GAME 仅在 Hyak 运行，官方权重许可为 CC-BY-NC-SA-4.0；应用和公开仓库不包含权重。",
+            "使用官方 GAME-1.0-large 高容量权重，仅在 Hyak 运行。权重许可为 CC-BY-NC-SA-4.0；应用和公开仓库不包含权重。",
             systemImage: "lock.shield"
           )
           .font(.caption)

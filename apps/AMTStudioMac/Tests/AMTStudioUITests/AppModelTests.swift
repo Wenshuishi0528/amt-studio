@@ -131,6 +131,7 @@ final class AppModelTests: XCTestCase {
     XCTAssertNil(model.editor)
     XCTAssertEqual(model.statusMessage, "请选择一个已有 AMT Studio 项目")
     XCTAssertEqual(model.appearanceMode, .precision)
+    XCTAssertTrue(RecognitionMode.gameVocal.detail.contains("GAME large"))
   }
 
   func testAppearanceModePersistsWithoutChangingProjectState() throws {

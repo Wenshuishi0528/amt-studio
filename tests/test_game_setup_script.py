@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import tempfile
@@ -36,6 +37,29 @@ def run_setup_with_env(
 
 
 class GameSetupScriptTests(unittest.TestCase):
+    def test_large_product_pin_matches_verified_official_inventory(self) -> None:
+        pins = json.loads(
+            (REPO_ROOT / "workers/game/pins-large.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        model = pins["model"]
+
+        self.assertEqual(model["name"], "GAME-1.0-large")
+        self.assertEqual(model["archive_size_bytes"], 366_297_733)
+        self.assertEqual(
+            model["archive_sha256"],
+            "f45eac9fbb92b82fe67c00f29efad52954469897eb64e5bd5924a43dc5deb9b6",
+        )
+        self.assertEqual(
+            {item["path"]: item["size_bytes"] for item in model["expected_files"]},
+            {
+                "GAME-1.0-large/config.yaml": 1_692,
+                "GAME-1.0-large/lang_map.json": 37,
+                "GAME-1.0-large/model.pt": 396_393_454,
+            },
+        )
+
     def test_setup_never_clears_shared_root_environment(self) -> None:
         script = SETUP_SCRIPT.read_text(encoding="utf-8")
         self.assertIn('ROOT_PYTHON="$ROOT_ENV/bin/python"', script)

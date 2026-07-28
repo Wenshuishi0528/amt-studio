@@ -44,6 +44,8 @@ GPU_TEST_START_PATTERN = re.compile(
     r"\bto start at (?P<start>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})\b"
 )
 GPU_START_TIE_SECONDS = 5 * 60
+GAME_PRODUCT_MODEL = "GAME-1.0-large"
+GAME_UPSTREAM_COMMIT = "475a8ee781fe8cca980b3b12fbe6c80c768a813a"
 
 
 class PrivateBetaError(RuntimeError):
@@ -1209,11 +1211,17 @@ def _discover_game_model_provenance(
         connection.remote(f"test -f {shlex.quote(safe_explicit)}")
         candidates = [safe_explicit]
     else:
+        search_roots = (
+            f"{remote_root}/amt-studio/models",
+            f"{remote_root}/models",
+            f"{remote_root}/model-cache",
+            f"{remote_root}/weights",
+            f"{remote_root}/repo/weights",
+        )
         command = (
             "find "
-            f"{shlex.quote(remote_root + '/model-cache')} "
-            f"{shlex.quote(remote_root + '/weights')} "
-            f"{shlex.quote(remote_root + '/repo/weights')} "
+            + " ".join(shlex.quote(root) for root in search_roots)
+            + " "
             "-maxdepth 8 -type f "
             "\\( -name 'model-provenance.json' -o -name '*provenance*.json' \\) "
             "2>/dev/null | head -100"
@@ -1222,6 +1230,7 @@ def _discover_game_model_provenance(
             line for line in connection.remote(command).splitlines() if line
         ]
     matches: list[str] = []
+    discovered_game_models: set[str] = set()
     for candidate in candidates:
         try:
             payload = json.loads(
@@ -1231,18 +1240,31 @@ def _discover_game_model_provenance(
             continue
         model = payload.get("model") if isinstance(payload, dict) else None
         source = payload.get("source") if isinstance(payload, dict) else None
+        if isinstance(model, dict) and isinstance(model.get("name"), str):
+            model_name = model["name"]
+            if model_name.startswith("GAME-"):
+                discovered_game_models.add(model_name)
         if (
             isinstance(model, dict)
-            and model.get("name") == "GAME-1.0-medium"
+            and model.get("name") == GAME_PRODUCT_MODEL
             and isinstance(source, dict)
-            and source.get("commit")
-            == "475a8ee781fe8cca980b3b12fbe6c80c768a813a"
+            and source.get("commit") == GAME_UPSTREAM_COMMIT
         ):
             matches.append(candidate)
-    if len(matches) != 1:
+    if not matches:
+        available = (
+            "；发现的其他 GAME 模型：" + "、".join(sorted(discovered_game_models))
+            if discovered_game_models
+            else ""
+        )
         raise PrivateBetaError(
-            "无法唯一定位 Hyak 上的 GAME-1.0-medium 权重来源文件；"
-            "请设置 GAME_MODEL_PROVENANCE 后重试。"
+            f"Hyak 上尚未安装并校验产品所需的 {GAME_PRODUCT_MODEL}{available}。"
+            "请先运行官方 large 权重安装任务，或设置 GAME_MODEL_PROVENANCE。"
+        )
+    if len(matches) > 1:
+        raise PrivateBetaError(
+            f"Hyak 上找到多个 {GAME_PRODUCT_MODEL} 权重来源文件；"
+            "请设置 GAME_MODEL_PROVENANCE 明确选择一个。"
         )
     return matches[0]
 
@@ -1261,11 +1283,17 @@ def _discover_separator_model_dir(
             )
         )
         return safe_explicit
+    search_roots = (
+        f"{remote_root}/amt-studio/weights",
+        f"{remote_root}/amt-studio/models",
+        f"{remote_root}/model-cache",
+        f"{remote_root}/weights",
+        f"{remote_root}/repo/weights",
+    )
     command = (
         "find "
-        f"{shlex.quote(remote_root + '/model-cache')} "
-        f"{shlex.quote(remote_root + '/weights')} "
-        f"{shlex.quote(remote_root + '/repo/weights')} "
+        + " ".join(shlex.quote(root) for root in search_roots)
+        + " "
         "-maxdepth 8 -type f "
         "-name 'model_bs_roformer_ep_317_sdr_12.9755.ckpt' "
         "2>/dev/null | head -20"

@@ -1,14 +1,28 @@
 # Project status
 
-Current product milestone: Task 009B3A adds an optional GAME singing-voice
-single-track route while keeping MuScriptor full multitrack as the default
+Current product milestone: Task 009B3B upgrades the optional GAME route to the
+official large checkpoint and fixes live whole-track fragment repair
 Research status: Gate 4 remains not passed for the rejected fusion routes; no
 new dataset, fusion, retuning, or training work is in the product critical path
-Current task: a new song or an existing project can request one isolated GAME
-lead-vocal version on Hyak; source multitrack bundles remain unchanged
-Next task: owner-triggered real-song GAME run and listening comparison; do not
-auto-promote or merge GAME over MuScriptor voice without that evidence
+Current task: verify the private large installation and expose a reliable
+per-track fragment repair action; source multitrack bundles remain unchanged
+Next task: owner-triggered real-song GAME large run and listening comparison;
+do not auto-promote it over MuScriptor voice without that evidence
 Current branch: `main`
+
+Implemented for Task 009B3B:
+
+- official `GAME-1.0-large` is independently hash-pinned for product jobs;
+  historical medium research pins remain unchanged;
+- discovery includes the deployed private Hyak model layout and gives separate
+  errors for absent versus duplicate large provenances;
+- the track settings menu no longer caches a disabled “no fragments” state.
+  Every pitched track can rescan the whole timeline and repair confirmed
+  sustain fragmentation; drums retain conservative tail-repeat handling;
+- focused Python and all 44 Swift tests pass. Hyak setup Job `37810626`
+  completed on an A40 compute node in 6m59s with CUDA, GAME imports, and every
+  pinned large file verified. Product discovery resolves the unique large
+  provenance and separator model; no song inference was submitted.
 
 Implemented and verified for Task 009B3A:
 

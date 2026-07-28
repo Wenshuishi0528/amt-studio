@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "package": {
+    "name": "openvpi/GAME",
+    "version": "v1.0.3",
+    "repository": "https://github.com/openvpi/GAME.git",
+    "upstream_git_commit": "475a8ee781fe8cca980b3b12fbe6c80c768a813a",
+    "license": "MIT"
+  },
+  "runtime": {
+    "python": "3.12",
+    "torch": "2.8.0",
+    "torch_distribution": "2.8.0+cu129",
+    "cuda_runtime": "12.9",
+    "lightning": "2.6.1",
+    "numpy": "1.26.4",
+    "librosa": "0.11.0",
+    "colorednoise": "2.2.0",
+    "h5py": "3.16.0",
+    "matplotlib": "3.11.1",
+    "mido": "1.3.3",
+    "torch_wheel_index": "https://download.pytorch.org/whl/cu129"
+  },
+  "model": {
+    "name": "GAME-1.0-large",
+    "release": "v1.0.0",
+    "archive_url": "https://github.com/openvpi/GAME/releases/download/v1.0.0/GAME-1.0-large.zip",
+    "archive_filename": "GAME-1.0-large.zip",
+    "archive_sha256": "f45eac9fbb92b82fe67c00f29efad52954469897eb64e5bd5924a43dc5deb9b6",
+    "archive_size_bytes": 366297733,
+    "directory_name": "GAME-1.0-large",
+    "license": "CC-BY-NC-SA-4.0",
+    "license_scope": "Official v1.0.0 release model files; private non-commercial research only.",
+    "expected_files": [
+      {
+        "path": "GAME-1.0-large/config.yaml",
+        "sha256": "7efded7fed80b8368c94df0a19601da6ec0af8436991188ef6add70153bbb7d2",
+        "size_bytes": 1692
+      },
+      {
+        "path": "GAME-1.0-large/lang_map.json",
+        "sha256": "cf7ca24d93682464c5d57d1cd7d238d29d565f7e5774575dbcdff7034852ca37",
+        "size_bytes": 37
+      },
+      {
+        "path": "GAME-1.0-large/model.pt",
+        "sha256": "1a286ae10cd460cbce46de1f96c2922d048d03dd88fbd089433787f8d8f97661",
+        "size_bytes": 396393454
+      }
+    ]
+  },
+  "decoding": {
+    "language": "ja",
+    "batch_size": 4,
+    "num_workers": 0,
+    "seg_threshold": 0.2,
+    "seg_radius": 0.02,
+    "t0": 0.0,
+    "nsteps": 8,
+    "est_threshold": 0.2,
+    "tempo_bpm": 120,
+    "pitch_format": "number",
+    "round_pitch": false,
+    "output_formats": [
+      "mid",
+      "txt",
+      "csv"
+    ]
+  }
+}

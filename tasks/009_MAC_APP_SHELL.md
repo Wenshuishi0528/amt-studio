@@ -26,6 +26,37 @@ voice growth, and restores the latest eligible source version by default.
 Task 009B3A adds an optional Hyak-only GAME singing-voice single-track route
 while retaining MuScriptor full multitrack as the persisted default.
 
+## Task 009B3B: GAME large deployment and reliable whole-track repair
+
+Implemented:
+
+- new GAME product submissions require a uniquely verified official
+  `GAME-1.0-large` provenance from the actual private Hyak model layout;
+  historical Task 004/007 medium pins and evidence remain unchanged;
+- the product Slurm chain passes `pins-large.json` explicitly and refuses an
+  absent or medium-only installation instead of silently downgrading;
+- every track settings menu always exposes a live fragment scan. Pitched
+  tracks scan interior and trailing same-pitch fragmentation across the whole
+  song. Drums keep the separate conservative trailing-repeat rule;
+- invoking repair refreshes current diagnostics before confirmation, saves
+  the edit immediately, and retains undo plus immutable source output.
+
+Evidence:
+
+- official large archive and all three extracted files were independently
+  size/hash checked before pinning;
+- focused Python tests cover deployed-path discovery and medium rejection;
+  existing Swift core coverage proves interior fragmentation is found, while
+  the full Swift suite compiles the always-available menu path;
+- setup attempt `37810417` failed before setup because `AMT_REPO_ROOT` was not
+  exported. Attempt `37810443` was cancelled after a duplicated asset-root
+  component was detected, and only that attempt's newly created wrong-path
+  directory was removed. Corrected Job `37810626` completed on an A40 compute
+  node in 6m59s: CUDA and GAME imports passed, the official large archive and
+  all three extracted files matched their pins, and product discovery found
+  one large provenance plus the separator model. No song inference was part
+  of any setup job.
+
 ## Task 009B2U: conservative automatic main-melody admission
 
 Implemented:

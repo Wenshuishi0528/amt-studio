@@ -31,6 +31,7 @@ esac
 ROOT_PYTHON="${AMT_ROOT_PYTHON:-$AMT_REPO_ROOT/.venv/bin/python}"
 SEPARATOR_ENV="${SEPARATOR_ENV:-$AMT_REPO_ROOT/workers/separator/.venv}"
 GAME_ENV="${GAME_ENV:-$AMT_REPO_ROOT/workers/game/.venv}"
+GAME_PINS="${GAME_PINS:-$AMT_REPO_ROOT/workers/game/pins-large.json}"
 BEAT_THIS_ENV="${BEAT_THIS_ENV:-$AMT_REPO_ROOT/workers/beat_this/.venv}"
 BEAT_THIS_PINS="${BEAT_THIS_PINS:-$AMT_REPO_ROOT/workers/beat_this/pins.json}"
 BEAT_THIS_CHECKPOINT="${BEAT_THIS_CHECKPOINT:-$(dirname "$AMT_REPO_ROOT")/models/beat-this/final0.ckpt}"
@@ -47,6 +48,7 @@ for path in \
   "$PROJECT_DIR" \
   "$SEPARATOR_MODEL_DIR" \
   "$GAME_MODEL_PROVENANCE" \
+  "$GAME_PINS" \
   "$ROOT_PYTHON" \
   "$SEPARATOR_ENV" \
   "$GAME_ENV"
@@ -59,6 +61,7 @@ done
 if [[ ! -x "$ROOT_PYTHON" ||
       ! -x "$SEPARATOR_ENV/bin/python" ||
       ! -x "$GAME_ENV/bin/python" ||
+      ! -f "$GAME_PINS" ||
       ! -f "$CANONICAL_AUDIO" ||
       ! -d "$SEPARATOR_MODEL_DIR" ||
       ! -f "$GAME_MODEL_PROVENANCE" ]]; then
@@ -100,7 +103,7 @@ srun "$ROOT_PYTHON" workers/game/run_baseline.py \
   --audio "$VOCAL_STEM" \
   --worker-env "$GAME_ENV" \
   --model-provenance "$GAME_MODEL_PROVENANCE" \
-  --pins "$AMT_REPO_ROOT/workers/game/pins.json" \
+  --pins "$GAME_PINS" \
   --run-id "$GAME_RUN_ID" \
   --seed 3407 \
   --ffprobe "$FFPROBE" \

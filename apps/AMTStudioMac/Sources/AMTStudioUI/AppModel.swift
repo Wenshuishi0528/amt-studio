@@ -92,7 +92,7 @@ public enum RecognitionMode: String, CaseIterable, Identifiable, Sendable {
     case .multitrack:
       "默认。识别 voice、伴奏、贝斯和鼓等多条音轨，并自动检查 voice 长空缺。"
     case .gameVocal:
-      "Hyak 先分离人声，再由 GAME 生成一条主唱旋律；不识别完整伴奏，也不保证纯音乐段有旋律。"
+      "Hyak 先分离人声，再由官方 GAME large（高容量版）生成一条主唱旋律；不识别完整伴奏，也不保证纯音乐段有旋律。"
     }
   }
 
@@ -1236,6 +1236,19 @@ public final class AppModel: ObservableObject {
     }
     pendingFragmentRepairTrackID = trackID
     chooseTrack(trackID)
+  }
+
+  public func refreshFragmentRepairDiagnostics() {
+    refreshTrailingCleanupDiagnostics()
+  }
+
+  public func fragmentRepairActionLabel(for trackID: String) -> String {
+    guard let track = trackChoices.first(where: { $0.id == trackID }) else {
+      return "重新扫描音符碎片…"
+    }
+    return isPercussionTrack(track)
+      ? "重新扫描尾部重复打击…"
+      : "重新扫描并修复整轨延音碎片…"
   }
 
   public func seekToNextMelodyGap() {

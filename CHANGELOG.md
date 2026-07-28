@@ -4,6 +4,26 @@ This project records changes by numbered research task until formal semantic
 versions and releases begin. Dates and commit identifiers refer to the local
 Git history.
 
+## Task 009B3B — GAME large and live whole-track repair — 2026-07-27
+
+### Changed
+
+- Added a separately hash-pinned official `GAME-1.0-large` product checkpoint
+  while preserving the historical medium experiment pin.
+- Product discovery now covers the deployed private model directory, requires
+  one matching large provenance, and never silently downgrades to medium.
+- Each track menu now keeps a live fragment-scan action instead of caching an
+  obsolete disabled state. Pitched tracks scan the full timeline; drums keep
+  their distinct conservative tail-repeat treatment.
+
+### Verified
+
+- The official large archive and extracted config, language map, and PyTorch
+  weight were independently size/hash checked.
+- Focused Python tests and all 44 Swift tests pass. Hyak setup Job `37810626`
+  completed on an A40 compute node in 6m59s; CUDA, GAME imports, archive hash,
+  and all three extracted-file hashes passed. It performed model setup only.
+
 ## Task 009B3A — Optional GAME singing-voice track — 2026-07-27
 
 Commit: this task's final commit

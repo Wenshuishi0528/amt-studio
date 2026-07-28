@@ -14,6 +14,8 @@ from amt_core.private_beta import (
     GPU_TEST_START_PATTERN,
     HyakGPUProbe,
     PrivateBetaError,
+    _discover_game_model_provenance,
+    _discover_separator_model_dir,
     _fallback_gpu_plan,
     _gpu_candidates_from_associations,
     _local_worker_command,
@@ -34,6 +36,97 @@ from workers.muscriptor import run_baseline
 
 
 class PrivateBetaTests(unittest.TestCase):
+    def test_separator_discovers_deployed_private_weight_layout(self) -> None:
+        checkpoint = (
+            "/remote/amt-studio/weights/separator/0.44.5/"
+            "model_bs_roformer_ep_317_sdr_12.9755.ckpt"
+        )
+
+        class FixtureConnection:
+            def remote(self, command: str, *, timeout: float | None = None) -> str:
+                del timeout
+                self.find_command = command
+                return checkpoint
+
+        connection = FixtureConnection()
+        resolved = _discover_separator_model_dir(
+            connection,
+            "/remote",
+            None,
+        )
+
+        self.assertEqual(
+            resolved,
+            "/remote/amt-studio/weights/separator/0.44.5",
+        )
+        self.assertIn("/remote/amt-studio/weights", connection.find_command)
+
+    def test_game_product_discovers_large_in_deployed_asset_layout(self) -> None:
+        provenance_path = (
+            "/remote/amt-studio/models/game-large/model-provenance.json"
+        )
+        payload = json.dumps(
+            {
+                "schema_version": 1,
+                "model": {"name": "GAME-1.0-large"},
+                "source": {
+                    "commit": "475a8ee781fe8cca980b3b12fbe6c80c768a813a"
+                },
+            }
+        )
+
+        class FixtureConnection:
+            def remote(self, command: str, *, timeout: float | None = None) -> str:
+                del timeout
+                if command.startswith("find "):
+                    self.find_command = command
+                    return provenance_path
+                if command.startswith("cat "):
+                    return payload
+                raise AssertionError(f"unexpected command: {command}")
+
+        connection = FixtureConnection()
+        resolved = _discover_game_model_provenance(
+            connection,
+            "/remote",
+            None,
+        )
+
+        self.assertEqual(resolved, provenance_path)
+        self.assertIn("/remote/amt-studio/models", connection.find_command)
+
+    def test_game_product_rejects_medium_instead_of_silently_downgrading(
+        self,
+    ) -> None:
+        payload = json.dumps(
+            {
+                "schema_version": 1,
+                "model": {"name": "GAME-1.0-medium"},
+                "source": {
+                    "commit": "475a8ee781fe8cca980b3b12fbe6c80c768a813a"
+                },
+            }
+        )
+
+        class FixtureConnection:
+            def remote(self, command: str, *, timeout: float | None = None) -> str:
+                del timeout
+                if command.startswith("find "):
+                    return "/remote/amt-studio/models/game/model-provenance.json"
+                if command.startswith("cat "):
+                    return payload
+                raise AssertionError(f"unexpected command: {command}")
+
+        with self.assertRaisesRegex(
+            PrivateBetaError,
+            "GAME-1.0-large.*GAME-1.0-medium",
+        ):
+            _discover_game_model_provenance(
+                FixtureConnection(),
+                "/remote",
+                None,
+            )
+
     def test_gpu_auto_plan_discovers_only_verified_compatible_resources(self) -> None:
         candidates = _gpu_candidates_from_associations(
             "\n".join(

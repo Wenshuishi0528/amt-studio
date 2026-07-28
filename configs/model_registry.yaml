@@ -50,6 +50,16 @@ models:
       weight_size_bytes: 199764599
       config_sha256: c4cca41410bfce49859db5544e1a0820749f9795d4e3f97e5283917ceeeea813
       language_map_sha256: cf7ca24d93682464c5d57d1cd7d238d29d565f7e5774575dbcdff7034852ca37
+    product_pin:
+      selection: highest_capacity_official_pytorch_variant_not_an_accuracy_claim
+      weight_id: GAME-1.0-large
+      weight_release: v1.0.0
+      archive_sha256: f45eac9fbb92b82fe67c00f29efad52954469897eb64e5bd5924a43dc5deb9b6
+      archive_size_bytes: 366297733
+      weight_sha256: 1a286ae10cd460cbce46de1f96c2922d048d03dd88fbd089433787f8d8f97661
+      weight_size_bytes: 396393454
+      config_sha256: 7efded7fed80b8368c94df0a19601da6ec0af8436991188ef6add70153bbb7d2
+      language_map_sha256: cf7ca24d93682464c5d57d1cd7d238d29d565f7e5774575dbcdff7034852ca37
 
   basic_pitch:
     role: general_single_source_amt

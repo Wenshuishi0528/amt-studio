@@ -9,7 +9,11 @@ is intentionally refused by this worker.
 
 - Upstream source: GAME `v1.0.3`, commit
   `475a8ee781fe8cca980b3b12fbe6c80c768a813a`.
-- Model: official `GAME-1.0-medium` archive from the `v1.0.0` release.
+- Historical Task 004 model: official `GAME-1.0-medium` archive from the
+  `v1.0.0` release, pinned by `pins.json`.
+- Product option: official `GAME-1.0-large` archive from the same release,
+  independently pinned by `pins-large.json`. “Large” describes capacity, not
+  measured superiority on a particular song.
 - Python: 3.12.
 - Torch: `2.8.0+cu129`; CUDA runtime: 12.9.
 - Lightning: 2.6.1.
@@ -20,6 +24,10 @@ is intentionally refused by this worker.
 file size/hash, runtime versions, and decoding parameters. The root project
 environment is read-only during GAME setup; only `workers/game/.venv` is
 rebuilt.
+
+For the product large install, set `GAME_PINS` to `pins-large.json` and write a
+separate provenance such as `model-provenance-large.json`. Do not overwrite the
+historical medium provenance.
 
 ## Setup
 
