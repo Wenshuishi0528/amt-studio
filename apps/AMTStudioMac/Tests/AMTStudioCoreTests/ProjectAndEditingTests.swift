@@ -732,6 +732,84 @@ final class ProjectAndEditingTests: XCTestCase {
     )
   }
 
+  func testCrossProjectTrackCopyPreservesSourceTimeline() throws {
+    let source = try FixtureProject(
+      projectID: "source-song",
+      title: "来源歌曲",
+      durationSec: 2
+    )
+    let target = try FixtureProject(
+      projectID: "target-song",
+      title: "目标歌曲",
+      durationSec: 0.9
+    )
+    defer {
+      source.remove()
+      target.remove()
+    }
+    let sourceCanonical = try Data(contentsOf: source.canonicalURL)
+    let targetCanonical = try Data(contentsOf: target.canonicalURL)
+
+    let result = try TrackArrangementBuilder.copyAcrossProjects(
+      sourceCatalog: ProjectLoader.inspect(source.root),
+      sourceBundleID: "bundle-a",
+      sourceTrackID: "candidate-a",
+      targetCatalog: ProjectLoader.inspect(target.root),
+      targetBundleID: "bundle-a"
+    )
+
+    let refreshedTarget = try ProjectLoader.inspect(target.root)
+    let copiedSnapshot = try ProjectLoader.open(
+      refreshedTarget,
+      bundleID: result.bundleID
+    )
+    let copiedNotes = copiedSnapshot.notes.filter {
+      $0.trackID == result.selectedTrackID
+    }
+    XCTAssertEqual(copiedSnapshot.tracks.count, 2)
+    XCTAssertEqual(copiedNotes.count, 2)
+    XCTAssertEqual(copiedNotes.last?.offsetSec, 1.5)
+    XCTAssertTrue(
+      copiedNotes.allSatisfy {
+        $0.tags.contains("app-track-cross-project-copy")
+          && $0.extra["arrangement_source_project_id"]
+            == .string("source-song")
+      }
+    )
+    let copiedEditor = try EditorProject(
+      snapshot: copiedSnapshot,
+      bundleID: result.bundleID,
+      selectedTrackID: result.selectedTrackID
+    )
+    let exportReport = try MIDIExporter.export(
+      project: copiedEditor,
+      to: target.root.appendingPathComponent("copied-track.mid")
+    )
+    XCTAssertEqual(exportReport.noteCount, 2)
+    let operationURL = target.root.appendingPathComponent(
+      "exports/\(result.bundleID)/arrangement_manifest.json"
+    )
+    let operation = try XCTUnwrap(
+      try JSONSerialization.jsonObject(
+        with: Data(contentsOf: operationURL)
+      ) as? [String: Any]
+    )
+    let details = try XCTUnwrap(operation["operation"] as? [String: Any])
+    XCTAssertEqual(details["action"] as? String, "copy_from_project")
+    XCTAssertEqual(
+      details["timeline_policy"] as? String,
+      "source_absolute_seconds_preserved"
+    )
+    XCTAssertEqual(
+      try Data(contentsOf: source.canonicalURL),
+      sourceCanonical
+    )
+    XCTAssertEqual(
+      try Data(contentsOf: target.canonicalURL),
+      targetCanonical
+    )
+  }
+
   func testDuplicateCanonicalTrackIDsAreRejectedBeforeMixingNotes() throws {
     let fixture = try FixtureProject()
     defer { fixture.remove() }
@@ -1131,9 +1209,16 @@ private final class FixtureProject {
   let eventsURL: URL
   let canonicalURL: URL
   private let bundleIDs: [String]
+  private let projectID: String
 
-  init(bundleIDs: [String] = ["bundle-a"]) throws {
+  init(
+    bundleIDs: [String] = ["bundle-a"],
+    projectID: String = "项目-unicode",
+    title: String = "测试 歌曲",
+    durationSec: Double? = nil
+  ) throws {
     self.bundleIDs = bundleIDs
+    self.projectID = projectID
     root = FileManager.default.temporaryDirectory
       .appendingPathComponent("AMT Studio 测试 \(UUID().uuidString)")
     eventsURL = root.appendingPathComponent(
@@ -1153,15 +1238,21 @@ private final class FixtureProject {
     let audioURL = root.appendingPathComponent("audio/canonical/mix.flac")
     try Data("fixture-audio".utf8).write(to: audioURL)
     let audioHash = try ProjectLoader.sha256(audioURL)
+    var canonicalAudio: [String: Any] = [
+      "path": "audio/canonical/mix.flac",
+      "sha256": audioHash,
+    ]
+    if let durationSec {
+      canonicalAudio["metadata"] = [
+        "duration_sec": durationSec
+      ]
+    }
     try writeJSON(
       [
         "schema_version": 1,
-        "project_id": "项目-unicode",
-        "title": "测试 歌曲",
-        "canonical_audio": [
-          "path": "audio/canonical/mix.flac",
-          "sha256": audioHash,
-        ],
+        "project_id": projectID,
+        "title": title,
+        "canonical_audio": canonicalAudio,
       ],
       to: root.appendingPathComponent("manifest.json")
     )
@@ -1190,12 +1281,9 @@ private final class FixtureProject {
     let canonical: [String: Any] = [
       "schema_version": 1,
       "artifact_type": "amt-canonical-project",
-      "project_id": "项目-unicode",
+      "project_id": projectID,
       "timeline_basis": "original_canonical_mix_seconds",
-      "canonical_audio": [
-        "path": "audio/canonical/mix.flac",
-        "sha256": audioHash,
-      ],
+      "canonical_audio": canonicalAudio,
       "worker_results": [],
       "tracks": [
         [
@@ -1264,7 +1352,7 @@ private final class FixtureProject {
         [
           "schema_version": 1,
           "artifact_type": "amt-canonical-bundle",
-          "project_id": "项目-unicode",
+          "project_id": projectID,
           "canonical_audio_sha256": audioHash,
           "status": "succeeded",
           "outputs": [

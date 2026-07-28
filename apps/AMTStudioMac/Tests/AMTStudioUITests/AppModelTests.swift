@@ -1031,6 +1031,55 @@ final class AppModelTests: XCTestCase {
     XCTAssertFalse(model.isManagingTracks)
   }
 
+  func testCrossProjectTrackCopyOpensDerivedTargetVersion() async throws {
+    let source = try AppFixtureProject(
+      projectID: "source-ui-project",
+      title: "来源歌曲"
+    )
+    let target = try AppFixtureProject(
+      projectID: "target-ui-project",
+      title: "目标歌曲"
+    )
+    defer {
+      source.remove()
+      target.remove()
+    }
+    let model = AppModel(
+      initialProjectURL: source.root,
+      restoreRecent: false,
+      persistRecentProject: false
+    )
+    model.openInitialProjectIfNeeded()
+    await model.waitForProjectLoadForTesting()
+    let destination = LocalProjectItem(
+      projectID: "target-ui-project",
+      title: "目标歌曲",
+      url: target.root,
+      modifiedAt: Date(),
+      hasResults: true,
+      jobState: "COMPLETED"
+    )
+
+    model.copySelectedTrack(
+      to: destination,
+      targetBundleID: "bundle-ui"
+    )
+    await model.waitForTrackManagementForTesting()
+    await model.waitForProjectLoadForTesting()
+    await model.waitForSelectionLoadForTesting()
+
+    XCTAssertEqual(
+      model.catalog?.manifest.projectID,
+      "target-ui-project"
+    )
+    XCTAssertTrue(model.selectedBundleID?.hasPrefix("custom-") == true)
+    XCTAssertEqual(model.snapshot?.tracks.count, 2)
+    XCTAssertEqual(
+      model.editor?.selectedTrack.id,
+      "candidate-ui-import"
+    )
+  }
+
   func testMixerControlsAndSettingsPersistAcrossRestart() async throws {
     let fixture = try AppFixtureProject()
     defer { fixture.remove() }
@@ -1164,6 +1213,85 @@ final class AppModelTests: XCTestCase {
     XCTAssertEqual(reopened.songQueue.count, 3)
   }
 
+  func testHyakQueueCanSubmitWhileAnotherTaskIsActiveButLocalWaits() {
+    let hyakItem = SongQueueItem(
+      id: UUID(),
+      title: "Hyak",
+      audioURL: URL(fileURLWithPath: "/tmp/hyak.mp3"),
+      computeMode: .hyak,
+      recognitionMode: .multitrack,
+      hyakTimeLimitHours: 1,
+      state: .waiting,
+      failureMessage: nil,
+      bookmarkData: nil
+    )
+    let localItem = SongQueueItem(
+      id: UUID(),
+      title: "Local",
+      audioURL: URL(fileURLWithPath: "/tmp/local.mp3"),
+      computeMode: .localGPU,
+      recognitionMode: .multitrack,
+      hyakTimeLimitHours: 1,
+      state: .waiting,
+      failureMessage: nil,
+      bookmarkData: nil
+    )
+
+    XCTAssertTrue(
+      SongQueuePolicy.canSubmit(
+        hyakItem,
+        hasActiveProjectTask: true
+      )
+    )
+    XCTAssertFalse(
+      SongQueuePolicy.canSubmit(
+        localItem,
+        hasActiveProjectTask: true
+      )
+    )
+    XCTAssertTrue(
+      SongQueuePolicy.canSubmit(
+        localItem,
+        hasActiveProjectTask: false
+      )
+    )
+  }
+
+  func testMultipleActiveProjectPathsRestoreAsOneBackgroundFleet() throws {
+    let first = try AppFixtureProject(projectID: "active-one")
+    let second = try AppFixtureProject(projectID: "active-two")
+    defer {
+      first.remove()
+      second.remove()
+    }
+    let suiteName = "AMTStudioUITests.\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    defaults.set(
+      [first.root.path, second.root.path],
+      forKey: "AMTStudio.activeBetaProjectPaths.v1"
+    )
+
+    let model = AppModel(defaults: defaults, restoreRecent: false)
+
+    XCTAssertEqual(model.activeProjectTaskCount, 2)
+    XCTAssertNil(model.betaProjectURL)
+
+    model.forgetActiveProjectForTesting(first.root)
+
+    XCTAssertEqual(model.activeProjectTaskCount, 1)
+    XCTAssertEqual(
+      Set(
+        defaults.stringArray(
+          forKey: "AMTStudio.activeBetaProjectPaths.v1"
+        ) ?? []
+      ),
+      Set([
+        second.root.standardizedFileURL.resolvingSymlinksInPath().path
+      ])
+    )
+  }
+
   func testInterruptedSubmissionRequiresManualRetryToAvoidDuplicateJob() throws {
     let suiteName = "AMTStudioUITests.\(UUID().uuidString)"
     let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
@@ -1236,7 +1364,10 @@ private final class AppFixtureProject {
   let root: URL
   let eventsURL: URL
 
-  init() throws {
+  init(
+    projectID: String = "ui-project",
+    title: String = "UI fixture"
+  ) throws {
     root = FileManager.default.temporaryDirectory
       .appendingPathComponent("AMT Studio UI \(UUID().uuidString)")
     eventsURL = root.appendingPathComponent(
@@ -1256,8 +1387,8 @@ private final class AppFixtureProject {
     try writeFixtureJSON(
       [
         "schema_version": 1,
-        "project_id": "ui-project",
-        "title": "UI fixture",
+        "project_id": projectID,
+        "title": title,
         "canonical_audio": [
           "path": "audio/canonical/mix.wav",
           "sha256": audioHash,
@@ -1307,7 +1438,7 @@ private final class AppFixtureProject {
       [
         "schema_version": 1,
         "artifact_type": "amt-canonical-project",
-        "project_id": "ui-project",
+        "project_id": projectID,
         "timeline_basis": "original_canonical_mix_seconds",
         "canonical_audio": [
           "path": "audio/canonical/mix.wav",
@@ -1352,7 +1483,7 @@ private final class AppFixtureProject {
       [
         "schema_version": 1,
         "artifact_type": "amt-canonical-bundle",
-        "project_id": "ui-project",
+        "project_id": projectID,
         "canonical_audio_sha256": audioHash,
         "status": "succeeded",
         "outputs": [

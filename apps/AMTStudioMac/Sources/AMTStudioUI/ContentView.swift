@@ -147,7 +147,7 @@ public struct ContentView: View {
           importAudioPanel()
         }
         .disabled(model.isLoadingProject)
-        .help("可一次选择多首歌曲；软件会按顺序逐首处理")
+        .help("可一次选择多首歌曲；Hyak 会依次安全提交，再由 Slurm 排队或并行")
         .accessibilityIdentifier("transcribe-song")
         if model.isBetaBusy {
           ProgressView()
@@ -448,12 +448,17 @@ public struct ContentView: View {
           HStack {
             Text("任务队列")
             Spacer()
-            Text("\(model.songQueue.count) 首")
-              .font(.caption.monospacedDigit())
-              .foregroundStyle(.secondary)
+            Text(
+              "\(model.songQueue.count) 待提交 · "
+                + "\(model.activeProjectTaskCount) 个后台任务"
+            )
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(.secondary)
           }
         } footer: {
-          Text("当前任务结束后自动开始下一首；提交失败不会阻塞后面的歌曲。")
+          Text(
+            "Hyak 歌曲会逐首完成上传并全部交给 Slurm；有 GPU 就并行，没有则保持 PENDING。本机 CPU/GPU 任务仍串行。"
+          )
         }
       }
 
@@ -1954,6 +1959,11 @@ private struct TrackManagerView: View {
   @Environment(\.dismiss) private var dismiss
   @State private var sourceBundleID = ""
   @State private var sourceTrackID = ""
+  @State private var destinationProjectID = ""
+  @State private var destinationBundleID = ""
+  @State private var destinationBundles: [CanonicalBundleChoice] = []
+  @State private var isLoadingDestinationBundles = false
+  @State private var destinationLoadError: String?
   @State private var mergeTrackIDs = Set<String>()
   @State private var instrumentSourceTrackID = ""
   @State private var deleteTrackID = ""
@@ -2029,6 +2039,52 @@ private struct TrackManagerView: View {
           }
         }
 
+        Section("把当前音轨复制到另一首歌") {
+          if model.crossProjectTargets.isEmpty {
+            Text("音乐库里暂时没有其他已完成、可写入的歌曲。")
+              .foregroundStyle(.secondary)
+          } else {
+            Picker("目标歌曲", selection: $destinationProjectID) {
+              ForEach(model.crossProjectTargets) { project in
+                Text(project.title).tag(project.id)
+              }
+            }
+            if isLoadingDestinationBundles {
+              HStack {
+                ProgressView()
+                  .controlSize(.small)
+                Text("正在读取目标歌曲的识别版本…")
+              }
+            } else if let destinationLoadError {
+              Text(destinationLoadError)
+                .foregroundStyle(.orange)
+            } else {
+              Picker("目标识别版本", selection: $destinationBundleID) {
+                ForEach(destinationBundles) { bundle in
+                  Text(destinationBundleName(bundle.id)).tag(bundle.id)
+                }
+              }
+              Button("复制当前音轨到目标歌曲", systemImage: "arrow.right.doc.on.clipboard") {
+                guard let destinationProject else { return }
+                model.copySelectedTrack(
+                  to: destinationProject,
+                  targetBundleID: destinationBundleID
+                )
+                dismiss()
+              }
+              .buttonStyle(.borderedProminent)
+              .disabled(
+                destinationBundleID.isEmpty || model.isManagingTracks
+              )
+            }
+            Text(
+              "源音轨不会移动或删除。软件会在目标歌曲中新建自定义版本，按绝对秒数原样保留全部音符；超出目标曲长的部分仍会保存，但位于普通试听时间轴之外。"
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+          }
+        }
+
         Section("合并当前版本的音轨") {
           ForEach(model.visibleTrackChoices) { track in
             Toggle(
@@ -2095,12 +2151,23 @@ private struct TrackManagerView: View {
       }
       .formStyle(.grouped)
     }
-    .frame(width: 680, height: 760)
+    .frame(width: 720, height: 820)
     .onAppear {
       initializeSelections()
+      model.refreshProjectLibrary()
     }
     .onChange(of: sourceBundleID) {
       sourceTrackID = sourceTracks.first?.id ?? ""
+    }
+    .onChange(of: model.crossProjectTargets.map(\.id)) {
+      if !model.crossProjectTargets.contains(where: {
+        $0.id == destinationProjectID
+      }) {
+        destinationProjectID = model.crossProjectTargets.first?.id ?? ""
+      }
+    }
+    .task(id: destinationProjectID) {
+      await loadDestinationBundles()
     }
     .confirmationDialog(
       "从自定义副本中删除所选音轨？",
@@ -2125,14 +2192,77 @@ private struct TrackManagerView: View {
     model.visibleTrackChoices.filter { mergeTrackIDs.contains($0.id) }
   }
 
+  private var destinationProject: LocalProjectItem? {
+    model.crossProjectTargets.first { $0.id == destinationProjectID }
+  }
+
   private func initializeSelections() {
     sourceBundleID = model.otherProductBundles.first?.id ?? ""
     sourceTrackID = sourceTracks.first?.id ?? ""
+    destinationProjectID = model.crossProjectTargets.first?.id ?? ""
     deleteTrackID =
       model.editor?.selectedTrack.id
       ?? model.visibleTrackChoices.first?.id
       ?? ""
     normalizeInstrumentSource()
+  }
+
+  private func loadDestinationBundles() async {
+    guard let destinationProject else {
+      destinationBundles = []
+      destinationBundleID = ""
+      destinationLoadError = nil
+      return
+    }
+    isLoadingDestinationBundles = true
+    destinationLoadError = nil
+    do {
+      let choices = try await Task.detached(priority: .userInitiated) {
+        try ProjectLoader.inspect(destinationProject.url).bundles
+          .filter(\.isDefaultEligible)
+          .sorted {
+            if $0.modifiedAt == $1.modifiedAt {
+              return $0.id > $1.id
+            }
+            return $0.modifiedAt > $1.modifiedAt
+          }
+      }.value
+      guard !Task.isCancelled else { return }
+      destinationBundles = choices
+      destinationBundleID = choices.first?.id ?? ""
+      if choices.isEmpty {
+        destinationLoadError = "目标歌曲没有可用识别版本。"
+      }
+    } catch {
+      guard !Task.isCancelled else { return }
+      destinationBundles = []
+      destinationBundleID = ""
+      destinationLoadError =
+        (error as? LocalizedError)?.errorDescription
+        ?? error.localizedDescription
+    }
+    isLoadingDestinationBundles = false
+  }
+
+  private func destinationBundleName(_ id: String) -> String {
+    let ordered = destinationBundles.sorted {
+      if $0.modifiedAt == $1.modifiedAt {
+        return $0.id < $1.id
+      }
+      return $0.modifiedAt < $1.modifiedAt
+    }
+    guard
+      let index = ordered.firstIndex(where: {
+        $0.id == id
+      })
+    else {
+      return id
+    }
+    let ordinal = index + 1
+    let isCustom =
+      destinationBundles.first(where: { $0.id == id })?
+      .manifest.claims?["app_derived_arrangement"] == .bool(true)
+    return isCustom ? "自定义版本 \(ordinal)" : "识别版本 \(ordinal)"
   }
 
   private func normalizeInstrumentSource() {

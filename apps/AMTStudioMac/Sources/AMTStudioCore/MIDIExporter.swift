@@ -172,7 +172,19 @@ public enum MIDIExporter {
     else {
       return notes
     }
-    return CanonicalTimeline.clippedNotes(notes, duration: duration)
+    let imported = notes.filter {
+      $0.tags.contains("app-track-cross-project-copy")
+    }
+    let bounded = CanonicalTimeline.clippedNotes(
+      notes.filter {
+        !$0.tags.contains("app-track-cross-project-copy")
+      },
+      duration: duration
+    )
+    return (bounded + imported).sorted {
+      ($0.onsetSec, $0.offsetSec, $0.pitchMIDI, $0.id)
+        < ($1.onsetSec, $1.offsetSec, $1.pitchMIDI, $1.id)
+    }
   }
 
   private static func conductorTrack(

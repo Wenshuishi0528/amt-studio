@@ -48,11 +48,13 @@ make mac-ui-test
 This target requires full Xcode and a logged-in macOS GUI session. It is kept
 separate from the portable repository-level `make check`.
 
-The private Beta can import a song, submit the pinned MuScriptor worker to a
-Hyak L40 Slurm node, persist the active job across app restarts, and retrieve
-the finished canonical bundle. If the SSH session expires, `连接 Hyak` opens
+The private Beta can import one or many songs and submit the pinned workers to
+Hyak Slurm. Upload and `sbatch` operations are serialized, while Slurm decides
+whether submitted projects run together or remain pending. Every active project
+is persisted across app restarts and monitored for result retrieval; local
+CPU/GPU jobs remain serialized. If the SSH session expires, `连接 Hyak` opens
 the local Terminal login flow; after password and Duo are completed, the app
-detects the connection and resumes polling without resubmitting the job.
+detects the connection and resumes polling without resubmitting any job.
 
 Fetched MuScriptor results open in `合奏` mode by default. The sidebar exposes
 every predicted instrument track with note count, mute, solo, and volume
@@ -60,6 +62,13 @@ controls, while `当前音轨` isolates the track being edited. MIDI export offe
 the current edited track, the current audible mix, or the complete multitrack.
 The model labels are predictions, and all original canonical tracks remain
 unchanged.
+
+From `管理版本与音轨`, the current track can also be copied into an eligible
+version of another completed song. The destination receives a new verified
+custom bundle, source bundles remain immutable, and copied note timing is
+preserved exactly even when it extends beyond the destination song timeline.
+Single-track and whole-version MIDI exports retain those imported notes while
+the target audio continues to use its truthful duration.
 
 The app home screen and sidebar also list existing local song projects. Heavy
 project/track loading and MIDI-preview generation run away from the UI thread,

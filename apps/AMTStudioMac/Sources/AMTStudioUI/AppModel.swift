@@ -273,7 +273,7 @@ public enum SongQueueState: String, Codable, Equatable, Sendable {
 
   public var label: String {
     switch self {
-    case .waiting: "等待前一首完成"
+    case .waiting: "等待提交"
     case .submitting: "正在提交"
     case .failed: "提交失败，可重试"
     }
@@ -327,6 +327,15 @@ public struct SongQueueItem: Codable, Sendable, Equatable, Identifiable {
         relativeTo: nil,
         bookmarkDataIsStale: &isStale
       )) ?? audioURL
+  }
+}
+
+enum SongQueuePolicy {
+  static func canSubmit(
+    _ item: SongQueueItem,
+    hasActiveProjectTask: Bool
+  ) -> Bool {
+    item.computeMode == .hyak || !hasActiveProjectTask
   }
 }
 
@@ -403,6 +412,7 @@ public final class AppModel: ObservableObject {
   private let persistRecentProject: Bool
   private let recentProjectKey = "AMTStudio.recentProjectPath"
   private let activeBetaProjectKey = "AMTStudio.activeBetaProjectPath"
+  private let activeBetaProjectsKey = "AMTStudio.activeBetaProjectPaths.v1"
   private let originalVolumeKey = "AMTStudio.originalVolume"
   private let midiMasterVolumeKey = "AMTStudio.midiMasterVolume"
   private let projectBookmarksKey = "AMTStudio.projectBookmarks"
@@ -431,6 +441,7 @@ public final class AppModel: ObservableObject {
   private var trackManagementTask: Task<Void, Never>?
   private var trackManagementGeneration = UUID()
   private var pendingFragmentRepairTrackID: String?
+  private var monitoredBetaProjectPaths = Set<String>()
 
   public init(
     defaults: UserDefaults = .standard,
@@ -460,11 +471,25 @@ public final class AppModel: ObservableObject {
     songQueue = Self.restoreSongQueue(
       from: defaults.data(forKey: songQueueKey)
     )
+    monitoredBetaProjectPaths = Set(
+      (defaults.stringArray(forKey: activeBetaProjectsKey) ?? []).filter {
+        FileManager.default.fileExists(atPath: $0)
+      }
+    )
+    if let legacyPath = defaults.string(forKey: activeBetaProjectKey),
+      FileManager.default.fileExists(atPath: legacyPath)
+    {
+      monitoredBetaProjectPaths.insert(legacyPath)
+    }
     if let initialProjectURL {
       pendingInitialProjectURL = initialProjectURL
     } else if restoreRecent,
       let path = defaults.string(forKey: activeBetaProjectKey),
       FileManager.default.fileExists(atPath: path)
+    {
+      pendingInitialProjectURL = URL(fileURLWithPath: path)
+    } else if restoreRecent,
+      let path = monitoredBetaProjectPaths.sorted().first
     {
       pendingInitialProjectURL = URL(fileURLWithPath: path)
     } else if restoreRecent,
@@ -644,7 +669,7 @@ public final class AppModel: ObservableObject {
     statusMessage =
       addedCount == 1
       ? "已加入任务队列"
-      : "已加入 \(addedCount) 首歌曲，将按顺序逐首识别"
+      : "已加入 \(addedCount) 首歌曲；Hyak 会依次提交给 Slurm"
     errorMessage = nil
     processSongQueueIfPossible()
   }
@@ -676,13 +701,21 @@ public final class AppModel: ObservableObject {
   }
 
   private func processSongQueueIfPossible() {
-    guard !isBetaBusy, !hasActiveBetaJob else { return }
+    guard !isBetaBusy else { return }
     guard
       let index = songQueue.firstIndex(where: { $0.state == .waiting })
     else {
       return
     }
     let item = songQueue[index]
+    guard
+      SongQueuePolicy.canSubmit(
+        item,
+        hasActiveProjectTask: activeProjectTaskCount > 0
+      )
+    else {
+      return
+    }
     let audioURL = item.resolvedAudioURL()
     let accessing = audioURL.startAccessingSecurityScopedResource()
     songQueue[index].state = .submitting
@@ -717,8 +750,8 @@ public final class AppModel: ObservableObject {
           startMonitoring(projectURL: betaProjectURL)
         }
         shouldAdvance =
-          !hasActiveBetaJob
-          && response.status != "succeeded"
+          item.computeMode == .hyak
+          || (!hasActiveBetaJob && response.status != "succeeded")
       } catch {
         if let backendError = error as? PrivateBetaBackendError,
           case .hyakLoginRequired = backendError
@@ -950,6 +983,31 @@ public final class AppModel: ObservableObject {
 
   public var otherProductBundles: [CanonicalBundleChoice] {
     bundleChoices.filter { $0.id != selectedBundleID }
+  }
+
+  public var crossProjectTargets: [LocalProjectItem] {
+    let currentPath =
+      catalog?.rootURL.standardizedFileURL.resolvingSymlinksInPath().path
+    return libraryProjects.filter {
+      $0.hasResults && !$0.hasActiveJob
+        && $0.url.standardizedFileURL.resolvingSymlinksInPath().path
+          != currentPath
+    }
+  }
+
+  public var activeProjectTaskCount: Int {
+    var paths = monitoredBetaProjectPaths
+    paths.formUnion(
+      libraryProjects.lazy.filter(\.hasActiveJob).map {
+        $0.url.standardizedFileURL.resolvingSymlinksInPath().path
+      }
+    )
+    if hasActiveBetaJob, let betaProjectURL {
+      paths.insert(
+        betaProjectURL.standardizedFileURL.resolvingSymlinksInPath().path
+      )
+    }
+    return paths.count
   }
 
   public var audibleTrackIDs: Set<String> {
@@ -1696,6 +1754,64 @@ public final class AppModel: ObservableObject {
     )
   }
 
+  public func copySelectedTrack(
+    to targetProject: LocalProjectItem,
+    targetBundleID: String
+  ) {
+    guard !isManagingTracks, let sourceCatalog = catalog,
+      let sourceBundleID = selectedBundleID,
+      let sourceTrackID = editor?.selectedTrack.id
+    else {
+      return
+    }
+    guard targetProject.hasResults, !targetProject.hasActiveJob else {
+      statusMessage = "目标歌曲正在识别或没有可用结果，暂时不能写入新版本"
+      return
+    }
+    isManagingTracks = true
+    statusMessage =
+      "正在把当前音轨复制到“\(targetProject.title)”并创建自定义版本…"
+    errorMessage = nil
+    trackManagementTask?.cancel()
+    let generation = UUID()
+    trackManagementGeneration = generation
+    trackManagementTask = Task { [weak self] in
+      defer {
+        if self?.trackManagementGeneration == generation {
+          self?.isManagingTracks = false
+        }
+      }
+      do {
+        let result = try await Task.detached(priority: .userInitiated) {
+          let targetCatalog = try ProjectLoader.inspect(targetProject.url)
+          return try TrackArrangementBuilder.copyAcrossProjects(
+            sourceCatalog: sourceCatalog,
+            sourceBundleID: sourceBundleID,
+            sourceTrackID: sourceTrackID,
+            targetCatalog: targetCatalog,
+            targetBundleID: targetBundleID
+          )
+        }.value
+        guard !Task.isCancelled, let self,
+          self.trackManagementGeneration == generation
+        else {
+          return
+        }
+        self.pendingCompletedBundleID = result.bundleID
+        self.pendingCompletedTrackID = result.selectedTrackID
+        self.statusMessage =
+          "已复制到“\(targetProject.title)”；正在打开目标自定义版本"
+        self.refreshProjectLibrary()
+        self.openProject(targetProject.url)
+      } catch is CancellationError {
+        return
+      } catch {
+        guard let self else { return }
+        self.present(error)
+      }
+    }
+  }
+
   public func mergeTracks(
     _ trackIDs: Set<String>,
     instrumentSourceTrackID: String
@@ -2280,20 +2396,68 @@ public final class AppModel: ObservableObject {
   }
 
   private func startMonitoring(projectURL: URL) {
+    rememberActiveBetaProject(projectURL)
+    restartBetaMonitor()
+  }
+
+  private func restartBetaMonitor() {
     betaMonitor?.cancel()
     betaMonitor = Task { [weak self] in
       while !Task.isCancelled {
         guard !Task.isCancelled, let self else { return }
-        await self.refreshBetaJob(projectURL: projectURL)
-        if LocalProjectItem.terminalStates.contains(
-          self.betaSlurmState ?? ""
-        )
-          || self.hyakConnectionState == .loginRequired
-        {
+        if self.isBetaBusy {
+          try? await Task.sleep(for: .seconds(1))
+          continue
+        }
+        let paths = self.monitoredBetaProjectPaths.sorted()
+        guard !paths.isEmpty else { return }
+        for path in paths {
+          guard !Task.isCancelled, !self.isBetaBusy else { break }
+          await self.refreshMonitoredProject(
+            URL(fileURLWithPath: path, isDirectory: true)
+          )
+          if self.hyakConnectionState == .loginRequired {
+            return
+          }
+        }
+        guard !self.monitoredBetaProjectPaths.isEmpty else {
           return
         }
         try? await Task.sleep(for: .seconds(20))
       }
+    }
+  }
+
+  private func refreshMonitoredProject(_ projectURL: URL) async {
+    do {
+      let backend = try PrivateBetaBackend.locate()
+      let response = try await Task.detached(priority: .utility) {
+        try backend.refresh(projectURL: projectURL)
+      }.value
+      let currentPath =
+        betaProjectURL?.standardizedFileURL.resolvingSymlinksInPath().path
+      let refreshedPath =
+        projectURL.standardizedFileURL.resolvingSymlinksInPath().path
+      if currentPath == refreshedPath {
+        try handleBetaResponse(response)
+      } else {
+        try validateBetaResponse(response)
+        if ComputeMode.resolve(
+          backend: response.backend,
+          localDevice: response.localDevice
+        ) == .hyak {
+          hyakConnectionState = .connected
+        }
+        if ["succeeded", "failed", "cancelled"].contains(
+          response.status ?? ""
+        ) {
+          forgetActiveBetaProject(projectURL)
+          processSongQueueIfPossible()
+        }
+        refreshProjectLibrary()
+      }
+    } catch {
+      presentBetaError(error)
     }
   }
 
@@ -2315,16 +2479,7 @@ public final class AppModel: ObservableObject {
   private func handleBetaResponse(
     _ response: PrivateBetaResponse
   ) throws {
-    guard response.ok else {
-      if response.needsHyakLogin == true {
-        throw PrivateBetaBackendError.hyakLoginRequired(
-          response.error ?? "Hyak 登录已过期"
-        )
-      }
-      throw PrivateBetaBackendError.operationFailed(
-        response.error ?? "未知后台错误"
-      )
-    }
+    try validateBetaResponse(response)
     if let path = response.localProjectDir {
       betaProjectURL = URL(fileURLWithPath: path, isDirectory: true)
     }
@@ -2444,6 +2599,21 @@ public final class AppModel: ObservableObject {
     refreshProjectLibrary()
   }
 
+  private func validateBetaResponse(
+    _ response: PrivateBetaResponse
+  ) throws {
+    guard response.ok else {
+      if response.needsHyakLogin == true {
+        throw PrivateBetaBackendError.hyakLoginRequired(
+          response.error ?? "Hyak 登录已过期"
+        )
+      }
+      throw PrivateBetaBackendError.operationFailed(
+        response.error ?? "未知后台错误"
+      )
+    }
+  }
+
   private func waitForHyakLogin() {
     connectionMonitor?.cancel()
     connectionMonitor = Task { [weak self] in
@@ -2481,9 +2651,9 @@ public final class AppModel: ObservableObject {
       errorMessage = nil
       if resumeJob, let betaProjectURL {
         await refreshBetaJob(projectURL: betaProjectURL)
-        if !LocalProjectItem.terminalStates.contains(betaSlurmState ?? "") {
-          startMonitoring(projectURL: betaProjectURL)
-        }
+      }
+      if resumeJob, !monitoredBetaProjectPaths.isEmpty {
+        restartBetaMonitor()
       }
       processSongQueueIfPossible()
       return true
@@ -2501,7 +2671,7 @@ public final class AppModel: ObservableObject {
       hyakConnectionState = .loginRequired
       errorMessage = nil
       statusMessage =
-        hasActiveBetaJob
+        activeProjectTaskCount > 0
         ? "Hyak 登录已过期；作业仍在运行。重新连接后会自动恢复。"
         : "Hyak 尚未连接；请先在 Terminal 完成密码与 Duo，再重新提交。"
       return
@@ -2545,14 +2715,44 @@ public final class AppModel: ObservableObject {
     return restored
   }
 
-  private func rememberActiveBetaProject() {
-    guard persistRecentProject, let betaProjectURL else { return }
-    defaults.set(betaProjectURL.path, forKey: activeBetaProjectKey)
+  private func rememberActiveBetaProject(_ projectURL: URL? = nil) {
+    guard let projectURL = projectURL ?? betaProjectURL else { return }
+    let path =
+      projectURL.standardizedFileURL.resolvingSymlinksInPath().path
+    monitoredBetaProjectPaths.insert(path)
+    guard persistRecentProject else { return }
+    defaults.set(path, forKey: activeBetaProjectKey)
+    defaults.set(
+      monitoredBetaProjectPaths.sorted(),
+      forKey: activeBetaProjectsKey
+    )
   }
 
   private func clearActiveBetaProject() {
+    guard let betaProjectURL else { return }
+    forgetActiveBetaProject(betaProjectURL)
+  }
+
+  private func forgetActiveBetaProject(_ projectURL: URL) {
+    let path =
+      projectURL.standardizedFileURL.resolvingSymlinksInPath().path
+    monitoredBetaProjectPaths.remove(path)
     guard persistRecentProject else { return }
-    defaults.removeObject(forKey: activeBetaProjectKey)
+    defaults.set(
+      monitoredBetaProjectPaths.sorted(),
+      forKey: activeBetaProjectsKey
+    )
+    if defaults.string(forKey: activeBetaProjectKey) == path {
+      if let replacement = monitoredBetaProjectPaths.sorted().first {
+        defaults.set(replacement, forKey: activeBetaProjectKey)
+      } else {
+        defaults.removeObject(forKey: activeBetaProjectKey)
+      }
+    }
+  }
+
+  func forgetActiveProjectForTesting(_ projectURL: URL) {
+    forgetActiveBetaProject(projectURL)
   }
 
   private func restoreMixerSettings(for snapshot: ProjectSnapshot) {
@@ -2680,7 +2880,10 @@ public final class AppModel: ObservableObject {
     if betaProjectURL?.standardizedFileURL.resolvingSymlinksInPath().path
       == resolvedTarget.path
     {
-      betaMonitor?.cancel()
+      let removedProjectURL = betaProjectURL
+      if let removedProjectURL {
+        forgetActiveBetaProject(removedProjectURL)
+      }
       betaProjectURL = nil
       betaJobID = nil
       betaSlurmState = nil
@@ -2692,7 +2895,11 @@ public final class AppModel: ObservableObject {
       betaGPUSelectionReason = nil
       betaGPUEstimatedWaitSeconds = nil
       activeComputeMode = nil
-      clearActiveBetaProject()
+      if monitoredBetaProjectPaths.isEmpty {
+        betaMonitor?.cancel()
+      } else {
+        restartBetaMonitor()
+      }
     }
     statusMessage = "已把“\(project.title)”移到废纸篓"
     errorMessage = nil

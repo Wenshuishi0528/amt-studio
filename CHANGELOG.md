@@ -4,6 +4,38 @@ This project records changes by numbered research task until formal semantic
 versions and releases begin. Dates and commit identifiers refer to the local
 Git history.
 
+## Task 009B3I — Cross-song tracks and concurrent Hyak submissions — 2026-07-28
+
+### Added
+
+- Added a destination-song and destination-version picker that copies the
+  current track into a new verified `custom-*` version of another song.
+- Added source-project lineage to every cross-song derived note and to the
+  arrangement manifest.
+- Added persistent monitoring for every active project submitted by the Mac
+  app, not just the latest project shown in the task panel.
+
+### Changed
+
+- Cross-song copying preserves every source onset and offset exactly. Notes
+  beyond the target song ending stay in the derived artifact and in
+  single-track or whole-version MIDI exports; the target audio keeps its real
+  duration.
+- Hyak uploads and `sbatch` calls remain serialized for safety, but a successful
+  submission no longer waits for model completion before submitting the next
+  Hyak song. Slurm/QOS remains authoritative for running versus `PENDING`.
+- Local CPU and GPU jobs remain serialized.
+
+### Verified
+
+- Regressions cover immutable source/target bundles, exact cross-song timing,
+  source lineage, target-version opening, Hyak-versus-local queue policy, and
+  restoration and independent removal of multiple active project paths.
+- Focused state review fixed queue release after a background terminal task
+  and preserved other project monitors when the viewed project is removed.
+- `make check` passes 294 Python and 56 Swift tests with three expected private
+  integration skips. No song or model job was submitted.
+
 ## Task 009B3H — Product artwork and identity — 2026-07-28
 
 ### Added

@@ -30,9 +30,48 @@ continuous-note rebuilding a durable per-track product operation. Task 009B3E
 restores new-song import for Finder-launched app processes whose inherited
 environment omits Homebrew audio tools. Task 009B3F makes the following
 Mac-to-Hyak code snapshot transfer cache-safe and reusable. Task 009B3G adds a
-persistent sequential multi-song queue while preserving the single-active-job
-boundary. Task 009B3H adds the selected product artwork plus visible,
-bundle-backed version and author identity.
+persistent multi-song queue. Task 009B3H adds the selected product artwork plus
+visible, bundle-backed version and author identity. Task 009B3I adds
+non-destructive cross-song track copying and removes the client's single-active
+Hyak submission gate while retaining serialized uploads and local compute.
+
+## Task 009B3I: cross-song tracks and concurrent Hyak submissions
+
+Objective:
+
+- copy one selected track from one song/version into a chosen version of
+  another song without changing either source model bundle;
+- preserve every copied note's absolute timing, including events beyond the
+  target song's normal playback timeline;
+- remove the Mac client's one-active-Hyak-job restriction without claiming or
+  bypassing any live Slurm/QOS account limit.
+
+Implemented and verified:
+
+- `管理版本与音轨` now selects a completed destination song and an eligible
+  destination version. Copying creates and verifies a new `custom-*` bundle in
+  the destination project, opens the copied track, and leaves both source and
+  target recognition bundles byte-unchanged;
+- copied notes receive new event and track IDs while retaining source project,
+  bundle, track, event, model, and edit lineage. Onset and offset seconds are
+  preserved exactly; events after the target song ending remain stored but are
+  outside its original-audio playback timeline. Single-track and whole-version
+  MIDI exports preserve those imported events instead of clipping them;
+- Hyak song uploads remain serialized, but every successful submission
+  immediately releases the next Hyak queue item. Slurm decides whether jobs
+  run together or remain `PENDING`; local CPU/GPU jobs remain serialized;
+- one persistent fleet monitor polls every submitted project and retrieves
+  terminal results instead of monitoring only the last submission. Interrupted
+  submission remains manual-retry-only, so the duplicate-job safety boundary
+  is unchanged;
+- the single `/review` invocation was stopped when it expanded into the paused
+  Task 007D research files. The resulting focused state review found and fixed
+  two directly relevant P1 issues: background terminal jobs now release queued
+  local work, and removing the currently viewed project preserves monitoring
+  for every other active Hyak project. No second or expanded review was run;
+- `make check` passes 294 Python and 56 Swift tests with three expected private
+  integration skips. Strict Swift formatting and `git diff --check` pass. No
+  song, model, or Hyak job was submitted by this implementation.
 
 ## Task 009B3H: product artwork and identity
 

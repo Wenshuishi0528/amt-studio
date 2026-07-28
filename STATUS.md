@@ -1,14 +1,35 @@
 # Project status
 
-Current product milestone: Task 009B3H brands the private Beta as AMT Studio
-0.2.0 by wenshuishi26 with the owner-selected product cover
+Current product milestone: Task 009B3I adds cross-song track copying and
+multi-project Hyak submission/monitoring to AMT Studio 0.2.0
 Research status: Gate 4 remains not passed for the rejected fusion routes; no
 new dataset, fusion, retuning, or training work is in the product critical path
-Current task: complete and package the selected cover, visible version, build,
-and author identity
-Next task: owner visual confirmation; do not submit music or resume model work
-without a new request
+Current task: complete and package non-destructive cross-song track reuse plus
+Slurm-controlled multi-job Hyak operation
+Next task: owner workflow confirmation; do not submit music or resume model
+work without a new request
 Current branch: `main`
+
+Implemented for Task 009B3I:
+
+- the current selected track can be copied into a chosen eligible version of a
+  different completed song. The destination receives a verified `custom-*`
+  version; source and target recognition versions remain immutable;
+- copied events preserve absolute onset/offset times even beyond the target
+  song ending, including single-track and whole-version MIDI export, while
+  provenance records the source project, bundle, track, events, and model/edit
+  lineage;
+- the prior one-active-Hyak-job guard was a client restriction, not a proven
+  Hyak quota. Hyak uploads remain serialized, but successful submissions now
+  immediately advance the next Hyak item. Slurm controls actual parallel
+  running versus `PENDING`; local CPU/GPU work remains serialized;
+- all active project paths persist locally and one fleet monitor refreshes and
+  retrieves every submitted job rather than only the most recent one;
+- focused state review also verifies that a background terminal job releases
+  queued local work and removing the viewed project does not stop monitoring
+  other active Hyak projects;
+- `make check` passes 294 Python and 56 Swift tests with three expected private
+  integration skips. No model or Hyak job was launched.
 
 Implemented for Task 009B3H:
 

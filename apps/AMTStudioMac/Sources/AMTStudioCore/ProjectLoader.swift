@@ -570,6 +570,120 @@ public enum TrackArrangementBuilder {
       ]
     }
 
+    return try commitDerivedBundle(
+      catalog: catalog,
+      targetChoice: targetChoice,
+      targetSnapshot: targetSnapshot,
+      workingTracks: workingTracks,
+      selectedTrackID: selectedTrackID,
+      actionDescription: actionDescription
+    )
+  }
+
+  public static func copyAcrossProjects(
+    sourceCatalog: ProjectCatalog,
+    sourceBundleID: String,
+    sourceTrackID: String,
+    targetCatalog: ProjectCatalog,
+    targetBundleID: String
+  ) throws -> TrackArrangementResult {
+    let sourceRoot =
+      sourceCatalog.rootURL.standardizedFileURL.resolvingSymlinksInPath()
+    let targetRoot =
+      targetCatalog.rootURL.standardizedFileURL.resolvingSymlinksInPath()
+    guard sourceRoot.path != targetRoot.path,
+      sourceCatalog.manifest.projectID != targetCatalog.manifest.projectID
+    else {
+      throw AMTProjectError.invalidEvent("跨歌曲复制必须选择另一个独立歌曲项目")
+    }
+    guard
+      let sourceChoice = sourceCatalog.bundles.first(where: {
+        $0.id == sourceBundleID && $0.isDefaultEligible
+      }),
+      sourceChoice.tracks.contains(where: { $0.id == sourceTrackID }),
+      let targetChoice = targetCatalog.bundles.first(where: {
+        $0.id == targetBundleID && $0.isDefaultEligible
+      })
+    else {
+      throw AMTProjectError.invalidEvent("来源音轨或目标识别版本不可用")
+    }
+    let sourceSnapshot = try ProjectLoader.open(
+      sourceCatalog,
+      bundleID: sourceBundleID
+    )
+    let targetSnapshot = try ProjectLoader.open(
+      targetCatalog,
+      bundleID: targetBundleID
+    )
+    let sourceTracks = try materializedTracks(
+      snapshot: sourceSnapshot,
+      bundleID: sourceBundleID
+    )
+    guard let source = sourceTracks.first(where: { $0.id == sourceTrackID })
+    else {
+      throw AMTProjectError.invalidEvent("找不到要复制的来源音轨")
+    }
+    var workingTracks = try materializedTracks(
+      snapshot: targetSnapshot,
+      bundleID: targetBundleID
+    )
+    let copiedID = uniqueTrackID(
+      base: "\(source.id)-import",
+      existing: Set(workingTracks.map(\.id))
+    )
+    let copiedNotes = source.notes.map {
+      derivedNote(
+        $0,
+        trackID: copiedID,
+        operation: "cross-project-copy",
+        sourceBundleID: sourceBundleID,
+        sourceProjectID: sourceCatalog.manifest.projectID,
+        instrument: $0.instrument
+      )
+    }
+    guard !copiedNotes.isEmpty else {
+      throw AMTProjectError.invalidEvent("来源音轨在目标歌曲时间范围内没有可复制的音符")
+    }
+    workingTracks.append(
+      WorkingTrack(
+        id: copiedID,
+        label:
+          "\(source.label)（来自 "
+          + "\(sourceCatalog.manifest.title ?? sourceCatalog.manifest.projectID)）",
+        role: source.role,
+        instrument: source.instrument,
+        notes: copiedNotes
+      )
+    )
+    return try commitDerivedBundle(
+      catalog: targetCatalog,
+      targetChoice: targetChoice,
+      targetSnapshot: targetSnapshot,
+      workingTracks: workingTracks,
+      selectedTrackID: copiedID,
+      actionDescription: [
+        "action": "copy_from_project",
+        "source_project_id": sourceCatalog.manifest.projectID,
+        "source_project_title":
+          sourceCatalog.manifest.title ?? sourceCatalog.manifest.projectID,
+        "source_bundle_id": sourceBundleID,
+        "source_track_id": sourceTrackID,
+        "result_track_id": copiedID,
+        "source_note_count": source.notes.count,
+        "imported_note_count": copiedNotes.count,
+        "timeline_policy": "source_absolute_seconds_preserved",
+      ]
+    )
+  }
+
+  private static func commitDerivedBundle(
+    catalog: ProjectCatalog,
+    targetChoice: CanonicalBundleChoice,
+    targetSnapshot: ProjectSnapshot,
+    workingTracks: [WorkingTrack],
+    selectedTrackID: String,
+    actionDescription: [String: Any]
+  ) throws -> TrackArrangementResult {
     let bundleID = makeBundleID()
     let exportsURL = try checkedExportsDirectory(catalog.rootURL)
     let temporaryURL = exportsURL.appendingPathComponent(
@@ -642,11 +756,15 @@ public enum TrackArrangementBuilder {
     trackID: String,
     operation: String,
     sourceBundleID: String,
+    sourceProjectID: String? = nil,
     instrument: String?
   ) -> EditorNote {
     var extra = note.extra
     extra["arrangement_source_bundle_id"] = .string(sourceBundleID)
     extra["arrangement_source_track_id"] = .string(note.trackID)
+    if let sourceProjectID {
+      extra["arrangement_source_project_id"] = .string(sourceProjectID)
+    }
     return EditorNote(
       id: "app-\(operation)-\(UUID().uuidString.lowercased())",
       trackID: trackID,
