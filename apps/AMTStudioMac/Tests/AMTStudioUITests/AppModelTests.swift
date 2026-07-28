@@ -827,7 +827,12 @@ final class AppModelTests: XCTestCase {
     defer { fixture.remove() }
     try fixture.writePrivateBetaState(
       jobID: "fixture-job",
-      slurmState: "COMPLETED"
+      slurmState: "COMPLETED",
+      gpuType: "a100",
+      partition: "ckpt",
+      preemptible: true,
+      selectionReason: "fixture auto selection",
+      estimatedWaitSeconds: 0
     )
     let suiteName = "AMTStudioUITests.\(UUID().uuidString)"
     let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
@@ -844,6 +849,14 @@ final class AppModelTests: XCTestCase {
     XCTAssertEqual(model.catalog?.rootURL.path, fixture.root.path)
     XCTAssertEqual(model.betaJobID, "fixture-job")
     XCTAssertEqual(model.betaSlurmState, "COMPLETED")
+    XCTAssertEqual(model.betaGPUType, "a100")
+    XCTAssertEqual(model.betaPartition, "ckpt")
+    XCTAssertTrue(model.betaGPUPreemptible)
+    XCTAssertEqual(
+      model.betaGPUSelectionReason,
+      "fixture auto selection"
+    )
+    XCTAssertEqual(model.betaGPUEstimatedWaitSeconds, 0)
     XCTAssertFalse(model.hasActiveBetaJob)
     XCTAssertNil(
       defaults.string(forKey: "AMTStudio.activeBetaProjectPath")
@@ -993,18 +1006,29 @@ private final class AppFixtureProject {
 
   func writePrivateBetaState(
     jobID: String,
-    slurmState: String
+    slurmState: String,
+    gpuType: String? = nil,
+    partition: String? = nil,
+    preemptible: Bool? = nil,
+    selectionReason: String? = nil,
+    estimatedWaitSeconds: Int? = nil
   ) throws {
     try FileManager.default.createDirectory(
       at: root.appendingPathComponent("app"),
       withIntermediateDirectories: true
     )
+    var state: [String: Any] = [
+      "schema_version": 1,
+      "job_id": jobID,
+      "slurm_state": slurmState,
+    ]
+    state["slurm_gpu_type"] = gpuType
+    state["slurm_partition"] = partition
+    state["gpu_preemptible"] = preemptible
+    state["gpu_selection_reason"] = selectionReason
+    state["gpu_estimated_wait_seconds"] = estimatedWaitSeconds
     try writeFixtureJSON(
-      [
-        "schema_version": 1,
-        "job_id": jobID,
-        "slurm_state": slurmState,
-      ],
+      state,
       to: root.appendingPathComponent("app/private_beta_job.json")
     )
   }

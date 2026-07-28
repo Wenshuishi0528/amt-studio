@@ -1014,3 +1014,45 @@ Evidence:
 - `make check` passes 277 Python and 38 Swift tests with three expected
   environment-gated skips. Strict Swift formatting, Slurm shell syntax,
   Python compilation, and `git diff --check` pass.
+
+## Task 009B2W: automatic Hyak GPU selection
+
+Objective:
+
+- move the repeated manual GPU queue comparison into the product submission
+  path so a normal user does not need Codex or Slurm expertise;
+- compare only resource routes already verified for the MuScriptor workload;
+- keep the selected resource auditable and preserve a safe stable fallback.
+
+Frozen rule:
+
+- discover the current user's compatible Slurm associations immediately before
+  each whole-song or selected-gap submission;
+- probe L40, L40S, A40, and A100 using no-allocation `sbatch --test-only` with
+  the same account, partition, QOS, GPU, and wall-time arguments that the real
+  job will receive;
+- choose the earliest estimated start. For candidates within five minutes of
+  that earliest start, use the fixed performance order
+  `A100 > L40S > L40 > A40`;
+- mark checkpoint A100/A40 as preemptible. If discovery or every estimate
+  fails, submit through the existing stable L40 route.
+
+Evidence:
+
+- the live planner compared four compatible resource plans at
+  `2026-07-27T16:54` PDT and selected checkpoint A100 with a one-second
+  estimated wait. No test job was left queued, and existing Job `37805247`
+  continued unchanged;
+- a first live check exposed that Hyak writes the test-only estimate to stderr.
+  The backend now captures that channel explicitly, and a regression fixture
+  fails if the redirection is removed;
+- state validation and Swift decoding preserve GPU, partition, estimated wait,
+  preemption risk, and the human-readable selection reason across refresh and
+  app restart. The sidebar displays those fields; settings describe the
+  eligible GPU set and stable fallback;
+- local-only jobs do not enter this planner. It adds no personal Hyak identity,
+  host login, private path, credential, password, or Duo data to public source;
+  candidate accounts come from live Slurm associations;
+- `make check` passes 281 Python and 38 Swift tests with three expected
+  environment-gated skips. Strict Swift formatting, signed `make mac-app`,
+  plist/signature validation, Python compilation, and `git diff --check` pass.

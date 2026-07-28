@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import unicodedata
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
@@ -34,6 +35,10 @@ TASK_KINDS = {"full_transcription", "targeted_gap_recovery"}
 DEFAULT_HYAK_TIME_LIMIT_HOURS = 1
 MIN_HYAK_TIME_LIMIT_HOURS = 1
 MAX_HYAK_TIME_LIMIT_HOURS = 24
+GPU_TEST_START_PATTERN = re.compile(
+    r"\bto start at (?P<start>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})\b"
+)
+GPU_START_TIE_SECONDS = 5 * 60
 
 
 class PrivateBetaError(RuntimeError):
@@ -158,6 +163,281 @@ class HyakConnection:
         return " ".join(shlex.quote(part) for part in command)
 
 
+@dataclass(frozen=True)
+class HyakGPUCandidate:
+    gpu_type: str
+    label: str
+    account: str
+    partition: str
+    qos: str
+    speed_rank: int
+    preemptible: bool
+
+    def submission_arguments(self, time_limit_hours: int) -> tuple[str, ...]:
+        return (
+            f"--account={self.account}",
+            f"--partition={self.partition}",
+            f"--qos={self.qos}",
+            f"--gpus={self.gpu_type}:1",
+            f"--time={_slurm_time_limit(time_limit_hours)}",
+        )
+
+
+@dataclass(frozen=True)
+class HyakGPUProbe:
+    candidate: HyakGPUCandidate
+    estimated_start_at: str
+    estimated_start_epoch: int
+
+
+@dataclass(frozen=True)
+class HyakGPUPlan:
+    candidate: HyakGPUCandidate | None
+    submission_arguments: tuple[str, ...]
+    estimated_start_at: str | None
+    estimated_wait_seconds: int | None
+    reason: str
+    probed_candidate_count: int
+
+    def state_fields(self) -> dict[str, Any]:
+        fields: dict[str, Any] = {
+            "gpu_selection_policy": "auto_fastest",
+            "slurm_gpu_type": (
+                self.candidate.gpu_type if self.candidate is not None else "l40"
+            ),
+            "slurm_partition": (
+                self.candidate.partition
+                if self.candidate is not None
+                else "gpu-l40"
+            ),
+            "gpu_preemptible": (
+                self.candidate.preemptible
+                if self.candidate is not None
+                else False
+            ),
+            "gpu_selection_reason": self.reason,
+            "gpu_probed_candidate_count": self.probed_candidate_count,
+        }
+        if self.candidate is not None:
+            fields["slurm_account"] = self.candidate.account
+            fields["slurm_qos"] = self.candidate.qos
+        if self.estimated_start_at is not None:
+            fields["gpu_estimated_start_at"] = self.estimated_start_at
+        if self.estimated_wait_seconds is not None:
+            fields["gpu_estimated_wait_seconds"] = self.estimated_wait_seconds
+        return fields
+
+
+def _gpu_candidates_from_associations(value: str) -> tuple[HyakGPUCandidate, ...]:
+    normal_accounts: dict[str, set[str]] = {"l40": set(), "l40s": set()}
+    checkpoint_accounts: set[str] = set()
+    for line in value.splitlines():
+        fields = line.strip().split("|")
+        if len(fields) < 3:
+            continue
+        account, _partition, qos_text = fields[:3]
+        qos = {item for item in qos_text.split(",") if item}
+        if "normal" in qos:
+            for gpu_type in normal_accounts:
+                if account.startswith(f"gpu-{gpu_type}-"):
+                    normal_accounts[gpu_type].add(account)
+        if account.startswith("ckpt-") and "ckpt-gpu" in qos:
+            checkpoint_accounts.add(account)
+
+    candidates: list[HyakGPUCandidate] = []
+    for account in sorted(checkpoint_accounts):
+        candidates.extend(
+            (
+                HyakGPUCandidate(
+                    gpu_type="a100",
+                    label="A100",
+                    account=account,
+                    partition="ckpt",
+                    qos="ckpt-gpu",
+                    speed_rank=0,
+                    preemptible=True,
+                ),
+                HyakGPUCandidate(
+                    gpu_type="a40",
+                    label="A40",
+                    account=account,
+                    partition="ckpt",
+                    qos="ckpt-gpu",
+                    speed_rank=3,
+                    preemptible=True,
+                ),
+            )
+        )
+    for gpu_type, label, rank in (("l40s", "L40S", 1), ("l40", "L40", 2)):
+        for account in sorted(normal_accounts[gpu_type]):
+            candidates.append(
+                HyakGPUCandidate(
+                    gpu_type=gpu_type,
+                    label=label,
+                    account=account,
+                    partition=f"gpu-{gpu_type}",
+                    qos="normal",
+                    speed_rank=rank,
+                    preemptible=False,
+                )
+            )
+    return tuple(candidates)
+
+
+def _select_gpu_probe(
+    probes: Iterable[HyakGPUProbe],
+    *,
+    now_epoch: int,
+) -> tuple[HyakGPUProbe, int]:
+    available = tuple(probes)
+    if not available:
+        raise PrivateBetaError("Hyak 没有返回可用的兼容 GPU 计划")
+    earliest = min(probe.estimated_start_epoch for probe in available)
+    contenders = tuple(
+        probe
+        for probe in available
+        if probe.estimated_start_epoch <= earliest + GPU_START_TIE_SECONDS
+    )
+    selected = min(
+        contenders,
+        key=lambda probe: (
+            probe.candidate.speed_rank,
+            probe.estimated_start_epoch,
+            probe.candidate.account,
+        ),
+    )
+    return selected, max(0, selected.estimated_start_epoch - now_epoch)
+
+
+def _fallback_gpu_plan(
+    candidates: tuple[HyakGPUCandidate, ...],
+    *,
+    time_limit_hours: int,
+    reason: str,
+) -> HyakGPUPlan:
+    stable_l40 = next(
+        (
+            candidate
+            for candidate in candidates
+            if candidate.gpu_type == "l40" and not candidate.preemptible
+        ),
+        None,
+    )
+    arguments = (
+        stable_l40.submission_arguments(time_limit_hours)
+        if stable_l40 is not None
+        else (f"--time={_slurm_time_limit(time_limit_hours)}",)
+    )
+    return HyakGPUPlan(
+        candidate=stable_l40,
+        submission_arguments=arguments,
+        estimated_start_at=None,
+        estimated_wait_seconds=None,
+        reason=reason,
+        probed_candidate_count=0,
+    )
+
+
+def _plan_hyak_gpu(
+    connection: HyakConnection,
+    *,
+    time_limit_hours: int,
+) -> HyakGPUPlan:
+    try:
+        associations = connection.remote(
+            'sacctmgr -nP show assoc user="$USER" format=Account,Partition,QOS',
+            timeout=15,
+        )
+    except PrivateBetaError:
+        return _fallback_gpu_plan(
+            (),
+            time_limit_hours=time_limit_hours,
+            reason="GPU 自动探测失败，已回退稳定 L40",
+        )
+    candidates = _gpu_candidates_from_associations(associations)
+    if not candidates:
+        return _fallback_gpu_plan(
+            candidates,
+            time_limit_hours=time_limit_hours,
+            reason="未发现已验证的 GPU 账号，已回退稳定 L40",
+        )
+
+    try:
+        now_epoch = int(connection.remote("date +%s", timeout=10))
+    except (PrivateBetaError, ValueError):
+        return _fallback_gpu_plan(
+            candidates,
+            time_limit_hours=time_limit_hours,
+            reason="无法读取 Hyak 调度时间，已回退稳定 L40",
+        )
+
+    probes: list[HyakGPUProbe] = []
+    for candidate in candidates:
+        probe_arguments = (
+            "sbatch",
+            "--test-only",
+            "--nodes=1",
+            "--ntasks=1",
+            "--cpus-per-task=2",
+            "--mem=64G",
+            *candidate.submission_arguments(time_limit_hours),
+            "--wrap=true",
+        )
+        try:
+            output = connection.remote(
+                f"{shlex.join(probe_arguments)} 2>&1",
+                timeout=20,
+            )
+            match = GPU_TEST_START_PATTERN.search(output)
+            if match is None:
+                continue
+            estimated_start_at = match.group("start")
+            estimated_start_epoch = int(
+                connection.remote(
+                    shlex.join(("date", "-d", estimated_start_at, "+%s")),
+                    timeout=10,
+                )
+            )
+        except (PrivateBetaError, ValueError):
+            continue
+        probes.append(
+            HyakGPUProbe(
+                candidate=candidate,
+                estimated_start_at=estimated_start_at,
+                estimated_start_epoch=estimated_start_epoch,
+            )
+        )
+    if not probes:
+        return _fallback_gpu_plan(
+            candidates,
+            time_limit_hours=time_limit_hours,
+            reason="兼容 GPU 均未返回预计开始时间，已回退稳定 L40",
+        )
+
+    selected, wait_seconds = _select_gpu_probe(probes, now_epoch=now_epoch)
+    wait_label = (
+        "预计立即开始"
+        if wait_seconds < 60
+        else f"预计等待约 {(wait_seconds + 59) // 60} 分钟"
+    )
+    preemptible_label = "；checkpoint 队列可能被抢占" if selected.candidate.preemptible else ""
+    reason = (
+        f"自动比较 {len(probes)} 个兼容 GPU 计划；"
+        f"{selected.candidate.label} {wait_label}，"
+        f"五分钟内按已验证性能顺序择优{preemptible_label}"
+    )
+    return HyakGPUPlan(
+        candidate=selected.candidate,
+        submission_arguments=selected.candidate.submission_arguments(
+            time_limit_hours
+        ),
+        estimated_start_at=selected.estimated_start_at,
+        estimated_wait_seconds=wait_seconds,
+        reason=reason,
+        probed_candidate_count=len(probes),
+    )
+
+
 def _state_path(project_dir: Path) -> Path:
     return project_dir / "app" / "private_beta_job.json"
 
@@ -272,6 +552,16 @@ def _validate_state(project_dir: Path, state: dict[str, Any]) -> dict[str, Any]:
         "source_track_id",
         "recovery_request_path",
         "selected_gap_count",
+        "gpu_selection_policy",
+        "slurm_gpu_type",
+        "slurm_account",
+        "slurm_partition",
+        "slurm_qos",
+        "gpu_preemptible",
+        "gpu_selection_reason",
+        "gpu_probed_candidate_count",
+        "gpu_estimated_start_at",
+        "gpu_estimated_wait_seconds",
     }
     if set(state) - allowed:
         raise PrivateBetaError("任务状态文件包含未知字段")
@@ -314,6 +604,28 @@ def _validate_state(project_dir: Path, state: dict[str, Any]) -> dict[str, Any]:
             raise PrivateBetaError("任务状态 job_id 无效")
         state["host"] = host
         state["remote_root"] = remote_root
+        for key in (
+            "gpu_selection_policy",
+            "slurm_gpu_type",
+            "slurm_account",
+            "slurm_partition",
+            "slurm_qos",
+            "gpu_selection_reason",
+            "gpu_estimated_start_at",
+        ):
+            if key in state:
+                _require_state_string(state, key)
+        if "gpu_preemptible" in state and not isinstance(
+            state["gpu_preemptible"], bool
+        ):
+            raise PrivateBetaError("任务状态 gpu_preemptible 无效")
+        for key in ("gpu_probed_candidate_count", "gpu_estimated_wait_seconds"):
+            if key in state and (
+                not isinstance(state[key], int)
+                or isinstance(state[key], bool)
+                or state[key] < 0
+            ):
+                raise PrivateBetaError(f"任务状态字段 {key} 无效")
     else:
         if STATE_IDENTIFIER.fullmatch(job_id) is None or not job_id.startswith("local-"):
             raise PrivateBetaError("本机任务 job_id 无效")
@@ -878,6 +1190,10 @@ def start_job(
     remote_repo = f"{remote_root}/repo"
     remote_logs = f"{remote_project}/logs"
     connection.remote(f"mkdir -p {shlex.quote(remote_logs)}")
+    gpu_plan = _plan_hyak_gpu(
+        connection,
+        time_limit_hours=time_limit_hours,
+    )
     exports = {
         "AMT_REPO_ROOT": remote_repo,
         "PROJECT_DIR": remote_project,
@@ -888,10 +1204,13 @@ def start_job(
     env_prefix = " ".join(
         f"{key}={shlex.quote(value)}" for key, value in exports.items()
     )
+    resource_arguments = " ".join(
+        shlex.quote(value) for value in gpu_plan.submission_arguments
+    )
     submit = (
         f"cd {shlex.quote(remote_repo)} && {env_prefix} "
         "sbatch --parsable "
-        f"--time={shlex.quote(_slurm_time_limit(time_limit_hours))} "
+        f"{resource_arguments} "
         f"--output={shlex.quote(remote_logs + '/slurm-%j.out')} "
         f"--error={shlex.quote(remote_logs + '/slurm-%j.err')} "
         "slurm/40_private_beta_muscriptor.slurm"
@@ -917,6 +1236,7 @@ def start_job(
         "code_commit": code_commit,
         "slurm_state": "PENDING",
         "pipeline_stage": "queued",
+        **gpu_plan.state_fields(),
     }
     _write_state(project_dir, state)
     return state
@@ -1023,6 +1343,10 @@ def start_gap_recovery_job(
         f"{remote_project}/{request_path.relative_to(project_dir).as_posix()}"
     )
     connection.remote(f"mkdir -p {shlex.quote(remote_logs)}")
+    gpu_plan = _plan_hyak_gpu(
+        connection,
+        time_limit_hours=time_limit_hours,
+    )
     exports = {
         "AMT_REPO_ROOT": remote_repo,
         "PROJECT_DIR": remote_project,
@@ -1033,10 +1357,13 @@ def start_gap_recovery_job(
     env_prefix = " ".join(
         f"{key}={shlex.quote(value)}" for key, value in exports.items()
     )
+    resource_arguments = " ".join(
+        shlex.quote(value) for value in gpu_plan.submission_arguments
+    )
     submit = (
         f"cd {shlex.quote(remote_repo)} && {env_prefix} "
         "sbatch --parsable "
-        f"--time={shlex.quote(_slurm_time_limit(time_limit_hours))} "
+        f"{resource_arguments} "
         f"--output={shlex.quote(remote_logs + '/slurm-%j.out')} "
         f"--error={shlex.quote(remote_logs + '/slurm-%j.err')} "
         "slurm/42_targeted_gap_recovery.slurm"
@@ -1066,6 +1393,7 @@ def start_gap_recovery_job(
         "code_commit": code_commit,
         "slurm_state": "PENDING",
         "pipeline_stage": "queued",
+        **gpu_plan.state_fields(),
     }
     _write_state(project_dir, state)
     return state

@@ -331,10 +331,38 @@ public struct ContentView: View {
             "运行位置",
             value: model.activeComputeMode?.label ?? "未知"
           )
+          if model.activeComputeMode == .hyak,
+            let gpuType = model.betaGPUType
+          {
+            LabeledContent("GPU", value: gpuType.uppercased())
+            if let partition = model.betaPartition {
+              LabeledContent("队列", value: partition)
+            }
+            if let waitSeconds = model.betaGPUEstimatedWaitSeconds {
+              LabeledContent(
+                "预计等待",
+                value: waitSeconds < 60
+                  ? "不到 1 分钟"
+                  : "约 \((waitSeconds + 59) / 60) 分钟"
+              )
+            }
+          }
           LabeledContent(
             "任务",
             value: model.betaSlurmState ?? "准备中"
           )
+          if let reason = model.betaGPUSelectionReason {
+            Label(
+              reason,
+              systemImage: model.betaGPUPreemptible
+                ? "exclamationmark.triangle"
+                : "bolt.horizontal.circle"
+            )
+            .font(.caption)
+            .foregroundStyle(
+              model.betaGPUPreemptible ? Color.orange : Color.secondary
+            )
+          }
         }
         if model.activeComputeMode == .hyak
           && model.hyakConnectionState == .loginRequired
@@ -780,7 +808,7 @@ public struct ContentView: View {
   private var transcriptionHelp: String {
     switch model.computeMode {
     case .hyak:
-      "选择音频并在 Hyak L40 GPU 上识别"
+      "选择音频；Hyak 会自动选择预计最快的兼容 GPU"
     case .localGPU:
       "选择音频并在本机 Apple GPU 后台识别"
     case .localCPU:
@@ -1146,6 +1174,10 @@ private struct SettingsView: View {
       VStack(alignment: .leading, spacing: 10) {
         Text("Hyak")
           .font(.headline)
+        LabeledContent("GPU 选择", value: "自动最快")
+        Text("提交前比较 L40、L40S、A40 和 A100 的 Slurm 预计开始时间；探测失败会回退稳定 L40。")
+          .font(.caption)
+          .foregroundStyle(theme.mutedText)
         Stepper(
           value: Binding(
             get: { model.hyakTimeLimitHours },

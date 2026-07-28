@@ -10,11 +10,17 @@ import unicodedata
 from pathlib import Path
 
 from amt_core.private_beta import (
+    GPU_TEST_START_PATTERN,
+    HyakGPUProbe,
     PrivateBetaError,
+    _fallback_gpu_plan,
+    _gpu_candidates_from_associations,
     _local_worker_command,
     _load_hyak_configuration,
     _load_state,
     _pipeline_stage,
+    _plan_hyak_gpu,
+    _select_gpu_probe,
     _slurm_time_limit,
     _unique_project_dir,
     _validate_state,
@@ -26,6 +32,120 @@ from workers.muscriptor import run_baseline
 
 
 class PrivateBetaTests(unittest.TestCase):
+    def test_gpu_auto_plan_discovers_only_verified_compatible_resources(self) -> None:
+        candidates = _gpu_candidates_from_associations(
+            "\n".join(
+                (
+                    "ckpt-team||ckpt,ckpt-gpu,ckpt-scav",
+                    "gpu-l40-team||normal",
+                    "gpu-l40s-team||normal",
+                    "gpu-h200-other||normal",
+                    "compute-team||normal",
+                )
+            )
+        )
+
+        self.assertEqual(
+            {candidate.gpu_type for candidate in candidates},
+            {"a100", "a40", "l40", "l40s"},
+        )
+        self.assertTrue(
+            next(candidate for candidate in candidates if candidate.gpu_type == "a100")
+            .preemptible
+        )
+        self.assertFalse(
+            next(candidate for candidate in candidates if candidate.gpu_type == "l40")
+            .preemptible
+        )
+        self.assertNotIn("h200", {candidate.gpu_type for candidate in candidates})
+
+    def test_gpu_auto_plan_uses_earliest_start_then_five_minute_speed_tie(self) -> None:
+        candidates = {
+            candidate.gpu_type: candidate
+            for candidate in _gpu_candidates_from_associations(
+                "\n".join(
+                    (
+                        "ckpt-team||ckpt,ckpt-gpu",
+                        "gpu-l40-team||normal",
+                        "gpu-l40s-team||normal",
+                    )
+                )
+            )
+        }
+        selected, wait = _select_gpu_probe(
+            (
+                HyakGPUProbe(candidates["a40"], "fixture-a40", 1_000),
+                HyakGPUProbe(candidates["a100"], "fixture-a100", 1_000),
+                HyakGPUProbe(candidates["l40"], "fixture-l40", 1_200),
+            ),
+            now_epoch=900,
+        )
+        self.assertEqual(selected.candidate.gpu_type, "a100")
+        self.assertEqual(wait, 100)
+
+        selected, _wait = _select_gpu_probe(
+            (
+                HyakGPUProbe(candidates["l40"], "fixture-l40", 1_000),
+                HyakGPUProbe(candidates["a100"], "fixture-a100", 1_301),
+            ),
+            now_epoch=900,
+        )
+        self.assertEqual(selected.candidate.gpu_type, "l40")
+
+    def test_gpu_auto_plan_fallback_keeps_stable_l40_and_one_hour(self) -> None:
+        candidates = _gpu_candidates_from_associations(
+            "gpu-l40-team||normal"
+        )
+        plan = _fallback_gpu_plan(
+            candidates,
+            time_limit_hours=1,
+            reason="fixture fallback",
+        )
+
+        self.assertEqual(plan.candidate.gpu_type, "l40")
+        self.assertIn("--partition=gpu-l40", plan.submission_arguments)
+        self.assertIn("--time=01:00:00", plan.submission_arguments)
+        self.assertEqual(plan.state_fields()["gpu_selection_reason"], "fixture fallback")
+        self.assertIsNotNone(
+            GPU_TEST_START_PATTERN.search(
+                "sbatch: Job 123 to start at 2026-07-27T20:19:38 using node"
+            )
+        )
+
+    def test_gpu_auto_plan_captures_slurm_test_only_stderr(self) -> None:
+        class FixtureConnection:
+            def remote(self, command: str, *, timeout: float | None = None) -> str:
+                del timeout
+                if command.startswith("sacctmgr "):
+                    return "\n".join(
+                        (
+                            "ckpt-team||ckpt,ckpt-gpu",
+                            "gpu-l40-team||normal",
+                            "gpu-l40s-team||normal",
+                        )
+                    )
+                if command == "date +%s":
+                    return "1785200000"
+                if command.startswith("sbatch "):
+                    self.assert_test_only_command(command)
+                    return (
+                        "sbatch: Job 123 to start at "
+                        "2026-07-27T20:19:38 using node"
+                    )
+                if command.startswith("date -d "):
+                    return "1785200001"
+                raise AssertionError(f"unexpected command: {command}")
+
+            @staticmethod
+            def assert_test_only_command(command: str) -> None:
+                if not command.endswith(" 2>&1"):
+                    raise AssertionError("Slurm test-only stderr was not captured")
+
+        plan = _plan_hyak_gpu(FixtureConnection(), time_limit_hours=1)
+
+        self.assertEqual(plan.candidate.gpu_type, "a100")
+        self.assertEqual(plan.probed_candidate_count, 4)
+
     def test_hyak_time_limit_defaults_to_one_hour_and_is_bounded(self) -> None:
         parser = build_parser()
         default = parser.parse_args(

@@ -78,6 +78,31 @@ Task 009B2V 又缩短并开放了 Hyak 任务时限：新整曲和空缺重算�
 开始时间，已在未运行时替换为 checkpoint A100 Job `37805247`；后者几秒内在
 80 GB A100 上启动，应用继续用新 Job ID 轮询。
 
+Task 009B2W 把这次人工比较队列的过程收进了软件。以后整曲识别和空缺重算在
+真正提交前都会自动试排已验证的 L40、L40S、A40、A100，选择预计最快的方案，
+并把 GPU、队列、等待估计、选择原因和 checkpoint 抢占风险显示出来。用户不再
+需要为了每首歌另外打开 Codex 规划 GPU；探测失败时仍会安全回退稳定 L40。
+
+## Task 009B2W Hyak 自动选卡交接
+
+- 计划器只读取当前 Slurm association，并用 `sbatch --test-only` 比较资源；
+  试排不分配节点，也不会产生排队 Job。
+- 只允许项目已验证且显存足够的 L40、L40S、A40、A100。预计开跑时间优先；
+  与最早方案相差不超过五分钟时，固定按
+  `A100 > L40S > L40 > A40` 择优。
+- 试排参数与随后真实 `sbatch` 的 account、partition、QOS、GPU 和时限完全
+  相同，避免“测的是一套、提交的是另一套”。Slurm 把 test-only 预计时间写到
+  stderr，后端已显式合并读取并有回归测试。
+- A100/A40 来自 checkpoint 路线时会标橙色抢占风险。所有探测失败不会阻断
+  上传，而是按现有稳定 L40 Slurm 脚本继续提交。
+- 本地状态只保存非秘密调度元数据；计划器没有新增个人 Hyak 用户名、host login、
+  私有路径、密码或 Duo 信息，候选账号来自实时 Slurm association。实际
+  host/root 仍只来自 ignored 的本机配置。
+- 2026-07-27 16:54 PDT 的只读实测比较了四个兼容计划并选出预计 1 秒内可开的
+  A100。队列中没有新增测试任务；既有 Job `37805247` 保持运行且未被修改。
+- `make check` 通过 281 个 Python 和 38 个 Swift 测试（三项预期环境跳过）；
+  strict Swift formatting、签名应用构建、plist/signature 和 diff 检查通过。
+
 ## Task 009B2V Hyak 排队与运行时限交接
 
 - `sbatch --test-only` 的当时快照：普通 L40 预计

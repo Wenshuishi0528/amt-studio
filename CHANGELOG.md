@@ -4,6 +4,32 @@ This project records changes by numbered research task until formal semantic
 versions and releases begin. Dates and commit identifiers refer to the local
 Git history.
 
+## Task 009B2W — Automatic Hyak GPU selection — 2026-07-27
+
+Commit: this task's final commit
+
+### Added
+
+- Added a submission-time GPU planner for whole-song and selected-gap jobs.
+  It discovers the current user's compatible Slurm associations and compares
+  L40, L40S, A40, and A100 with no-allocation `sbatch --test-only` probes.
+- Added deterministic selection: earliest estimated start first, then
+  `A100 > L40S > L40 > A40` for plans within five minutes of the earliest.
+- Added a stable L40 fallback when discovery or scheduling estimates are
+  unavailable, so a transient planner failure does not reject an upload.
+- Persisted the selected GPU, partition, wait estimate, preemption flag, and
+  reason in local job state. The macOS sidebar and settings explain the result
+  and visibly warn when a checkpoint route can be preempted.
+
+### Verified
+
+- A live read-only probe compared all four compatible plans and selected an
+  immediately schedulable A100. It created no queued test job and did not
+  change the existing running job.
+- Full `make check` passes 281 Python and 38 Swift tests with three expected
+  environment-gated skips. Strict Swift formatting, signed app packaging,
+  plist/signature validation, Python compilation, and `git diff --check` pass.
+
 ## Task 009B2V — Configurable Hyak wall time — 2026-07-27
 
 Commit: this task's final commit

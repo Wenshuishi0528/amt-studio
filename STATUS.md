@@ -1,15 +1,40 @@
 # Project status
 
-Current product milestone: Task 009B2V makes the Hyak wall-time limit
-configurable and defaults new jobs to one hour
+Current product milestone: Task 009B2W lets the app select the fastest
+compatible Hyak GPU automatically before each real submission
 Research status: Gate 4 remains not passed for the rejected fusion routes; no
 new dataset, fusion, retuning, or training work is in the product critical path
 Current task: Job `37805247` is running the existing private-Beta workload on
 one checkpoint A100 with a one-hour limit after the normal L40 association
 could not provide a start estimate
-Next task: allow the active job and existing app polling to finish; no duplicate
-submission is needed
+Next task: allow the active job and existing app polling to finish; future
+submissions will plan their GPU automatically, so no Codex intervention or
+duplicate submission is needed
 Current branch: `main`
+
+Implemented and verified for Task 009B2W:
+
+- immediately before each whole-song or selected-gap `sbatch`, the backend
+  discovers the current user's compatible Slurm associations and runs
+  no-allocation `sbatch --test-only` probes with the exact resource arguments
+  that the real job would use;
+- the admitted set is deliberately bounded to the verified 48 GB-or-larger
+  L40, L40S, A40, and A100 routes. Earliest estimated start wins; candidates
+  within five minutes use the fixed performance tie-break
+  `A100 > L40S > L40 > A40`;
+- checkpoint A100/A40 choices are visibly marked as preemptible. If discovery
+  or every test-only estimate fails, submission continues on the stable L40
+  fallback instead of failing the upload;
+- the selected GPU, partition, estimated wait, preemption flag, and human
+  reason are persisted in local job state and shown in the app. The planner
+  adds no personal Hyak username, host login, password, Duo data, or private
+  path; candidate accounts come from live Slurm associations;
+- a live read-only probe compared all four compatible plans and selected an
+  immediately schedulable A100. No test job remained queued, and existing Job
+  `37805247` was left running unchanged;
+- full `make check` passes 281 Python and 38 Swift tests with three expected
+  environment-gated skips. Strict Swift formatting, signed app packaging,
+  plist/signature validation, Python compilation, and `git diff --check` pass.
 
 Implemented and verified for Task 009B2V:
 

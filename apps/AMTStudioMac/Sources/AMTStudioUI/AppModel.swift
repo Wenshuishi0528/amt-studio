@@ -44,7 +44,7 @@ public enum ComputeMode: String, CaseIterable, Identifiable, Sendable {
   public var detail: String {
     switch self {
     case .hyak:
-      "默认。模型在 Hyak L40 上运行，Mac 只负责上传、状态和结果。"
+      "默认。提交前自动比较兼容 GPU 的调度时间，Mac 只负责上传、状态和结果。"
     case .localGPU:
       "使用 Apple Metal/MPS；会占用统一内存并可能影响前台软件。"
     case .localCPU:
@@ -242,6 +242,11 @@ public final class AppModel: ObservableObject {
   @Published public private(set) var betaSlurmState: String?
   @Published public private(set) var betaPipelineStage: String?
   @Published public private(set) var betaTaskKind: String?
+  @Published public private(set) var betaGPUType: String?
+  @Published public private(set) var betaPartition: String?
+  @Published public private(set) var betaGPUPreemptible = false
+  @Published public private(set) var betaGPUSelectionReason: String?
+  @Published public private(set) var betaGPUEstimatedWaitSeconds: Int?
   @Published public private(set) var betaProjectURL: URL?
   @Published public private(set) var isBetaBusy = false
   @Published public private(set) var hyakConnectionState: HyakConnectionState = .unknown
@@ -1606,6 +1611,12 @@ public final class AppModel: ObservableObject {
     }
     updateMelodyCoverage()
     refreshTrailingCleanupDiagnostics()
+    betaGPUType = prepared.jobState?.slurmGPUType
+    betaPartition = prepared.jobState?.slurmPartition
+    betaGPUPreemptible = prepared.jobState?.gpuPreemptible ?? false
+    betaGPUSelectionReason = prepared.jobState?.gpuSelectionReason
+    betaGPUEstimatedWaitSeconds =
+      prepared.jobState?.gpuEstimatedWaitSeconds
     if let state = prepared.jobState {
       betaProjectURL = prepared.catalog.rootURL
       betaJobID = state.jobID
@@ -1826,6 +1837,23 @@ public final class AppModel: ObservableObject {
     betaJobID = response.jobID ?? betaJobID
     betaSlurmState = response.slurmState ?? betaSlurmState
     betaPipelineStage = response.pipelineStage ?? betaPipelineStage
+    if activeComputeMode == .hyak {
+      betaGPUType = response.slurmGPUType ?? betaGPUType
+      betaPartition = response.slurmPartition ?? betaPartition
+      betaGPUPreemptible =
+        response.gpuPreemptible ?? betaGPUPreemptible
+      betaGPUSelectionReason =
+        response.gpuSelectionReason ?? betaGPUSelectionReason
+      betaGPUEstimatedWaitSeconds =
+        response.gpuEstimatedWaitSeconds
+        ?? betaGPUEstimatedWaitSeconds
+    } else {
+      betaGPUType = nil
+      betaPartition = nil
+      betaGPUPreemptible = false
+      betaGPUSelectionReason = nil
+      betaGPUEstimatedWaitSeconds = nil
+    }
     if betaTaskKind == "targeted_gap_recovery",
       let bundleID = response.bundleID
     {
@@ -2094,6 +2122,11 @@ public final class AppModel: ObservableObject {
       betaSlurmState = nil
       betaPipelineStage = nil
       betaTaskKind = nil
+      betaGPUType = nil
+      betaPartition = nil
+      betaGPUPreemptible = false
+      betaGPUSelectionReason = nil
+      betaGPUEstimatedWaitSeconds = nil
       activeComputeMode = nil
       clearActiveBetaProject()
     }
@@ -2120,6 +2153,11 @@ private struct PrivateBetaJobState: Decodable, Sendable {
   let backend: String?
   let localDevice: String?
   let taskKind: String?
+  let slurmGPUType: String?
+  let slurmPartition: String?
+  let gpuPreemptible: Bool?
+  let gpuSelectionReason: String?
+  let gpuEstimatedWaitSeconds: Int?
 
   enum CodingKeys: String, CodingKey {
     case jobID = "job_id"
@@ -2131,6 +2169,11 @@ private struct PrivateBetaJobState: Decodable, Sendable {
     case backend
     case localDevice = "local_device"
     case taskKind = "task_kind"
+    case slurmGPUType = "slurm_gpu_type"
+    case slurmPartition = "slurm_partition"
+    case gpuPreemptible = "gpu_preemptible"
+    case gpuSelectionReason = "gpu_selection_reason"
+    case gpuEstimatedWaitSeconds = "gpu_estimated_wait_seconds"
   }
 }
 

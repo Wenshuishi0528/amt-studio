@@ -23,6 +23,11 @@ struct PrivateBetaResponse: Decodable, Sendable {
   let sourceBundleID: String?
   let sourceTrackID: String?
   let selectedGapCount: Int?
+  let slurmGPUType: String?
+  let slurmPartition: String?
+  let gpuPreemptible: Bool?
+  let gpuSelectionReason: String?
+  let gpuEstimatedWaitSeconds: Int?
 
   enum CodingKeys: String, CodingKey {
     case ok
@@ -47,6 +52,11 @@ struct PrivateBetaResponse: Decodable, Sendable {
     case sourceBundleID = "source_bundle_id"
     case sourceTrackID = "source_track_id"
     case selectedGapCount = "selected_gap_count"
+    case slurmGPUType = "slurm_gpu_type"
+    case slurmPartition = "slurm_partition"
+    case gpuPreemptible = "gpu_preemptible"
+    case gpuSelectionReason = "gpu_selection_reason"
+    case gpuEstimatedWaitSeconds = "gpu_estimated_wait_seconds"
   }
 }
 
