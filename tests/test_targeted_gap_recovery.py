@@ -9,11 +9,13 @@ from amt_core.events import NoteEvent, read_jsonl, write_jsonl
 from amt_core.product_postprocess import automatic_voice_candidate_admission
 from amt_core.utils import atomic_write_json, sha256_file
 from workers.muscriptor.gap_probe import ProbeWindow, TargetInterval
-from workers.muscriptor.gap_probe import _directed_child_arguments
+from workers.muscriptor.gap_probe import _directed_child_arguments, spec_as_dict
 from workers.muscriptor.targeted_gap_recovery import (
     TargetedGapRecoveryError,
     build_recovery_bundle,
+    build_recovery_stage_comparison_bundle,
     plan_selected_gaps,
+    reconstruct_recovery_stages,
     shift_target_candidates,
 )
 
@@ -391,6 +393,138 @@ class TargetedGapRecoveryTests(unittest.TestCase):
                 ],
                 0,
             )
+
+    def test_completed_recovery_builds_three_exact_comparison_tracks(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            project, _canonical = _fixture_project(Path(temporary))
+            run_id = "targeted-recovery-stage-comparison"
+            spec = plan_selected_gaps(
+                project,
+                probe_id=run_id,
+                source_bundle_id="source-bundle",
+                source_track_id="voice",
+                intervals=[(10, 30)],
+            )
+            config = project / "requests" / f"{run_id}.json"
+            config.parent.mkdir()
+            atomic_write_json(config, spec_as_dict(spec))
+            raw = [
+                _event(
+                    f"candidate-{index}",
+                    instrument="voice",
+                    onset=11 + index,
+                    offset=11.5 + index,
+                    pitch=60 + index,
+                )
+                for index in range(4)
+            ]
+            shadowed = raw[1].event_id
+            constrained = [raw[0], raw[3]]
+            stages = reconstruct_recovery_stages(
+                raw,
+                constrained,
+                {
+                    "raw_candidate_count": 4,
+                    "accompaniment_shadow_count": 1,
+                    "monophonic_rejection_count": 1,
+                    "filtered_candidate_count": 2,
+                    "shadowed_event_ids": [shadowed],
+                },
+            )
+            self.assertEqual([len(stage) for stage in stages], [4, 3, 2])
+
+            run = project / "runs" / run_id
+            normalized = run / "normalized"
+            normalized.mkdir(parents=True)
+            atomic_write_json(
+                run / "run_manifest.json",
+                {
+                    "schema_version": 1,
+                    "status": "succeeded",
+                    "probe_id": run_id,
+                    "project_id": "song",
+                },
+            )
+            atomic_write_json(
+                run / "request.json",
+                {
+                    "schema_version": 1,
+                    "probe_id": run_id,
+                    "project_id": "song",
+                    "config_path": str(config.relative_to(project)),
+                    "config_sha256": sha256_file(config),
+                    "canonical_audio_sha256": json.loads(
+                        (project / "manifest.json").read_text(encoding="utf-8")
+                    )["canonical_audio"]["sha256"],
+                },
+            )
+            write_jsonl(
+                normalized / "target_gap_candidates.raw.jsonl",
+                raw,
+            )
+            write_jsonl(
+                normalized / "target_gap_candidates.jsonl",
+                constrained,
+            )
+            atomic_write_json(
+                normalized / "recovery_report.json",
+                {
+                    "schema_version": 1,
+                    "probe_id": run_id,
+                    "accompaniment_soft_mask": {
+                        "raw_candidate_count": 4,
+                        "accompaniment_shadow_count": 1,
+                        "monophonic_rejection_count": 1,
+                        "filtered_candidate_count": 2,
+                        "shadowed_event_ids": [shadowed],
+                    },
+                },
+            )
+
+            output = project / "exports" / f"{run_id}-comparison"
+            manifest = build_recovery_stage_comparison_bundle(
+                project,
+                recovery_run_id=run_id,
+                output_bundle_id=output.name,
+            )
+            canonical = json.loads(
+                (output / "canonical_project.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                [track["track_id"] for track in canonical["tracks"]],
+                [
+                    "gap_raw_candidate",
+                    "gap_accompaniment_filtered",
+                    "gap_monophonic_candidate",
+                ],
+            )
+            self.assertEqual(
+                [track["event_count"] for track in canonical["tracks"]],
+                [4, 3, 2],
+            )
+            event_ids = [
+                event.event_id
+                for track in canonical["tracks"]
+                for event in read_jsonl(project / track["source_events_path"])
+            ]
+            self.assertEqual(len(event_ids), len(set(event_ids)))
+            self.assertEqual(
+                canonical["main_melody_track_id"],
+                "gap_monophonic_candidate",
+            )
+            self.assertEqual(
+                manifest["claims"]["automatic_candidate_admission"],
+                "rejected_excessive_voice_growth",
+            )
+            self.assertTrue(
+                (
+                    output
+                    / "reports"
+                    / "stage_comparison.json"
+                ).is_file()
+            )
+            for track_id in manifest["tracks"]:
+                self.assertTrue((output / f"{track_id}.mid").is_file())
 
 
 if __name__ == "__main__":

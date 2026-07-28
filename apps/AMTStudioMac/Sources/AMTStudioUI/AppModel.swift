@@ -95,6 +95,9 @@ enum MelodyTrackSelector {
     "voice_auto_enhanced",
     "voice_raw",
     "voice_gap_candidate",
+    "gap_monophonic_candidate",
+    "gap_accompaniment_filtered",
+    "gap_raw_candidate",
   ]
 
   static func preferred(in tracks: [EditorTrack]) -> EditorTrack? {
@@ -148,6 +151,12 @@ enum MelodyTrackSelector {
       "原始 voice"
     case "voice_gap_candidate":
       "补漏候选"
+    case "gap_raw_candidate":
+      "补漏 1/3 · 原始生成"
+    case "gap_accompaniment_filtered":
+      "补漏 2/3 · 伴奏过滤后"
+    case "gap_monophonic_candidate":
+      "补漏 3/3 · 单旋律约束后"
     default:
       track.instrument?.lowercased() == "voice"
         ? "voice 主唱候选"

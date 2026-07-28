@@ -4,6 +4,33 @@ This project records changes by numbered research task until formal semantic
 versions and releases begin. Dates and commit identifiers refer to the local
 Git history.
 
+## Task 009B2X — Three-stage gap-recovery comparison — 2026-07-27
+
+Commit: this task's final commit
+
+### Added
+
+- Added a deterministic comparison-bundle builder for completed targeted
+  voice-gap recovery runs. It exposes raw generation, accompaniment-filtered,
+  and monophonic-constrained candidates as three independently playable
+  diagnostic tracks.
+- Added a separate MIDI for each stage and a machine-readable comparison
+  report with exact counts, lineage, and explicit no-rerun/no-overwrite claims.
+- Added app playback rules that treat the three stage tracks as alternatives,
+  so arrangement playback cannot accidentally stack them.
+
+### Real-project evidence
+
+- Recovery run `gap-recovery-20260728T000154Z-244743c9` materialized as 864
+  raw notes, 234 notes after 630 accompaniment-shadow removals, and 161 notes
+  after 73 additional monophonic-path rejections.
+- The new private comparison bundle opens through the production project
+  loader and exports valid MIDI. The immutable recovery run, source bundle,
+  and existing 322-note product melody were not changed.
+- Full `make check` passes 282 Python and 39 Swift tests with three expected
+  environment-gated skips. The signed release app was rebuilt and opened on
+  the real project; no model inference was submitted.
+
 ## Task 009B2W — Automatic Hyak GPU selection — 2026-07-27
 
 Commit: this task's final commit

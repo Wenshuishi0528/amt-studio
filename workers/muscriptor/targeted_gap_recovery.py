@@ -26,6 +26,25 @@ class TargetedGapRecoveryError(RuntimeError):
     """Raised when a user-selected gap recovery request is unsafe or incomplete."""
 
 
+RECOVERY_STAGE_TRACKS = (
+    (
+        "gap_raw_candidate",
+        "补漏 1/3 · 原始生成",
+        "raw_generated",
+    ),
+    (
+        "gap_accompaniment_filtered",
+        "补漏 2/3 · 伴奏过滤后",
+        "accompaniment_filtered",
+    ),
+    (
+        "gap_monophonic_candidate",
+        "补漏 3/3 · 单旋律约束后",
+        "monophonic_constrained",
+    ),
+)
+
+
 def _target_instrument(
     source_canonical: dict[str, Any],
     source_track_id: str,
@@ -604,6 +623,343 @@ def build_recovery_bundle(
                 "Rejected selected-gap candidates remain available as a diagnostic track and are not merged.",
                 "Automatic sustain cleanup is conservative and excludes percussion from sustain merging.",
                 "No accuracy claim or owner approval is inferred.",
+            ],
+        }
+        atomic_write_json(temporary / "bundle_manifest.json", bundle_manifest)
+        temporary.replace(output_dir)
+    return bundle_manifest
+
+
+def reconstruct_recovery_stages(
+    raw_candidates: list[NoteEvent],
+    constrained_candidates: list[NoteEvent],
+    mask_report: dict[str, Any],
+) -> tuple[list[NoteEvent], list[NoteEvent], list[NoteEvent]]:
+    """Reconstruct the three saved candidate stages without rerunning a model."""
+
+    raw_ids = [event.event_id for event in raw_candidates]
+    constrained_ids = [event.event_id for event in constrained_candidates]
+    if len(set(raw_ids)) != len(raw_ids):
+        raise TargetedGapRecoveryError("raw recovery candidates contain duplicate IDs")
+    if len(set(constrained_ids)) != len(constrained_ids):
+        raise TargetedGapRecoveryError(
+            "constrained recovery candidates contain duplicate IDs"
+        )
+    shadowed_value = mask_report.get("shadowed_event_ids")
+    if not isinstance(shadowed_value, list) or not all(
+        isinstance(event_id, str) and event_id for event_id in shadowed_value
+    ):
+        raise TargetedGapRecoveryError(
+            "recovery report has no valid accompaniment shadow IDs"
+        )
+    shadowed_ids = set(shadowed_value)
+    raw_id_set = set(raw_ids)
+    if not shadowed_ids.issubset(raw_id_set):
+        raise TargetedGapRecoveryError(
+            "recovery report references unknown accompaniment shadow IDs"
+        )
+    accompaniment_filtered = [
+        event for event in raw_candidates if event.event_id not in shadowed_ids
+    ]
+    accompaniment_ids = {event.event_id for event in accompaniment_filtered}
+    if not set(constrained_ids).issubset(accompaniment_ids):
+        raise TargetedGapRecoveryError(
+            "monophonic candidates are not a subset of accompaniment-filtered candidates"
+        )
+
+    expected = {
+        "raw": mask_report.get("raw_candidate_count"),
+        "shadowed": mask_report.get("accompaniment_shadow_count"),
+        "monophonic_rejected": mask_report.get("monophonic_rejection_count"),
+        "constrained": mask_report.get("filtered_candidate_count"),
+    }
+    actual = {
+        "raw": len(raw_candidates),
+        "shadowed": len(shadowed_ids),
+        "monophonic_rejected": (
+            len(accompaniment_filtered) - len(constrained_candidates)
+        ),
+        "constrained": len(constrained_candidates),
+    }
+    if expected != actual:
+        raise TargetedGapRecoveryError(
+            f"saved recovery stage counts do not match the report: {actual!r}"
+        )
+    return (
+        list(raw_candidates),
+        accompaniment_filtered,
+        list(constrained_candidates),
+    )
+
+
+def _diagnostic_stage_event(
+    event: NoteEvent,
+    *,
+    recovery_run_id: str,
+    track_id: str,
+    stage: str,
+) -> NoteEvent:
+    extra = dict(event.extra)
+    extra["gap_recovery_stage_comparison"] = {
+        "stage": stage,
+        "source_event_id": event.event_id,
+        "source_run_id": event.source_run_id,
+        "source_model": event.source_model,
+        "diagnostic_only": True,
+        "accuracy_claimed": False,
+    }
+    return NoteEvent(
+        event_id=f"{track_id}:{event.event_id}",
+        track_id=track_id,
+        instrument=event.instrument,
+        onset_sec=event.onset_sec,
+        offset_sec=event.offset_sec,
+        pitch_midi=event.pitch_midi,
+        quantized_pitch_midi=event.quantized_pitch_midi,
+        velocity=event.velocity,
+        confidence=event.confidence,
+        is_main_melody_candidate=event.is_main_melody_candidate,
+        source_run_id=recovery_run_id,
+        source_model=f"deterministic:gap-recovery-stage:{stage}",
+        source_event_ids=sorted({*event.source_event_ids, event.event_id}),
+        tags=sorted(
+            {
+                *event.tags,
+                "diagnostic-only",
+                "gap-recovery-stage-comparison",
+                stage,
+            }
+        ),
+        extra=extra,
+    )
+
+
+def _comparison_output_records(root: Path) -> list[dict[str, Any]]:
+    return [
+        {
+            "path": str(path.relative_to(root)),
+            "sha256": sha256_file(path),
+            "size_bytes": path.stat().st_size,
+        }
+        for path in sorted(root.rglob("*"))
+        if path.is_file() and path.name != "bundle_manifest.json"
+    ]
+
+
+def build_recovery_stage_comparison_bundle(
+    project_dir: Path,
+    *,
+    recovery_run_id: str,
+    output_bundle_id: str,
+) -> dict[str, Any]:
+    """Materialize three independently playable stages from a completed run."""
+
+    project_dir = project_dir.expanduser().resolve()
+    recovery_run_id = gap_probe._safe_identifier(
+        recovery_run_id,
+        label="recovery_run_id",
+    )
+    output_bundle_id = gap_probe._safe_identifier(
+        output_bundle_id,
+        label="output_bundle_id",
+    )
+    run_dir = project_dir / "runs" / recovery_run_id
+    run_manifest_path = run_dir / "run_manifest.json"
+    request_path = run_dir / "request.json"
+    report_path = run_dir / "normalized" / "recovery_report.json"
+    raw_path = run_dir / "normalized" / "target_gap_candidates.raw.jsonl"
+    constrained_path = run_dir / "normalized" / "target_gap_candidates.jsonl"
+    for required in (
+        run_manifest_path,
+        request_path,
+        report_path,
+        raw_path,
+        constrained_path,
+    ):
+        if not required.is_file():
+            raise TargetedGapRecoveryError(
+                f"completed recovery artifact is missing: {required.name}"
+            )
+
+    run_manifest = gap_probe._load_object(run_manifest_path)
+    if (
+        run_manifest.get("status") != "succeeded"
+        or run_manifest.get("probe_id") != recovery_run_id
+    ):
+        raise TargetedGapRecoveryError("recovery run is not a matching success")
+    request = gap_probe._load_object(request_path)
+    config_path = gap_probe._resolve_inside(
+        project_dir,
+        request.get("config_path"),
+    )
+    if sha256_file(config_path) != request.get("config_sha256"):
+        raise TargetedGapRecoveryError("recovery request config hash does not match")
+    spec = gap_probe.load_spec(config_path)
+    if spec.probe_id != recovery_run_id:
+        raise TargetedGapRecoveryError("recovery request belongs to another run")
+    project, canonical_audio, _source_path, source_canonical = (
+        gap_probe._source_context(project_dir, spec)
+    )
+    if sha256_file(canonical_audio) != request.get("canonical_audio_sha256"):
+        raise TargetedGapRecoveryError("recovery run belongs to another audio file")
+    source_track, instrument = _target_instrument(
+        source_canonical,
+        spec.source_voice_track_id,
+    )
+    if instrument != "voice":
+        raise TargetedGapRecoveryError(
+            "three-stage melody comparison requires a voice recovery run"
+        )
+
+    report = gap_probe._load_object(report_path)
+    mask_report = report.get("accompaniment_soft_mask")
+    if not isinstance(mask_report, dict):
+        raise TargetedGapRecoveryError(
+            "recovery report has no accompaniment soft-mask evidence"
+        )
+    raw, accompaniment_filtered, constrained = reconstruct_recovery_stages(
+        read_jsonl(raw_path),
+        read_jsonl(constrained_path),
+        mask_report,
+    )
+    stage_sources = (raw, accompaniment_filtered, constrained)
+    output_dir = project_dir / "exports" / output_bundle_id
+    if output_dir.exists() or output_dir.is_symlink():
+        raise TargetedGapRecoveryError(
+            f"comparison bundle already exists: {output_dir}"
+        )
+    output_dir.parent.mkdir(parents=True, exist_ok=True)
+    tempo, meter = gap_probe._rhythm_points(source_canonical)
+    parent_hash = sha256_file(run_manifest_path)
+
+    with tempfile.TemporaryDirectory(
+        prefix=f".{output_dir.name}.",
+        dir=output_dir.parent,
+    ) as temporary_name:
+        temporary = Path(temporary_name)
+        tracks_dir = temporary / "tracks"
+        tracks_dir.mkdir()
+        track_records: list[dict[str, Any]] = []
+        stage_reports: dict[str, Any] = {}
+        for (track_id, label, stage), source_events in zip(
+            RECOVERY_STAGE_TRACKS,
+            stage_sources,
+            strict=True,
+        ):
+            events = [
+                _diagnostic_stage_event(
+                    event,
+                    recovery_run_id=recovery_run_id,
+                    track_id=track_id,
+                    stage=stage,
+                )
+                for event in source_events
+            ]
+            track_path = tracks_dir / f"{track_id}.jsonl"
+            write_jsonl(track_path, events)
+            midi_path = temporary / f"{track_id}.mid"
+            midi_report = export_performance_midi(
+                midi_path,
+                {track_id: events},
+                tempo,
+                meter,
+            )
+            stage_reports[track_id] = {
+                "stage": stage,
+                "event_count": len(events),
+                "midi_path": midi_path.name,
+                "midi_report": midi_report,
+            }
+            track_records.append(
+                {
+                    "track_id": track_id,
+                    "label": f"{label}（{len(events)}）",
+                    "role": "diagnostic_candidate",
+                    "instrument": source_track.get("instrument"),
+                    "event_count": len(events),
+                    "source_events_path": str(
+                        (
+                            output_dir / "tracks" / track_path.name
+                        ).relative_to(project_dir)
+                    ),
+                    "provenance": {
+                        "source_run_id": recovery_run_id,
+                        "source_model": (
+                            f"deterministic:gap-recovery-stage:{stage}"
+                        ),
+                        "run_manifest_sha256": parent_hash,
+                        "normalized_artifact_sha256": sha256_file(track_path),
+                    },
+                }
+            )
+
+        comparison_report = {
+            "schema_version": 1,
+            "artifact_type": "amt-gap-recovery-stage-comparison",
+            "project_id": project["project_id"],
+            "source_bundle_id": spec.source_bundle_id,
+            "source_track_id": spec.source_voice_track_id,
+            "source_recovery_run_id": recovery_run_id,
+            "raw_candidate_count": len(raw),
+            "accompaniment_shadow_count": len(raw) - len(accompaniment_filtered),
+            "accompaniment_filtered_count": len(accompaniment_filtered),
+            "monophonic_rejection_count": (
+                len(accompaniment_filtered) - len(constrained)
+            ),
+            "monophonic_constrained_count": len(constrained),
+            "tracks": stage_reports,
+            "model_rerun": False,
+            "diagnostic_only": True,
+            "accuracy_claimed": False,
+            "source_overwritten": False,
+        }
+        reports_dir = temporary / "reports"
+        reports_dir.mkdir()
+        atomic_write_json(
+            reports_dir / "stage_comparison.json",
+            comparison_report,
+        )
+        claims = {
+            "diagnostic_gap_recovery_stage_comparison": True,
+            "targeted_source_bundle_id": spec.source_bundle_id,
+            "targeted_source_track_id": spec.source_voice_track_id,
+            "source_recovery_run_id": recovery_run_id,
+            "automatic_candidate_admission": "rejected_excessive_voice_growth",
+            "model_rerun": False,
+            "accuracy_claimed": False,
+            "source_bundle_overwritten": False,
+        }
+        canonical_project = {
+            "schema_version": 1,
+            "artifact_type": "amt-canonical-project",
+            "project_id": project["project_id"],
+            "timeline_basis": "original_canonical_mix_seconds",
+            "canonical_audio": source_canonical["canonical_audio"],
+            "worker_results": source_canonical.get("worker_results", []),
+            "tracks": track_records,
+            "main_melody_track_id": "gap_monophonic_candidate",
+            "rhythm": source_canonical["rhythm"],
+            "exports": {
+                "diagnostic_stage_midi": stage_reports,
+            },
+            "claims": claims,
+        }
+        atomic_write_json(temporary / "canonical_project.json", canonical_project)
+        bundle_manifest = {
+            "schema_version": 1,
+            "artifact_type": "amt-canonical-bundle",
+            "status": "succeeded",
+            "project_id": project["project_id"],
+            "canonical_audio_sha256": project["canonical_audio"]["sha256"],
+            "bundle_id": output_bundle_id,
+            "tracks": [record["track_id"] for record in track_records],
+            "outputs": _comparison_output_records(temporary),
+            "claims": claims,
+            "limitations": [
+                "This bundle compares three deterministic views of one completed recovery run.",
+                "No model was rerun and the source or product melody was not overwritten.",
+                "The three tracks are diagnostic alternatives and must not be stacked as an arrangement.",
+                "No transcription accuracy or owner preference is inferred.",
             ],
         }
         atomic_write_json(temporary / "bundle_manifest.json", bundle_manifest)

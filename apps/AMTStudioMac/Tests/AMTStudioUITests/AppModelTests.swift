@@ -490,6 +490,57 @@ final class AppModelTests: XCTestCase {
     )
   }
 
+  func testGapRecoveryComparisonStagesAreIndependentlyAudible() {
+    let stages = [
+      EditorTrack(
+        id: "gap_raw_candidate",
+        label: "raw",
+        role: "diagnostic_candidate",
+        instrument: "voice",
+        eventCount: 864
+      ),
+      EditorTrack(
+        id: "gap_accompaniment_filtered",
+        label: "filtered",
+        role: "diagnostic_candidate",
+        instrument: "voice",
+        eventCount: 234
+      ),
+      EditorTrack(
+        id: "gap_monophonic_candidate",
+        label: "monophonic",
+        role: "diagnostic_candidate",
+        instrument: "voice",
+        eventCount: 161
+      ),
+    ]
+
+    XCTAssertEqual(
+      MelodyTrackSelector.preferred(in: stages)?.id,
+      "gap_monophonic_candidate"
+    )
+    XCTAssertEqual(
+      MelodyTrackSelector.resolveExclusiveVariant(
+        from: Set(stages.map(\.id)),
+        tracks: stages,
+        selectedTrackID: "gap_raw_candidate"
+      ),
+      Set(["gap_raw_candidate"])
+    )
+    XCTAssertEqual(
+      MelodyTrackSelector.resolveExclusiveVariant(
+        from: Set(stages.map(\.id)),
+        tracks: stages,
+        selectedTrackID: "gap_accompaniment_filtered"
+      ),
+      Set(["gap_accompaniment_filtered"])
+    )
+    XCTAssertEqual(
+      MelodyTrackSelector.displayLabel(for: stages[2]),
+      "补漏 3/3 · 单旋律约束后"
+    )
+  }
+
   func testExcessiveAutomaticVoiceGrowthIsDiagnosticOnly() {
     let accepted = MainMelodyDefaultPolicy.assess(
       trackCounts: [

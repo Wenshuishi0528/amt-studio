@@ -83,6 +83,32 @@ Task 009B2W 把这次人工比较队列的过程收进了软件。以后整曲�
 并把 GPU、队列、等待估计、选择原因和 checkpoint 抢占风险显示出来。用户不再
 需要为了每首歌另外打开 Codex 规划 GPU；探测失败时仍会安全回退稳定 L40。
 
+Task 009B2X 没有继续猜测过滤阈值，也没有重新运行模型，而是把已完成
+`gap-recovery-20260728T000154Z-244743c9` 的三个真实处理阶段做成同一个
+诊断对比版本：原始生成 864 个音符、仅去除 630 个伴奏重合后 234 个音符、再经
+单旋律约束去除 73 个后 161 个音符。三轨可逐条独奏，合奏模式不会叠加三种
+候选；原主旋律和源版本均未覆盖。下一步只需要所有者试听三轨并反馈哪一层最接近
+目标，不能把一次主观比较直接写成准确率或自动放宽产品准入。
+
+## Task 009B2X 三阶段补漏对比交接
+
+- 实际私有对比版本：
+  `gap-recovery-20260728T000154Z-244743c9-stage-comparison`。
+- 三条轨固定为 `gap_raw_candidate`（864）、
+  `gap_accompaniment_filtered`（234）和
+  `gap_monophonic_candidate`（161）；每条轨另有一个同名 `.mid`。
+- 中间 234 不是重新计算或人工估计，而是使用已保存报告里的 630 个
+  `shadowed_event_ids` 从 864 中确定性排除；最终 161 直接读取原任务保存的
+  `target_gap_candidates.jsonl`。
+- 对比版本被明确标为 diagnostic-only 和未通过默认主旋律准入；它不会在启动时
+  取代安全产品版本。用户可在左侧“识别版本”手动打开它，再使用“当前音轨”或 S
+  独奏依次试听。
+- 生成入口为
+  `uv run python -m scripts.build_gap_stage_comparison --project <PROJECT> --run-id <RUN> --output-bundle <BUNDLE>`。
+  它只接受成功、哈希匹配且带完整 soft-mask 证据的 voice 补漏任务。
+- 已通过真实项目显式加载、事件 ID 唯一性、三阶段计数、独立 MIDI 和互斥试听
+  回归；没有提交 Hyak / 本地推理。
+
 ## Task 009B2W Hyak 自动选卡交接
 
 - 计划器只读取当前 Slurm association，并用 `sbatch --test-only` 比较资源；

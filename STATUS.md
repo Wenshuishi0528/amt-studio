@@ -1,16 +1,34 @@
 # Project status
 
-Current product milestone: Task 009B2W lets the app select the fastest
-compatible Hyak GPU automatically before each real submission
+Current product milestone: Task 009B2X exposes the three saved stages of one
+rejected gap-recovery run as independently playable diagnostic tracks
 Research status: Gate 4 remains not passed for the rejected fusion routes; no
 new dataset, fusion, retuning, or training work is in the product critical path
-Current task: Job `37805247` is running the existing private-Beta workload on
-one checkpoint A100 with a one-hour limit after the normal L40 association
-could not provide a start estimate
-Next task: allow the active job and existing app polling to finish; future
-submissions will plan their GPU automatically, so no Codex intervention or
-duplicate submission is needed
+Current task: the owner can compare the raw, accompaniment-filtered, and
+monophonic-constrained candidates from recovery run
+`gap-recovery-20260728T000154Z-244743c9`
+Next task: record the owner's listening preference among the three diagnostic
+tracks; do not change automatic product admission from this evidence alone
 Current branch: `main`
+
+Implemented and verified for Task 009B2X:
+
+- a completed targeted recovery can now be materialized deterministically as
+  a diagnostic-only comparison bundle without rerunning MuScriptor or changing
+  its immutable source artifacts;
+- the saved soft-mask report reconstructs all three exact stages: 864 raw
+  generated notes, 234 notes after removing 630 accompaniment shadows, and 161
+  notes after rejecting another 73 events with the monophonic-path constraint;
+- the app displays the three stages as separate tracks and keeps them mutually
+  exclusive during arrangement playback. Each stage also has a separate MIDI
+  file for outside inspection;
+- the real private project contains
+  `gap-recovery-20260728T000154Z-244743c9-stage-comparison`. A configured
+  project-loader test opened its raw track and exported valid MIDI; the source
+  bundle and current 322-note product melody remain unchanged;
+- full `make check` passes 282 Python and 39 Swift tests with three expected
+  environment-gated skips. The signed release app was rebuilt and opened on
+  the real song, and no Hyak or local inference ran.
 
 Implemented and verified for Task 009B2W:
 

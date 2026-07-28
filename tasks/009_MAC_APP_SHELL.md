@@ -1056,3 +1056,44 @@ Evidence:
 - `make check` passes 281 Python and 38 Swift tests with three expected
   environment-gated skips. Strict Swift formatting, signed `make mac-app`,
   plist/signature validation, Python compilation, and `git diff --check` pass.
+
+## Task 009B2X: three-stage gap-recovery comparison
+
+Objective:
+
+- let the owner hear the exact effect of each existing recovery filter instead
+  of changing thresholds from aggregate counts;
+- preserve the completed model run, source bundle, and current product melody;
+- make raw generation, accompaniment filtering, and monophonic constraint
+  directly comparable as separate tracks.
+
+Frozen comparison:
+
+- source recovery run:
+  `gap-recovery-20260728T000154Z-244743c9`;
+- `gap_raw_candidate`: all 864 saved directed MuScriptor candidates;
+- `gap_accompaniment_filtered`: 234 candidates reconstructed by removing the
+  exact 630 `shadowed_event_ids` recorded by the saved soft-mask report;
+- `gap_monophonic_candidate`: the 161 constrained candidates already saved by
+  the completed run after another 73 path rejections;
+- diagnostic tracks are alternatives, not an arrangement, and none may become
+  the default product melody from this comparison alone.
+
+Evidence:
+
+- the deterministic builder rejects incomplete runs, mismatched config/audio
+  hashes, unknown shadow IDs, inconsistent counts, and a final set that is not
+  a subset of the accompaniment-filtered set;
+- each comparison track receives unique derived event IDs while retaining its
+  original event ID and model lineage. This satisfies the production loader's
+  global event-ID contract without modifying source JSONL;
+- real private bundle
+  `gap-recovery-20260728T000154Z-244743c9-stage-comparison` contains exactly
+  864 / 234 / 161 notes plus three independently valid MIDI files;
+- the production project loader opened the real raw stage and exported a valid
+  MIDI. Swift playback regression proves selection of one stage excludes the
+  other two;
+- full `make check` passes 282 Python and 39 Swift tests with three expected
+  environment-gated skips. The signed release app was rebuilt and opened on
+  the real project. No Hyak job, local model, dataset experiment, or training
+  work ran.
