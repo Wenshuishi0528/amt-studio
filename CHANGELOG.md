@@ -4,6 +4,27 @@ This project records changes by numbered research task until formal semantic
 versions and releases begin. Dates and commit identifiers refer to the local
 Git history.
 
+## Task 009B3E — Reliable Finder-launched song import — 2026-07-27
+
+### Fixed
+
+- The macOS backend now supplies a deterministic child-process `PATH` covering
+  its `uv` directory, both standard Homebrew locations, macOS system tools, and
+  the inherited path without duplicates.
+- New-song import can therefore locate an installed `ffprobe` and `ffmpeg`
+  when AMT Studio was opened from Finder rather than Terminal.
+- Missing audio tools and project-ingest errors are returned as structured
+  backend responses instead of unreadable Python tracebacks.
+
+### Verified
+
+- The original machine state resolves `ffprobe` and `ffmpeg` from
+  `/usr/local/bin` under a minimal GUI-like environment.
+- Full `make check` passes 292 Python and 50 Swift tests with three expected
+  private-integration skips.
+- The observed failure happened before project completion, upload, or Slurm
+  submission; no model result was altered.
+
 ## Task 009B3D — Zero-candidate recovery and durable continuous notes — 2026-07-27
 
 ### Fixed

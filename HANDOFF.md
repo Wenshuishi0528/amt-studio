@@ -4,6 +4,15 @@
 
 ## 一句话状态
 
+Task 009B3E 已修复新歌在 Mac 软件里尚未上传就报错的问题。真实根因不是 Hyak、
+GPU 或模型：`ffprobe` 已安装在 `/usr/local/bin`，但从 Finder 启动的图形应用没有
+继承 Terminal 的 Homebrew `PATH`。应用后台现在会显式补齐 Apple Silicon、
+Intel Homebrew 和 macOS 系统工具目录，同时保留原环境；真正缺少工具或入库失败
+时改为返回简短结构化错误，不再展示整页 Python traceback。失败发生在本地入库
+阶段，因此没有提交坏的 Slurm 作业。`make check` 通过 292 个 Python 和 50 个
+Swift 测试（3 个私有实时测试按预期跳过），极简 GUI 环境也已实际解析到
+`ffprobe` 与 `ffmpeg`。此前的延音残余与识别模式设置迭代按所有者要求暂时暂停。
+
 Task 009B3D 已修复最新空缺重算被误报失败的真实原因：Job `37811672` 和
 `37811709` 都已在 A100 节点正常完成 MuScriptor 解码，但目标片段没有产生候选，
 旧包装器把合法的空 JSONL 当成模型崩溃。现在只有定向补漏允许零候选并生成

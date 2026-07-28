@@ -335,6 +335,10 @@ struct PrivateBetaBackend: Sendable {
     process.executableURL = uvURL
     process.arguments = arguments
     process.currentDirectoryURL = repositoryRoot
+    process.environment = Self.processEnvironment(
+      base: ProcessInfo.processInfo.environment,
+      uvURL: uvURL
+    )
     process.standardOutput = stdout
     process.standardError = stderr
     try process.run()
@@ -362,6 +366,30 @@ struct PrivateBetaBackend: Sendable {
           "scripts/hyak/login_hyak.command"
         ).path
       )
+  }
+
+  static func processEnvironment(
+    base: [String: String],
+    uvURL: URL
+  ) -> [String: String] {
+    var environment = base
+    let existingPath = base["PATH", default: ""]
+      .split(separator: ":")
+      .map(String.init)
+    let candidates = [
+      uvURL.deletingLastPathComponent().path,
+      "/opt/homebrew/bin",
+      "/usr/local/bin",
+      "/usr/bin",
+      "/bin",
+      "/usr/sbin",
+      "/sbin",
+    ] + existingPath
+    var seen = Set<String>()
+    environment["PATH"] = candidates
+      .filter { !$0.isEmpty && seen.insert($0).inserted }
+      .joined(separator: ":")
+    return environment
   }
 
   private static func locateUV(

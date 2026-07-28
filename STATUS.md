@@ -1,15 +1,28 @@
 # Project status
 
-Current product milestone: Task 009B3D makes zero-candidate targeted recovery
-a successful unchanged result and makes continuous-note rebuilding durable on
-every pitched product track
+Current product milestone: Task 009B3E makes new-song import reliable when the
+macOS app is launched from Finder and does not inherit the Terminal `PATH`
 Research status: Gate 4 remains not passed for the rejected fusion routes; no
 new dataset, fusion, retuning, or training work is in the product critical path
-Current task: close the real failed-recovery and fragmented-sustain product
-paths without changing model scope or source tracks
-Next task: owner listening review of the completed GAME large result and any
-recovered melody; do not auto-promote either without that evidence
+Current task: close the local `ffprobe`/`ffmpeg` discovery failure before a new
+song is uploaded or any Hyak job is submitted
+Next task: resume the paused residual-sustain and recognition-setting work only
+after the owner confirms new-song submission can pass local import
 Current branch: `main`
+
+Implemented for Task 009B3E:
+
+- the macOS backend now launches `uv` with a deterministic child `PATH` that
+  includes the executable's own directory, Apple Silicon and Intel Homebrew
+  locations, macOS system locations, and the inherited path without duplicates;
+- this fixes the real Finder-launch failure where `ffprobe` existed at
+  `/usr/local/bin/ffprobe` but the GUI process could not discover it. The failure
+  occurred during local ingestion, before upload or Slurm submission;
+- true audio-tool and project-ingest failures are returned as structured JSON,
+  so the app shows a concise operation error instead of a Python traceback;
+- `make check` passes 292 Python and 50 Swift tests with three expected private
+  integration skips. A minimal GUI-like environment resolves both `ffprobe`
+  and `ffmpeg`.
 
 Implemented for Task 009B3D:
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 import os
 import subprocess
@@ -31,13 +32,41 @@ from amt_core.private_beta import (
     _validate_state,
     build_parser,
     local_readiness,
+    main,
     start_game_vocal_job,
 )
+from amt_core.audio import AudioToolError
 from amt_core.utils import atomic_write_json, slugify
 from workers.muscriptor import run_baseline
 
 
 class PrivateBetaTests(unittest.TestCase):
+    def test_audio_tool_failure_is_returned_as_json_without_traceback(self) -> None:
+        output = io.StringIO()
+        with (
+            mock.patch(
+                "amt_core.private_beta.start_job",
+                side_effect=AudioToolError("找不到 ffprobe"),
+            ),
+            mock.patch("sys.stdout", output),
+        ):
+            exit_code = main(
+                [
+                    "start",
+                    "/tmp/song.mp3",
+                    "--repo-root",
+                    "/tmp/repository",
+                    "--local-root",
+                    "/tmp/projects",
+                ]
+            )
+
+        self.assertEqual(exit_code, 2)
+        response = json.loads(output.getvalue())
+        self.assertFalse(response["ok"])
+        self.assertEqual(response["error"], "找不到 ffprobe")
+        self.assertFalse(response["needs_hyak_login"])
+
     def test_result_and_failure_summaries_are_read_from_fetched_artifacts(
         self,
     ) -> None:

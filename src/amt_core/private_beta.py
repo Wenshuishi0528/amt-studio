@@ -19,7 +19,8 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 from uuid import uuid4
 
-from .project import initialize_project, load_project
+from .audio import AudioToolError
+from .project import ProjectError, initialize_project, load_project
 from .utils import atomic_write_json, slugify
 
 STATE_IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,159}")
@@ -2677,7 +2678,7 @@ def main(argv: list[str] | None = None) -> int:
             raise AssertionError(args.command)
         print(json.dumps({"ok": True, **result}, ensure_ascii=False, sort_keys=True))
         return 0
-    except PrivateBetaError as exc:
+    except (PrivateBetaError, AudioToolError, ProjectError) as exc:
         print(
             json.dumps(
                 {

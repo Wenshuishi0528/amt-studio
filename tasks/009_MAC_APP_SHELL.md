@@ -26,7 +26,31 @@ voice growth, and restores the latest eligible source version by default.
 Task 009B3A adds an optional Hyak-only GAME singing-voice single-track route
 while retaining MuScriptor full multitrack as the persisted default. Task
 009B3D closes the real zero-candidate recovery failure and makes whole-track
-continuous-note rebuilding a durable per-track product operation.
+continuous-note rebuilding a durable per-track product operation. Task 009B3E
+restores new-song import for Finder-launched app processes whose inherited
+environment omits Homebrew audio tools.
+
+## Task 009B3E: Finder-launched audio-tool discovery
+
+Objective:
+
+- make a new-song submission use installed `ffprobe` and `ffmpeg` even when
+  the macOS application was launched outside Terminal;
+- report a genuinely missing local dependency as a concise product error,
+  never as a Python traceback.
+
+Implemented and verified:
+
+- child processes receive a deterministic, de-duplicated `PATH` containing the
+  resolved `uv` directory, both standard Homebrew binary locations, macOS
+  system binary locations, and the inherited path;
+- the real machine's `/usr/local/bin/ffprobe` and `ffmpeg` resolve under a
+  minimal GUI-like environment. Audio-tool and project initialization failures
+  now use the backend's structured JSON error contract;
+- the observed import failed before upload and Slurm submission. No raw model
+  bundle or existing recognition version was changed;
+- `make check` passes 292 Python and 50 Swift tests with three expected private
+  integration skips.
 
 ## Task 009B3D: zero-candidate recovery and durable continuous notes
 

@@ -6,6 +6,30 @@ import XCTest
 
 @MainActor
 final class AppModelTests: XCTestCase {
+  func testPrivateBackendRestoresPackageManagerToolsForGUIProcess() {
+    let environment = PrivateBetaBackend.processEnvironment(
+      base: [
+        "PATH": "/usr/bin:/bin:/usr/local/bin",
+        "LANG": "zh_CN.UTF-8",
+      ],
+      uvURL: URL(fileURLWithPath: "/custom/tools/uv")
+    )
+
+    XCTAssertEqual(
+      environment["PATH"],
+      [
+        "/custom/tools",
+        "/opt/homebrew/bin",
+        "/usr/local/bin",
+        "/usr/bin",
+        "/bin",
+        "/usr/sbin",
+        "/sbin",
+      ].joined(separator: ":")
+    )
+    XCTAssertEqual(environment["LANG"], "zh_CN.UTF-8")
+  }
+
   func testSustainRepairSummaryExplainsTheActualReplacement() {
     let summary = TrailingCleanupSummary(
       kind: .sustain,
