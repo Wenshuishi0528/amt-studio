@@ -4,6 +4,17 @@
 
 ## 一句话状态
 
+Task 009B3F 已定位并修复第二次新歌提交失败。上一次 `ffprobe` 问题确实已经通过；
+这次本地入库成功后，旧的代码同步命令对远端仓库执行 `rsync --delete`，却没有保护
+持久化 `.uv-cache` 和模型源码 `checkouts`，导致共享存储上大量非 Git 文件被
+遍历，180 秒后本地误判超时。新版保护缓存、worker 环境和 checkout，把首次新
+提交同步上限调整为有界 15 分钟，并且只有 `rsync` 真正成功后才原子写入
+`sync_complete: true`。同一 Git 提交的后续歌曲会复用已验证快照，
+不再每首歌重复同步代码。当前 SSH ControlMaster 在线，Slurm 队列为空；本次失败
+发生在项目上传和作业提交之前。`make check` 通过 294 个 Python 和 50 个 Swift
+测试（3 个私有实时测试按预期跳过）。延音残余与识别模式工作继续暂停到该入口
+确认通过。
+
 Task 009B3E 已修复新歌在 Mac 软件里尚未上传就报错的问题。真实根因不是 Hyak、
 GPU 或模型：`ffprobe` 已安装在 `/usr/local/bin`，但从 Finder 启动的图形应用没有
 继承 Terminal 的 Homebrew `PATH`。应用后台现在会显式补齐 Apple Silicon、

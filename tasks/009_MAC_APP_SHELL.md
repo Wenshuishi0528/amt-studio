@@ -28,7 +28,31 @@ while retaining MuScriptor full multitrack as the persisted default. Task
 009B3D closes the real zero-candidate recovery failure and makes whole-track
 continuous-note rebuilding a durable per-track product operation. Task 009B3E
 restores new-song import for Finder-launched app processes whose inherited
-environment omits Homebrew audio tools.
+environment omits Homebrew audio tools. Task 009B3F makes the following
+Mac-to-Hyak code snapshot transfer cache-safe and reusable.
+
+## Task 009B3F: cache-safe reusable Hyak code sync
+
+Objective:
+
+- prevent a new-song submission from timing out while synchronizing an
+  unchanged or small committed code snapshot;
+- never classify a partially copied snapshot as complete.
+
+Implemented and verified:
+
+- `rsync --delete` now excludes persistent `.uv-cache`, worker `.venv`, and
+  model-source `checkouts` directories in addition to private assets. This
+  removes the real shared-filesystem traversal that exceeded 180 seconds;
+- the transfer no longer copies its trust marker near the start. After a
+  successful sync, the backend writes `sync_complete: true` atomically;
+- later songs on the same commit verify that completed marker and skip
+  identical code sync. A new commit has a bounded 15-minute transfer window;
+- the failed real retry created a local manifest but stopped before project
+  upload and Slurm submission. The existing SSH master is healthy and the
+  queue is empty;
+- `make check` passes 294 Python and 50 Swift tests with three expected private
+  integration skips.
 
 ## Task 009B3E: Finder-launched audio-tool discovery
 

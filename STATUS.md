@@ -1,14 +1,30 @@
 # Project status
 
-Current product milestone: Task 009B3E makes new-song import reliable when the
-macOS app is launched from Finder and does not inherit the Terminal `PATH`
+Current product milestone: Task 009B3F makes Mac-to-Hyak code synchronization
+bounded, cache-safe, and reusable across songs on the same committed version
 Research status: Gate 4 remains not passed for the rejected fusion routes; no
 new dataset, fusion, retuning, or training work is in the product critical path
-Current task: close the local `ffprobe`/`ffmpeg` discovery failure before a new
-song is uploaded or any Hyak job is submitted
+Current task: close the code-sync timeout that occurred after local import but
+before project upload or Slurm submission
 Next task: resume the paused residual-sustain and recognition-setting work only
 after the owner confirms new-song submission can pass local import
 Current branch: `main`
+
+Implemented for Task 009B3F:
+
+- code synchronization now protects persistent remote `.uv-cache`, worker
+  `.venv`, and model-source `checkouts` directories from `rsync --delete`,
+  removing the expensive traversal/deletion path that caused the timeout;
+- a code snapshot is marked complete only after `rsync` exits successfully.
+  The marker is written atomically and carries `sync_complete: true`; the old
+  marker written at transfer start is never trusted as completion;
+- songs submitted from the same committed app version reuse the verified
+  remote snapshot instead of synchronizing identical code again. A genuinely
+  new commit receives a 15-minute bounded first-sync window;
+- the failed retry completed local ingestion but did not upload the project or
+  submit Slurm work. SSH remains online and the user's queue is empty;
+- `make check` passes 294 Python and 50 Swift tests with three expected private
+  integration skips.
 
 Implemented for Task 009B3E:
 

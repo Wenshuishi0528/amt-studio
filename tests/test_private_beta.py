@@ -12,6 +12,7 @@ from pathlib import Path
 from unittest import mock
 
 from amt_core.private_beta import (
+    CODE_SYNC_EXCLUDES,
     GPU_TEST_START_PATTERN,
     HyakGPUProbe,
     PrivateBetaError,
@@ -26,6 +27,7 @@ from amt_core.private_beta import (
     _plan_hyak_gpu,
     _record_failure_reason,
     _record_result_summary,
+    _remote_code_snapshot_matches,
     _select_gpu_probe,
     _slurm_time_limit,
     _unique_project_dir,
@@ -41,6 +43,58 @@ from workers.muscriptor import run_baseline
 
 
 class PrivateBetaTests(unittest.TestCase):
+    def test_code_sync_preserves_remote_environments_and_checkouts(self) -> None:
+        self.assertIn(".venv/", CODE_SYNC_EXCLUDES)
+        self.assertIn(".uv-cache/", CODE_SYNC_EXCLUDES)
+        self.assertIn("checkouts/", CODE_SYNC_EXCLUDES)
+        self.assertIn("projects/private/", CODE_SYNC_EXCLUDES)
+
+    def test_code_sync_fast_path_requires_an_explicit_completion_marker(
+        self,
+    ) -> None:
+        commit = "a" * 40
+
+        class FixtureConnection:
+            def __init__(self, payload: dict[str, object]) -> None:
+                self.payload = payload
+
+            def remote(
+                self,
+                command: str,
+                *,
+                timeout: float | None = None,
+            ) -> str:
+                self.command = command
+                self.timeout = timeout
+                return json.dumps(self.payload)
+
+        incomplete = FixtureConnection(
+            {
+                "schema_version": 1,
+                "commit": commit,
+                "dirty": False,
+                "source": "git_archive",
+            }
+        )
+        self.assertFalse(
+            _remote_code_snapshot_matches(incomplete, "/remote/repo", commit)
+        )
+
+        completed = FixtureConnection(
+            {
+                "schema_version": 1,
+                "commit": commit,
+                "dirty": False,
+                "source": "git_archive",
+                "sync_complete": True,
+            }
+        )
+        self.assertTrue(
+            _remote_code_snapshot_matches(completed, "/remote/repo", commit)
+        )
+        self.assertIn(".amt-code-snapshot.json", completed.command)
+        self.assertEqual(completed.timeout, 15)
+
     def test_audio_tool_failure_is_returned_as_json_without_traceback(self) -> None:
         output = io.StringIO()
         with (

@@ -4,6 +4,28 @@ This project records changes by numbered research task until formal semantic
 versions and releases begin. Dates and commit identifiers refer to the local
 Git history.
 
+## Task 009B3F — Cache-safe reusable Hyak code sync — 2026-07-27
+
+### Fixed
+
+- Remote `.uv-cache`, worker `.venv`, and model-source `checkouts` directories
+  are protected from the code snapshot's `rsync --delete`; traversing these
+  non-Git assets caused the observed synchronization timeout.
+- A remote code snapshot becomes reusable only after a successful transfer
+  writes an atomic `sync_complete: true` marker. A marker copied near the start
+  of an interrupted transfer is no longer accepted as proof of completion.
+- Submissions on an already completed Git snapshot skip identical code sync.
+  New snapshots retain a bounded 15-minute synchronization window.
+
+### Verified
+
+- The existing SSH ControlMaster remains online and the Slurm queue is empty.
+  The failed retry stopped before project upload and job submission.
+- A regression rejects the old incomplete marker and accepts only the explicit
+  completed form.
+- Full `make check` passes 294 Python and 50 Swift tests with three expected
+  private-integration skips.
+
 ## Task 009B3E — Reliable Finder-launched song import — 2026-07-27
 
 ### Fixed

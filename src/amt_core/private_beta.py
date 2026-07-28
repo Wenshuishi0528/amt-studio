@@ -47,6 +47,26 @@ GPU_TEST_START_PATTERN = re.compile(
 GPU_START_TIE_SECONDS = 5 * 60
 GAME_PRODUCT_MODEL = "GAME-1.0-large"
 GAME_UPSTREAM_COMMIT = "475a8ee781fe8cca980b3b12fbe6c80c768a813a"
+CODE_SNAPSHOT_MARKER = ".amt-code-snapshot.json"
+CODE_SYNC_TIMEOUT_SECONDS = 900
+CODE_SYNC_EXCLUDES = (
+    ".git/",
+    ".venv/",
+    ".uv-cache/",
+    ".build/",
+    "dist/",
+    "__pycache__/",
+    ".pytest_cache/",
+    ".ruff_cache/",
+    "checkouts/",
+    CODE_SNAPSHOT_MARKER,
+    "data/private/",
+    "projects/private/",
+    "datasets/",
+    "model-cache/",
+    "weights/",
+    "hyak-results/",
+)
 
 
 class PrivateBetaError(RuntimeError):
@@ -1066,6 +1086,8 @@ def _sync_code(connection: HyakConnection, repo_root: Path, remote_root: str) ->
     ).stdout.strip()
     if COMMIT_PATTERN.fullmatch(commit) is None:
         raise PrivateBetaError("本地仓库没有可同步的 Git commit")
+    if _remote_code_snapshot_matches(connection, remote_repo, commit):
+        return commit
     with tempfile.TemporaryDirectory(prefix="amt-code-snapshot.") as temporary:
         temporary_root = Path(temporary)
         archive = temporary_root / "snapshot.tar"
@@ -1076,54 +1098,75 @@ def _sync_code(connection: HyakConnection, repo_root: Path, remote_root: str) ->
             cwd=repo_root,
         )
         _run(["tar", "-xf", str(archive), "-C", str(snapshot)])
-        atomic_write_json(
-            snapshot / ".amt-code-snapshot.json",
-            {
-                "schema_version": 1,
-                "commit": commit,
-                "dirty": False,
-                "source": "git_archive",
-            },
-        )
+        exclude_arguments = [
+            argument
+            for pattern in CODE_SYNC_EXCLUDES
+            for argument in ("--exclude", pattern)
+        ]
         _run(
             [
                 "rsync",
                 "-az",
                 "--delete",
-                "--exclude",
-                ".git/",
-                "--exclude",
-                ".venv/",
-                "--exclude",
-                ".build/",
-                "--exclude",
-                "dist/",
-                "--exclude",
-                "__pycache__/",
-                "--exclude",
-                ".pytest_cache/",
-                "--exclude",
-                ".ruff_cache/",
-                "--exclude",
-                "data/private/",
-                "--exclude",
-                "projects/private/",
-                "--exclude",
-                "datasets/",
-                "--exclude",
-                "model-cache/",
-                "--exclude",
-                "weights/",
-                "--exclude",
-                "hyak-results/",
+                *exclude_arguments,
                 "-e",
                 connection.rsync_shell(),
                 f"{snapshot}/",
                 f"{connection.host}:{remote_repo}/",
             ],
-            timeout=180,
+            timeout=CODE_SYNC_TIMEOUT_SECONDS,
         )
+    _mark_remote_code_snapshot(connection, remote_repo, commit)
     return commit
+
+
+def _remote_code_snapshot_matches(
+    connection: HyakConnection,
+    remote_repo: str,
+    commit: str,
+) -> bool:
+    marker = f"{remote_repo}/{CODE_SNAPSHOT_MARKER}"
+    try:
+        raw = connection.remote(f"cat {shlex.quote(marker)}", timeout=15)
+        payload = json.loads(raw)
+    except (PrivateBetaError, json.JSONDecodeError):
+        return False
+    if not isinstance(payload, dict):
+        return False
+    return (
+        payload.get("schema_version") == 1
+        and payload.get("commit") == commit
+        and payload.get("dirty") is False
+        and payload.get("source") == "git_archive"
+        and payload.get("sync_complete") is True
+    )
+
+
+def _mark_remote_code_snapshot(
+    connection: HyakConnection,
+    remote_repo: str,
+    commit: str,
+) -> None:
+    marker = f"{remote_repo}/{CODE_SNAPSHOT_MARKER}"
+    temporary = f"{marker}.tmp-{uuid4().hex}"
+    payload = json.dumps(
+        {
+            "schema_version": 1,
+            "commit": commit,
+            "dirty": False,
+            "source": "git_archive",
+            "sync_complete": True,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    connection.remote(
+        "umask 077; "
+        f"printf %s {shlex.quote(payload + chr(10))} "
+        f"> {shlex.quote(temporary)} && "
+        f"mv {shlex.quote(temporary)} {shlex.quote(marker)}",
+        timeout=30,
+    )
 
 
 def _sync_project_to_hyak(
