@@ -600,6 +600,10 @@ def _validate_state(project_dir: Path, state: dict[str, Any]) -> dict[str, Any]:
         "gpu_estimated_start_at",
         "gpu_estimated_wait_seconds",
         "recovered_candidate_note_count",
+        "time_limit_hours",
+        "resumed_from_job_id",
+        "resume_attempt",
+        "resume_stage",
     }
     if set(state) - allowed:
         raise PrivateBetaError("任务状态文件包含未知字段")
@@ -677,6 +681,31 @@ def _validate_state(project_dir: Path, state: dict[str, Any]) -> dict[str, Any]:
                 or state[key] < 0
             ):
                 raise PrivateBetaError(f"任务状态字段 {key} 无效")
+        time_limit_hours = state.get("time_limit_hours")
+        if time_limit_hours is not None and (
+            not isinstance(time_limit_hours, int)
+            or isinstance(time_limit_hours, bool)
+            or not MIN_HYAK_TIME_LIMIT_HOURS
+            <= time_limit_hours
+            <= MAX_HYAK_TIME_LIMIT_HOURS
+        ):
+            raise PrivateBetaError("任务状态 time_limit_hours 无效")
+        resumed_from_job_id = state.get("resumed_from_job_id")
+        if resumed_from_job_id is not None and (
+            not isinstance(resumed_from_job_id, str)
+            or not resumed_from_job_id.isdigit()
+        ):
+            raise PrivateBetaError("任务状态 resumed_from_job_id 无效")
+        resume_attempt = state.get("resume_attempt")
+        if resume_attempt is not None and (
+            not isinstance(resume_attempt, int)
+            or isinstance(resume_attempt, bool)
+            or resume_attempt < 1
+        ):
+            raise PrivateBetaError("任务状态 resume_attempt 无效")
+        resume_stage = state.get("resume_stage")
+        if resume_stage is not None and resume_stage != "automatic_gap_recovery":
+            raise PrivateBetaError("任务状态 resume_stage 无效")
     else:
         if STATE_IDENTIFIER.fullmatch(job_id) is None or not job_id.startswith("local-"):
             raise PrivateBetaError("本机任务 job_id 无效")
@@ -1501,6 +1530,7 @@ def start_job(
         "code_commit": code_commit,
         "slurm_state": "PENDING",
         "pipeline_stage": "queued",
+        "time_limit_hours": time_limit_hours,
         **gpu_plan.state_fields(),
     }
     if recognition_mode == "game_vocal":
@@ -1512,6 +1542,167 @@ def start_job(
                 "game_model_provenance_path": provenance,
             }
         )
+    _write_state(project_dir, state)
+    return state
+
+
+def _archive_remote_automatic_gap_attempt(
+    connection: HyakConnection,
+    *,
+    remote_project: str,
+    run_id: str,
+    failed_job_id: str,
+) -> None:
+    """Preserve a timed-out automatic-gap attempt before restarting that stage."""
+    probe_id = f"{run_id}-auto-gap"
+    suffix = f"timedout-job{failed_job_id}"
+    roots = (
+        f"{remote_project}/reports/{probe_id}",
+        f"{remote_project}/runs/{probe_id}",
+        f"{remote_project}/exports/{run_id}-multitrack",
+    )
+    child_listing = connection.remote(
+        "find "
+        f"{shlex.quote(remote_project + '/runs')} -mindepth 1 -maxdepth 1 "
+        f"-type d -name {shlex.quote(probe_id + '-window-*')} -print",
+        timeout=20,
+    )
+    children: list[str] = []
+    expected_parent = PurePosixPath(remote_project) / "runs"
+    for value in child_listing.splitlines():
+        path = PurePosixPath(value)
+        if ".timedout-job" in path.name:
+            continue
+        if (
+            path.parent != expected_parent
+            or not path.name.startswith(f"{probe_id}-window-")
+            or STATE_IDENTIFIER.fullmatch(path.name) is None
+        ):
+            raise PrivateBetaError("Hyak 返回了无效的补漏检查点路径")
+        children.append(str(path))
+    for source in (*roots, *children):
+        destination = f"{source}.{suffix}"
+        command = (
+            f"if test -e {shlex.quote(source)}; then "
+            f"test ! -e {shlex.quote(destination)} && "
+            f"mv {shlex.quote(source)} {shlex.quote(destination)}; fi"
+        )
+        connection.remote(command, timeout=30)
+
+
+def resume_timeout_job(
+    project_dir: Path,
+    *,
+    repo_root: Path,
+    time_limit_hours: int,
+) -> dict[str, Any]:
+    """Resume a timed-out multitrack job from its completed raw bundle."""
+    project_dir = project_dir.expanduser().resolve()
+    repo_root = repo_root.expanduser().resolve()
+    state = _load_state(project_dir)
+    if (
+        state["backend"] != "hyak"
+        or state["status"] != "failed"
+        or state["slurm_state"] != "TIMEOUT"
+    ):
+        raise PrivateBetaError("只有 Hyak TIMEOUT 失败任务可以继续")
+    if (
+        state.get("task_kind", "full_transcription") != "full_transcription"
+        or state.get("recognition_mode", "multitrack") != "multitrack"
+    ):
+        raise PrivateBetaError(
+            "当前任务没有可安全复用的多轨检查点，请重新提交完整识别"
+        )
+    _slurm_time_limit(time_limit_hours)
+    connection = HyakConnection.discover(state["host"])
+    remote_project = state["remote_project_dir"]
+    raw_bundle_id = f"{state['bundle_id']}-raw"
+    raw_manifest = (
+        f"{remote_project}/exports/{raw_bundle_id}/bundle_manifest.json"
+    )
+    final_manifest = (
+        f"{remote_project}/exports/{state['bundle_id']}/bundle_manifest.json"
+    )
+    checkpoint_state = connection.remote(
+        f"if test -f {shlex.quote(final_manifest)}; then printf final; "
+        f"elif test -f {shlex.quote(raw_manifest)}; then printf raw; "
+        "else printf missing; fi",
+        timeout=20,
+    )
+    if checkpoint_state == "final":
+        _fetch_results(connection, project_dir, state)
+        _record_result_summary(project_dir, state)
+        state["status"] = "succeeded"
+        state["slurm_state"] = "COMPLETED"
+        state["pipeline_stage"] = "complete"
+        state["completed_at"] = _utc_now()
+        _write_state(project_dir, state)
+        return state
+    if checkpoint_state != "raw":
+        raise PrivateBetaError(
+            "超时发生在原始多轨检查点完成之前，无法安全续算；"
+            "请重新提交完整识别"
+        )
+
+    failed_job_id = state["job_id"]
+    _archive_previous_state(project_dir)
+    _archive_remote_automatic_gap_attempt(
+        connection,
+        remote_project=remote_project,
+        run_id=state["run_id"],
+        failed_job_id=failed_job_id,
+    )
+    code_commit = _sync_code(connection, repo_root, state["remote_root"])
+    remote_repo = f"{state['remote_root']}/repo"
+    remote_logs = f"{remote_project}/logs"
+    gpu_plan = _plan_hyak_gpu(
+        connection,
+        time_limit_hours=time_limit_hours,
+        allow_preemptible=True,
+    )
+    exports = {
+        "AMT_REPO_ROOT": remote_repo,
+        "PROJECT_DIR": remote_project,
+        "MUSCRIPTOR_WEIGHT_PROVENANCE": state["weight_provenance_path"],
+        "MUSCRIPTOR_RUN_ID": state["run_id"],
+        "AMT_BUNDLE_ID": state["bundle_id"],
+    }
+    env_prefix = " ".join(
+        f"{key}={shlex.quote(value)}" for key, value in exports.items()
+    )
+    resource_arguments = " ".join(
+        shlex.quote(value) for value in gpu_plan.submission_arguments
+    )
+    submit = (
+        f"cd {shlex.quote(remote_repo)} && {env_prefix} "
+        "sbatch --parsable "
+        f"{resource_arguments} "
+        f"--output={shlex.quote(remote_logs + '/slurm-%j.out')} "
+        f"--error={shlex.quote(remote_logs + '/slurm-%j.err')} "
+        "slurm/44_resume_private_beta_muscriptor.slurm"
+    )
+    job_id = connection.remote(submit).split(";", 1)[0].strip()
+    if not job_id.isdigit():
+        raise PrivateBetaError(f"Hyak 返回了无效 job id：{job_id!r}")
+
+    prior_attempt = state.get("resume_attempt", 0)
+    state.update(
+        {
+            "status": "submitted",
+            "submitted_at": _utc_now(),
+            "completed_at": None,
+            "failure_reason": None,
+            "job_id": job_id,
+            "code_commit": code_commit,
+            "slurm_state": "PENDING",
+            "pipeline_stage": "queued",
+            "time_limit_hours": time_limit_hours,
+            "resumed_from_job_id": failed_job_id,
+            "resume_attempt": prior_attempt + 1,
+            "resume_stage": "automatic_gap_recovery",
+            **gpu_plan.state_fields(),
+        }
+    )
     _write_state(project_dir, state)
     return state
 
@@ -2616,6 +2807,16 @@ def build_parser() -> argparse.ArgumentParser:
     status = subparsers.add_parser("status")
     status.add_argument("project", type=Path)
 
+    resume_timeout = subparsers.add_parser("resume-timeout")
+    resume_timeout.add_argument("project", type=Path)
+    resume_timeout.add_argument("--repo-root", type=Path, required=True)
+    resume_timeout.add_argument(
+        "--time-limit-hours",
+        type=int,
+        choices=range(MIN_HYAK_TIME_LIMIT_HOURS, MAX_HYAK_TIME_LIMIT_HOURS + 1),
+        required=True,
+    )
+
     cancel_local = subparsers.add_parser("cancel-local")
     cancel_local.add_argument("project", type=Path)
 
@@ -2696,6 +2897,12 @@ def main(argv: list[str] | None = None) -> int:
             )
         elif args.command == "status":
             result = refresh_job(args.project)
+        elif args.command == "resume-timeout":
+            result = resume_timeout_job(
+                args.project,
+                repo_root=args.repo_root,
+                time_limit_hours=args.time_limit_hours,
+            )
         elif args.command == "cancel-local":
             result = cancel_local_job(args.project)
         elif args.command == "local-readiness":

@@ -1508,3 +1508,39 @@ Evidence:
   expanded review ran;
 - no Hyak or local inference job was submitted. Real source-separation/GAME
   quality remains an explicit owner-triggered listening check.
+## Task 009B3J: duration-aware wall time and timeout continuation
+
+Objective:
+
+- avoid predictable Slurm TIMEOUT failures for longer songs without forcing a
+  beginner to estimate runtime for ordinary uploads;
+- require an explicit owner choice for unusually long audio;
+- resume a timed-out product job only when a completed, immutable stage can be
+  proven and reused.
+
+Frozen product rule:
+
+- the configured Hyak wall time is a minimum;
+- `duration <= 7 min` uses at least 1 hour, `7 < duration <= 14 min` uses at
+  least 2 hours, and `14 < duration <= 21 min` uses at least 3 hours;
+- `duration > 21 min` must display a modal and receive a 1–24 hour user
+  confirmation before it enters the queue;
+- only `TIMEOUT` MuScriptor full-multitrack jobs with an existing raw canonical
+  bundle are resumable in this task;
+- continuation archives partial automatic-gap artifacts with the failed Job
+  ID, reuses the full transcription and raw bundle, and restarts automatic gap
+  recovery. It never overwrites raw evidence or silently reruns full-song
+  inference;
+- GAME and pre-checkpoint timeouts remain explicit full retries until they gain
+  their own verified checkpoint contract.
+
+Evidence:
+
+- Swift boundary tests cover exactly 7, just above 7, exactly 14, just above
+  14, exactly 21, above 21, configured minimums, and manual suggestions;
+- Python tests prove raw-bundle reuse, old-attempt preservation, new Job
+  lineage, and the dedicated continuation Slurm entry point;
+- final `make check` passes 295 Python and 57 Swift tests with three expected
+  private-environment skips;
+- the formal Xcode project build and packaged release app both succeed;
+- no new Hyak job, local inference, dataset experiment, or training work ran.

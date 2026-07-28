@@ -35,6 +35,7 @@ from amt_core.private_beta import (
     build_parser,
     local_readiness,
     main,
+    resume_timeout_job,
     start_game_vocal_job,
 )
 from amt_core.audio import AudioToolError
@@ -43,6 +44,110 @@ from workers.muscriptor import run_baseline
 
 
 class PrivateBetaTests(unittest.TestCase):
+    def test_timeout_resume_reuses_raw_bundle_and_preserves_old_attempts(
+        self,
+    ) -> None:
+        class FixtureConnection:
+            host = "user@example.edu"
+
+            def __init__(self) -> None:
+                self.commands: list[str] = []
+
+            def remote(
+                self,
+                command: str,
+                *,
+                timeout: float | None = None,
+            ) -> str:
+                self.commands.append(command)
+                if "printf final" in command:
+                    return "raw"
+                if command.startswith("find "):
+                    return "\n".join(
+                        [
+                            "/remote/projects/private/song/runs/"
+                            "base-auto-gap-window-001",
+                            "/remote/projects/private/song/runs/"
+                            "base-auto-gap-window-000.timedout-job100",
+                        ]
+                    )
+                if "sbatch --parsable" in command:
+                    return "200"
+                return ""
+
+        state = {
+            "schema_version": 1,
+            "backend": "hyak",
+            "status": "failed",
+            "project_id": "song",
+            "local_project_dir": "/tmp/song",
+            "remote_project_dir": "/remote/projects/private/song",
+            "host": "user@example.edu",
+            "remote_root": "/remote",
+            "job_id": "100",
+            "run_id": "base",
+            "bundle_id": "base-multitrack",
+            "weight_provenance_path": "/remote/weights/model.json",
+            "recognition_mode": "multitrack",
+            "task_kind": "full_transcription",
+            "slurm_state": "TIMEOUT",
+            "pipeline_stage": "failed",
+        }
+        connection = FixtureConnection()
+        written: list[dict[str, object]] = []
+        plan = _fallback_gpu_plan(
+            (),
+            time_limit_hours=3,
+            reason="fixture",
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            project = Path(temporary) / "song"
+            project.mkdir()
+            state["local_project_dir"] = str(project)
+            with (
+                mock.patch(
+                    "amt_core.private_beta._load_state",
+                    return_value=state,
+                ),
+                mock.patch(
+                    "amt_core.private_beta.HyakConnection.discover",
+                    return_value=connection,
+                ),
+                mock.patch("amt_core.private_beta._archive_previous_state"),
+                mock.patch(
+                    "amt_core.private_beta._sync_code",
+                    return_value="a" * 40,
+                ),
+                mock.patch(
+                    "amt_core.private_beta._plan_hyak_gpu",
+                    return_value=plan,
+                ),
+                mock.patch(
+                    "amt_core.private_beta._write_state",
+                    side_effect=lambda _project, value: written.append(
+                        dict(value)
+                    ),
+                ),
+            ):
+                result = resume_timeout_job(
+                    project,
+                    repo_root=Path(temporary),
+                    time_limit_hours=3,
+                )
+
+        self.assertEqual(result["job_id"], "200")
+        self.assertEqual(result["resumed_from_job_id"], "100")
+        self.assertEqual(result["resume_stage"], "automatic_gap_recovery")
+        self.assertEqual(result["time_limit_hours"], 3)
+        self.assertEqual(written[-1]["status"], "submitted")
+        commands = "\n".join(connection.commands)
+        self.assertIn("slurm/44_resume_private_beta_muscriptor.slurm", commands)
+        self.assertIn("base-auto-gap-window-001.timedout-job100", commands)
+        self.assertNotIn(
+            "base-auto-gap-window-000.timedout-job100.timedout-job100",
+            commands,
+        )
+
     def test_code_sync_preserves_remote_environments_and_checkouts(self) -> None:
         self.assertIn(".venv/", CODE_SYNC_EXCLUDES)
         self.assertIn(".uv-cache/", CODE_SYNC_EXCLUDES)

@@ -6,6 +6,46 @@ import XCTest
 
 @MainActor
 final class AppModelTests: XCTestCase {
+  func testHyakWallTimePolicyExtendsAndEscalatesLongSongs() {
+    XCTAssertEqual(
+      HyakWallTimePolicy.automaticHours(durationSeconds: 7 * 60),
+      1
+    )
+    XCTAssertEqual(
+      HyakWallTimePolicy.automaticHours(durationSeconds: 7 * 60 + 0.1),
+      2
+    )
+    XCTAssertEqual(
+      HyakWallTimePolicy.automaticHours(durationSeconds: 14 * 60),
+      2
+    )
+    XCTAssertEqual(
+      HyakWallTimePolicy.automaticHours(durationSeconds: 14 * 60 + 0.1),
+      3
+    )
+    XCTAssertEqual(
+      HyakWallTimePolicy.automaticHours(durationSeconds: 21 * 60),
+      3
+    )
+    XCTAssertNil(
+      HyakWallTimePolicy.automaticHours(durationSeconds: 21 * 60 + 0.1)
+    )
+    XCTAssertEqual(
+      HyakWallTimePolicy.automaticHours(
+        durationSeconds: 60,
+        configuredMinimum: 6
+      ),
+      6
+    )
+    XCTAssertEqual(
+      HyakWallTimePolicy.suggestedManualHours(
+        durationSeconds: 30 * 60,
+        configuredMinimum: 1
+      ),
+      5
+    )
+  }
+
   func testPrivateBackendRestoresPackageManagerToolsForGUIProcess() {
     let environment = PrivateBetaBackend.processEnvironment(
       base: [

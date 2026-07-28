@@ -1,14 +1,35 @@
 # Project status
 
-Current product milestone: Task 009B3I adds cross-song track copying and
-multi-project Hyak submission/monitoring to AMT Studio 0.2.0
+Current product milestone: Task 009B3J adds duration-aware Hyak wall time and
+checkpoint-based timeout continuation to AMT Studio 0.2.0
 Research status: Gate 4 remains not passed for the rejected fusion routes; no
 new dataset, fusion, retuning, or training work is in the product critical path
-Current task: complete and package non-destructive cross-song track reuse plus
-Slurm-controlled multi-job Hyak operation
+Current task: complete and package automatic 1/2/3-hour submission policy plus
+safe continuation of timed-out multitrack post-processing
 Next task: owner workflow confirmation; do not submit music or resume model
 work without a new request
 Current branch: `main`
+
+Implemented for Task 009B3J:
+
+- new Hyak songs use the configured setting as a minimum and automatically
+  receive at least 1 hour through 7:00, 2 hours above 7:00 through 14:00, or
+  3 hours above 14:00 through 21:00;
+- songs longer than 21 minutes are not silently submitted. A modal shows the
+  song and duration, suggests one hour per seven minutes, and requires the user
+  to confirm a 1–24 hour Slurm wall time;
+- TIMEOUT projects expose `从检查点继续`. Continuation is allowed only when the
+  original MuScriptor multitrack run and raw canonical bundle already exist;
+  it preserves the timed-out gap artifacts, reuses the expensive full-song
+  result, and restarts only automatic gap recovery;
+- if the final bundle already exists, continuation fetches it without a new
+  job. If the raw checkpoint is absent or the job type is not safely
+  checkpointed, the app refuses to pretend it can resume and asks for a full
+  retry;
+- `make check` passes 295 Python and 57 Swift tests with three expected private
+  integration skips. The formal Xcode project and packaged release app also
+  build successfully. No new song or model job was submitted, and the existing
+  Hyak recovery job was not modified.
 
 Implemented for Task 009B3I:
 

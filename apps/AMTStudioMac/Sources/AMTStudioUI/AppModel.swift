@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import Foundation
 
 #if canImport(AMTStudioCore)
@@ -218,6 +219,25 @@ public struct LocalProjectItem: Sendable, Equatable, Identifiable {
   public let modifiedAt: Date
   public let hasResults: Bool
   public let jobState: String?
+  public let durationSeconds: Double?
+
+  public init(
+    projectID: String,
+    title: String,
+    url: URL,
+    modifiedAt: Date,
+    hasResults: Bool,
+    jobState: String?,
+    durationSeconds: Double? = nil
+  ) {
+    self.projectID = projectID
+    self.title = title
+    self.url = url
+    self.modifiedAt = modifiedAt
+    self.hasResults = hasResults
+    self.jobState = jobState
+    self.durationSeconds = durationSeconds
+  }
 
   public var id: String {
     url.path
@@ -251,6 +271,10 @@ public struct LocalProjectItem: Sendable, Equatable, Identifiable {
     !hasActiveJob
   }
 
+  public var canResumeTimeout: Bool {
+    jobState == "TIMEOUT"
+  }
+
   fileprivate static let terminalFailureStates: Set<String> = [
     "FAILED",
     "CANCELLED",
@@ -264,6 +288,53 @@ public struct LocalProjectItem: Sendable, Equatable, Identifiable {
 
   fileprivate static let terminalStates =
     terminalFailureStates.union(["COMPLETED"])
+}
+
+public enum HyakWallTimePolicy {
+  public static let manualConfirmationThresholdSeconds = 21 * 60.0
+
+  public static func automaticHours(
+    durationSeconds: Double,
+    configuredMinimum: Int = 1
+  ) -> Int? {
+    guard durationSeconds.isFinite, durationSeconds >= 0 else {
+      return max(1, min(24, configuredMinimum))
+    }
+    guard durationSeconds <= manualConfirmationThresholdSeconds else {
+      return nil
+    }
+    let durationMinimum: Int
+    if durationSeconds > 14 * 60 {
+      durationMinimum = 3
+    } else if durationSeconds > 7 * 60 {
+      durationMinimum = 2
+    } else {
+      durationMinimum = 1
+    }
+    return max(durationMinimum, max(1, min(24, configuredMinimum)))
+  }
+
+  public static func suggestedManualHours(
+    durationSeconds: Double?,
+    configuredMinimum: Int
+  ) -> Int {
+    guard let durationSeconds, durationSeconds.isFinite, durationSeconds > 0
+    else {
+      return max(1, min(24, configuredMinimum))
+    }
+    let durationMinimum = Int(ceil(durationSeconds / (7 * 60)))
+    return min(24, max(durationMinimum, configuredMinimum, 1))
+  }
+}
+
+public struct HyakTimeConfirmationRequest: Identifiable, Sendable, Equatable {
+  public let id = UUID()
+  public let title: String
+  public let durationSeconds: Double
+  fileprivate let audioURL: URL
+  fileprivate let computeMode: ComputeMode
+  fileprivate let recognitionMode: RecognitionMode
+  fileprivate let bookmarkData: Data?
 }
 
 public enum SongQueueState: String, Codable, Equatable, Sendable {
@@ -314,7 +385,9 @@ public struct SongQueueItem: Codable, Sendable, Equatable, Identifiable {
   }
 
   public var configurationLabel: String {
-    "\(recognitionMode == .multitrack ? "完整多轨" : "GAME 主唱") · \(computeMode.label)"
+    let base =
+      "\(recognitionMode == .multitrack ? "完整多轨" : "GAME 主唱") · \(computeMode.label)"
+    return computeMode == .hyak ? "\(base) · \(hyakTimeLimitHours) 小时" : base
   }
 
   fileprivate func resolvedAudioURL() -> URL {
@@ -405,6 +478,8 @@ public final class AppModel: ObservableObject {
   @Published public private(set) var lastSavedAt: Date?
   @Published public private(set) var isManagingTracks = false
   @Published public private(set) var songQueue: [SongQueueItem] = []
+  @Published public private(set) var hyakTimeConfirmation:
+    HyakTimeConfirmationRequest?
 
   public let transport = AudioTransport()
 
@@ -442,6 +517,7 @@ public final class AppModel: ObservableObject {
   private var trackManagementGeneration = UUID()
   private var pendingFragmentRepairTrackID: String?
   private var monitoredBetaProjectPaths = Set<String>()
+  private var pendingHyakTimeConfirmations: [HyakTimeConfirmationRequest] = []
 
   public init(
     defaults: UserDefaults = .standard,
@@ -632,6 +708,11 @@ public final class AppModel: ObservableObject {
   public func enqueueSongs(_ audioURLs: [URL]) {
     let existingPaths = Set(
       songQueue.map { $0.audioURL.standardizedFileURL.path }
+        + pendingHyakTimeConfirmations.map {
+          $0.audioURL.standardizedFileURL.path
+        }
+        + [hyakTimeConfirmation?.audioURL.standardizedFileURL.path]
+          .compactMap { $0 }
     )
     var queuedPaths = existingPaths
     var addedCount = 0
@@ -647,18 +728,40 @@ public final class AppModel: ObservableObject {
         includingResourceValuesForKeys: nil,
         relativeTo: nil
       )
-      songQueue.append(
-        SongQueueItem(
-          id: UUID(),
+      let durationSeconds = Self.audioDurationSeconds(at: standardizedURL)
+      if effectiveComputeMode == .hyak,
+        let durationSeconds,
+        HyakWallTimePolicy.automaticHours(
+          durationSeconds: durationSeconds,
+          configuredMinimum: hyakTimeLimitHours
+        ) == nil
+      {
+        pendingHyakTimeConfirmations.append(
+          HyakTimeConfirmationRequest(
+            title: standardizedURL.deletingPathExtension().lastPathComponent,
+            durationSeconds: durationSeconds,
+            audioURL: standardizedURL,
+            computeMode: effectiveComputeMode,
+            recognitionMode: recognitionMode,
+            bookmarkData: bookmarkData
+          ))
+      } else {
+        let resolvedHours =
+          durationSeconds.flatMap {
+            HyakWallTimePolicy.automaticHours(
+              durationSeconds: $0,
+              configuredMinimum: hyakTimeLimitHours
+            )
+          } ?? hyakTimeLimitHours
+        appendQueuedSong(
           title: standardizedURL.deletingPathExtension().lastPathComponent,
           audioURL: standardizedURL,
           computeMode: effectiveComputeMode,
           recognitionMode: recognitionMode,
-          hyakTimeLimitHours: hyakTimeLimitHours,
-          state: .waiting,
-          failureMessage: nil,
+          hyakTimeLimitHours: resolvedHours,
           bookmarkData: bookmarkData
-        ))
+        )
+      }
       addedCount += 1
     }
     guard addedCount > 0 else {
@@ -666,12 +769,79 @@ public final class AppModel: ObservableObject {
       return
     }
     persistSongQueue()
+    showNextHyakTimeConfirmationIfNeeded()
     statusMessage =
-      addedCount == 1
-      ? "已加入任务队列"
-      : "已加入 \(addedCount) 首歌曲；Hyak 会依次提交给 Slurm"
+      pendingHyakTimeConfirmations.isEmpty && hyakTimeConfirmation == nil
+      ? (addedCount == 1
+        ? "已加入任务队列"
+        : "已加入 \(addedCount) 首歌曲；Hyak 会依次提交给 Slurm")
+      : "较长歌曲需要先确认 Hyak 任务时长；其他歌曲已加入队列"
     errorMessage = nil
     processSongQueueIfPossible()
+  }
+
+  public func confirmHyakTimeLimit(_ hours: Int) {
+    guard let request = hyakTimeConfirmation else { return }
+    appendQueuedSong(
+      title: request.title,
+      audioURL: request.audioURL,
+      computeMode: request.computeMode,
+      recognitionMode: request.recognitionMode,
+      hyakTimeLimitHours: max(1, min(24, hours)),
+      bookmarkData: request.bookmarkData
+    )
+    hyakTimeConfirmation = nil
+    persistSongQueue()
+    showNextHyakTimeConfirmationIfNeeded()
+    statusMessage = "已确认“\(request.title)”的 Hyak 时长并加入队列"
+    processSongQueueIfPossible()
+  }
+
+  public func cancelHyakTimeConfirmation() {
+    guard let request = hyakTimeConfirmation else { return }
+    hyakTimeConfirmation = nil
+    showNextHyakTimeConfirmationIfNeeded()
+    statusMessage = "未提交“\(request.title)”"
+  }
+
+  private func showNextHyakTimeConfirmationIfNeeded() {
+    guard hyakTimeConfirmation == nil,
+      !pendingHyakTimeConfirmations.isEmpty
+    else { return }
+    hyakTimeConfirmation = pendingHyakTimeConfirmations.removeFirst()
+  }
+
+  private func appendQueuedSong(
+    title: String,
+    audioURL: URL,
+    computeMode: ComputeMode,
+    recognitionMode: RecognitionMode,
+    hyakTimeLimitHours: Int,
+    bookmarkData: Data?
+  ) {
+    songQueue.append(
+      SongQueueItem(
+        id: UUID(),
+        title: title,
+        audioURL: audioURL,
+        computeMode: computeMode,
+        recognitionMode: recognitionMode,
+        hyakTimeLimitHours: hyakTimeLimitHours,
+        state: .waiting,
+        failureMessage: nil,
+        bookmarkData: bookmarkData
+      ))
+  }
+
+  private static func audioDurationSeconds(at url: URL) -> Double? {
+    let accessing = url.startAccessingSecurityScopedResource()
+    defer {
+      if accessing {
+        url.stopAccessingSecurityScopedResource()
+      }
+    }
+    let seconds = CMTimeGetSeconds(AVURLAsset(url: url).duration)
+    return seconds.isFinite && seconds >= 0 ? seconds : nil
   }
 
   public func retryQueuedSong(_ id: UUID) {
@@ -882,6 +1052,44 @@ public final class AppModel: ObservableObject {
       await refreshBetaJob(projectURL: betaProjectURL)
       isBetaBusy = false
       processSongQueueIfPossible()
+    }
+  }
+
+  public func suggestedResumeHours(for project: LocalProjectItem) -> Int {
+    HyakWallTimePolicy.suggestedManualHours(
+      durationSeconds: project.durationSeconds,
+      configuredMinimum: hyakTimeLimitHours
+    )
+  }
+
+  public func resumeTimedOutProject(
+    _ project: LocalProjectItem,
+    hours: Int
+  ) {
+    guard !isBetaBusy, project.canResumeTimeout else { return }
+    let requestedHours = max(1, min(24, hours))
+    isBetaBusy = true
+    statusMessage =
+      "正在检查“\(project.title)”的可复用检查点并续交 Hyak…"
+    errorMessage = nil
+    Task {
+      do {
+        let backend = try PrivateBetaBackend.locate()
+        let response = try await Task.detached(priority: .userInitiated) {
+          try backend.resumeTimeout(
+            projectURL: project.url,
+            hyakTimeLimitHours: requestedHours
+          )
+        }.value
+        try handleBetaResponse(response)
+        showJobProgress()
+        hyakConnectionState = .connected
+        startMonitoring(projectURL: project.url)
+        refreshProjectLibrary()
+      } catch {
+        presentBetaError(error)
+      }
+      isBetaBusy = false
     }
   }
 
@@ -3305,7 +3513,8 @@ enum LocalProjectLibrary {
           url: child,
           modifiedAt: modifiedAt,
           hasResults: hasResults,
-          jobState: state?.slurmState
+          jobState: state?.slurmState,
+          durationSeconds: manifest.canonicalAudio.metadata?.durationSec
         )
       )
     }

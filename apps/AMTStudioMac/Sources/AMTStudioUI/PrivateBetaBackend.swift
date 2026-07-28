@@ -179,6 +179,22 @@ struct PrivateBetaBackend: Sendable {
     ])
   }
 
+  func resumeTimeout(
+    projectURL: URL,
+    hyakTimeLimitHours: Int
+  ) throws -> PrivateBetaResponse {
+    try execute([
+      "run",
+      "amt-private-beta",
+      "resume-timeout",
+      projectURL.path,
+      "--repo-root",
+      repositoryRoot.path,
+      "--time-limit-hours",
+      String(hyakTimeLimitHours),
+    ])
+  }
+
   func startGapRecovery(
     projectURL: URL,
     sourceBundleID: String,

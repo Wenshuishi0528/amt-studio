@@ -6,6 +6,73 @@ import UniformTypeIdentifiers
   import AMTStudioCore
 #endif
 
+private struct HyakTimeLimitSheet: View {
+  let title: String
+  let durationSeconds: Double
+  let actionTitle: String
+  let explanatoryText: String
+  let onConfirm: (Int) -> Void
+  let onCancel: () -> Void
+
+  @State private var hours: Int
+
+  init(
+    title: String,
+    durationSeconds: Double,
+    initialHours: Int,
+    actionTitle: String,
+    explanatoryText: String =
+      "歌曲超过 21 分钟，需要你确认 Hyak 任务时长后才能提交。",
+    onConfirm: @escaping (Int) -> Void,
+    onCancel: @escaping () -> Void
+  ) {
+    self.title = title
+    self.durationSeconds = durationSeconds
+    self.actionTitle = actionTitle
+    self.explanatoryText = explanatoryText
+    self.onConfirm = onConfirm
+    self.onCancel = onCancel
+    _hours = State(initialValue: max(1, min(24, initialHours)))
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 18) {
+      Label("确认 Hyak 任务时长", systemImage: "clock.badge.questionmark")
+        .font(.title2.bold())
+      Text(title)
+        .font(.headline)
+        .lineLimit(2)
+      if durationSeconds > 0 {
+        LabeledContent("音频时长", value: durationLabel)
+      }
+      Text(explanatoryText)
+        .foregroundStyle(.secondary)
+        .fixedSize(horizontal: false, vertical: true)
+      Stepper(value: $hours, in: 1...24) {
+        LabeledContent("任务时限", value: "\(hours) 小时")
+      }
+      Text("这是 Slurm 最长运行时间，不是预计等待时间。")
+        .font(.caption)
+        .foregroundStyle(.secondary)
+      HStack {
+        Button("取消", role: .cancel, action: onCancel)
+        Spacer()
+        Button(actionTitle) {
+          onConfirm(hours)
+        }
+        .keyboardShortcut(.defaultAction)
+      }
+    }
+    .padding(24)
+    .frame(width: 440)
+  }
+
+  private var durationLabel: String {
+    let totalSeconds = Int(durationSeconds.rounded())
+    return "\(totalSeconds / 60) 分 \(totalSeconds % 60) 秒"
+  }
+}
+
 enum AMTProductIdentity {
   static let author = "wenshuishi26"
   static let fallbackVersion = "0.2.0"
@@ -78,6 +145,7 @@ public struct ContentView: View {
   @State private var isShowingTrackManager = false
   @State private var librarySearchText = ""
   @State private var projectPendingDeletion: LocalProjectItem?
+  @State private var projectPendingResume: LocalProjectItem?
   @State private var trackPendingFragmentRepair: EditorTrack?
 
   public init(model: AppModel) {
@@ -256,6 +324,41 @@ public struct ContentView: View {
     }
     .sheet(isPresented: $isShowingTrackManager) {
       TrackManagerView(model: model)
+    }
+    .sheet(
+      item: Binding(
+        get: { model.hyakTimeConfirmation },
+        set: { _ in }
+      )
+    ) { request in
+      HyakTimeLimitSheet(
+        title: request.title,
+        durationSeconds: request.durationSeconds,
+        initialHours: HyakWallTimePolicy.suggestedManualHours(
+          durationSeconds: request.durationSeconds,
+          configuredMinimum: model.hyakTimeLimitHours
+        ),
+        actionTitle: "加入任务队列",
+        onConfirm: { model.confirmHyakTimeLimit($0) },
+        onCancel: { model.cancelHyakTimeConfirmation() }
+      )
+      .interactiveDismissDisabled()
+    }
+    .sheet(item: $projectPendingResume) { project in
+      HyakTimeLimitSheet(
+        title: project.title,
+        durationSeconds: project.durationSeconds ?? 0,
+        initialHours: model.suggestedResumeHours(for: project),
+        actionTitle: "继续提交",
+        explanatoryText:
+          "只会从已经完成并校验通过的原始多轨检查点继续。"
+          + "如果检查点不存在，软件会停止并提示重新完整识别。",
+        onConfirm: {
+          model.resumeTimedOutProject(project, hours: $0)
+          projectPendingResume = nil
+        },
+        onCancel: { projectPendingResume = nil }
+      )
     }
     .confirmationDialog(
       "重新分析所选空缺？",
@@ -978,6 +1081,9 @@ public struct ContentView: View {
       onReveal: {
         model.revealProject(project)
       },
+      onResume: {
+        projectPendingResume = project
+      },
       onDelete: {
         projectPendingDeletion = project
       }
@@ -1166,6 +1272,7 @@ private struct LibraryProjectRow: View {
   let isBusy: Bool
   let onOpen: () -> Void
   let onReveal: () -> Void
+  let onResume: () -> Void
   let onDelete: () -> Void
 
   var body: some View {
@@ -1210,6 +1317,14 @@ private struct LibraryProjectRow: View {
           systemImage: "folder",
           action: onReveal
         )
+        if project.canResumeTimeout {
+          Button(
+            "从检查点继续",
+            systemImage: "arrow.clockwise.circle",
+            action: onResume
+          )
+          .disabled(isBusy)
+        }
         Divider()
         Button(
           project.canMoveToTrash ? "移到废纸篓" : "任务进行中，不能删除",
@@ -1432,7 +1547,9 @@ private struct SettingsView: View {
           )
         }
         .accessibilityIdentifier("hyak-time-limit-hours")
-        Text("默认 1 小时，仅影响之后提交的整曲识别和空缺重算任务；正在运行的任务不会被修改。")
+        Text(
+          "这是最低时限：歌曲超过 7 分钟自动至少 2 小时，超过 14 分钟至少 3 小时；超过 21 分钟会在提交前要求确认。正在运行的任务不会被修改。"
+        )
           .font(.caption)
           .foregroundStyle(theme.mutedText)
       }

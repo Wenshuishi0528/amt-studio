@@ -4,6 +4,38 @@ This project records changes by numbered research task until formal semantic
 versions and releases begin. Dates and commit identifiers refer to the local
 Git history.
 
+## Task 009B3J — Duration-aware Hyak time and timeout continuation — 2026-07-28
+
+### Added
+
+- Added automatic Hyak wall-time minimums: one hour through seven minutes, two
+  hours above seven through fourteen minutes, and three hours above fourteen
+  through twenty-one minutes.
+- Added a required long-song confirmation window with song duration, suggested
+  wall time, and a 1–24 hour input.
+- Added `从检查点继续` for TIMEOUT projects whose completed MuScriptor raw
+  multitrack bundle can be safely reused.
+- Added a dedicated compute-node Slurm entry point that restarts only automatic
+  gap recovery and falls back to the already completed raw multitrack.
+
+### Changed
+
+- The Settings wall time is now a user-controlled minimum. Each queued Hyak
+  song displays and freezes its resolved time.
+- Timed-out gap reports, parent runs, child runs, and incomplete final bundle
+  are renamed with the failed Job ID before continuation; no raw evidence is
+  overwritten.
+- Unsupported or pre-checkpoint timeouts fail explicitly instead of silently
+  rerunning a full song under a “resume” label.
+
+### Verified
+
+- Regression tests cover all 7/14/21-minute boundaries, configured minimums,
+  manual suggestions, raw-checkpoint continuation, preserved old attempts, and
+  the dedicated resume script.
+- `make check` passes 295 Python and 57 Swift tests with three expected private
+  integration skips. No Hyak job was submitted by this task.
+
 ## Task 009B3I — Cross-song tracks and concurrent Hyak submissions — 2026-07-28
 
 ### Added
