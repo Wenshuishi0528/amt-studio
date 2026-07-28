@@ -220,6 +220,11 @@ public struct LocalProjectItem: Sendable, Equatable, Identifiable {
   public let hasResults: Bool
   public let jobState: String?
   public let durationSeconds: Double?
+  public let submittedAt: Date?
+  public let pipelineStage: String?
+  public let taskKind: String?
+  public let gpuType: String?
+  public let estimatedWaitSeconds: Int?
 
   public init(
     projectID: String,
@@ -228,7 +233,12 @@ public struct LocalProjectItem: Sendable, Equatable, Identifiable {
     modifiedAt: Date,
     hasResults: Bool,
     jobState: String?,
-    durationSeconds: Double? = nil
+    durationSeconds: Double? = nil,
+    submittedAt: Date? = nil,
+    pipelineStage: String? = nil,
+    taskKind: String? = nil,
+    gpuType: String? = nil,
+    estimatedWaitSeconds: Int? = nil
   ) {
     self.projectID = projectID
     self.title = title
@@ -237,6 +247,11 @@ public struct LocalProjectItem: Sendable, Equatable, Identifiable {
     self.hasResults = hasResults
     self.jobState = jobState
     self.durationSeconds = durationSeconds
+    self.submittedAt = submittedAt
+    self.pipelineStage = pipelineStage
+    self.taskKind = taskKind
+    self.gpuType = gpuType
+    self.estimatedWaitSeconds = estimatedWaitSeconds
   }
 
   public var id: String {
@@ -275,6 +290,25 @@ public struct LocalProjectItem: Sendable, Equatable, Identifiable {
     jobState == "TIMEOUT"
   }
 
+  public func elapsedSeconds(at date: Date) -> TimeInterval? {
+    guard hasActiveJob, let submittedAt else { return nil }
+    return max(0, date.timeIntervalSince(submittedAt))
+  }
+
+  public func completionEstimate(at date: Date) -> TaskCompletionEstimate? {
+    guard hasActiveJob else { return nil }
+    return TaskCompletionEstimator.estimate(
+      submittedAt: submittedAt,
+      now: date,
+      audioDurationSeconds: durationSeconds,
+      taskKind: taskKind,
+      gpuType: gpuType,
+      slurmState: jobState,
+      pipelineStage: pipelineStage,
+      estimatedWaitSeconds: estimatedWaitSeconds
+    )
+  }
+
   fileprivate static let terminalFailureStates: Set<String> = [
     "FAILED",
     "CANCELLED",
@@ -288,6 +322,89 @@ public struct LocalProjectItem: Sendable, Equatable, Identifiable {
 
   fileprivate static let terminalStates =
     terminalFailureStates.union(["COMPLETED"])
+}
+
+public struct TaskCompletionEstimate: Sendable, Equatable {
+  public let earliest: Date
+  public let latest: Date
+}
+
+public enum TaskCompletionEstimator {
+  public static func estimate(
+    submittedAt: Date?,
+    now: Date,
+    audioDurationSeconds: Double?,
+    taskKind: String?,
+    gpuType: String?,
+    slurmState: String?,
+    pipelineStage: String?,
+    estimatedWaitSeconds: Int?
+  ) -> TaskCompletionEstimate {
+    let audioMinutes = max(1, (audioDurationSeconds ?? 240) / 60)
+    let baseMinutes: Double =
+      switch taskKind {
+      case "game_vocal_transcription":
+        max(20, 15 + audioMinutes * 7)
+      case "targeted_gap_recovery":
+        max(12, 8 + audioMinutes * 2)
+      default:
+        max(20, 12 + audioMinutes * 6)
+      }
+    let gpuMultiplier: Double =
+      switch gpuType?.lowercased() {
+      case "a100": 0.75
+      case "l40s": 0.85
+      case "a40": 1.15
+      default: 1
+      }
+    let expectedProcessing = baseMinutes * gpuMultiplier * 60
+    let wait = TimeInterval(max(0, estimatedWaitSeconds ?? 0))
+
+    let remaining: TimeInterval
+    if ["PENDING", "CONFIGURING"].contains(slurmState ?? "") {
+      let estimatedStart = (submittedAt ?? now).addingTimeInterval(wait)
+      remaining =
+        max(0, estimatedStart.timeIntervalSince(now))
+        + expectedProcessing
+    } else {
+      let estimatedStart = (submittedAt ?? now).addingTimeInterval(wait)
+      let observedProcessing = max(0, now.timeIntervalSince(estimatedStart))
+      let progress = stageProgress(pipelineStage)
+      let stageAdjustedTotal =
+        progress > 0 ? observedProcessing / progress : expectedProcessing
+      let expectedTotal = max(expectedProcessing, stageAdjustedTotal)
+      remaining = max(minimumRemaining(pipelineStage), expectedTotal - observedProcessing)
+    }
+
+    let earliestRemaining = max(60, remaining * 0.75)
+    let latestRemaining = max(earliestRemaining + 5 * 60, remaining * 1.35)
+    return TaskCompletionEstimate(
+      earliest: now.addingTimeInterval(earliestRemaining),
+      latest: now.addingTimeInterval(latestRemaining)
+    )
+  }
+
+  private static func stageProgress(_ stage: String?) -> Double {
+    switch stage {
+    case "source_separation": 0.25
+    case "game_vocal_transcription": 0.55
+    case "full_transcription": 0.4
+    case "rhythm_analysis": 0.65
+    case "gap_planning": 0.72
+    case "automatic_gap_recovery": 0.82
+    case "targeted_gap_recovery": 0.7
+    case "packaging": 0.95
+    default: 0.05
+    }
+  }
+
+  private static func minimumRemaining(_ stage: String?) -> TimeInterval {
+    switch stage {
+    case "packaging": 2 * 60
+    case "gap_planning", "rhythm_analysis": 5 * 60
+    default: 8 * 60
+    }
+  }
 }
 
 public enum HyakWallTimePolicy {
@@ -1216,6 +1333,15 @@ public final class AppModel: ObservableObject {
       )
     }
     return paths.count
+  }
+
+  public var activeProjectTiming: LocalProjectItem? {
+    guard let betaProjectURL else { return nil }
+    let activePath =
+      betaProjectURL.standardizedFileURL.resolvingSymlinksInPath().path
+    return libraryProjects.first {
+      $0.url.standardizedFileURL.resolvingSymlinksInPath().path == activePath
+    }
   }
 
   public var audibleTrackIDs: Set<String> {
@@ -3137,6 +3263,7 @@ private struct PrivateBetaJobState: Decodable, Sendable {
   let gpuPreemptible: Bool?
   let gpuSelectionReason: String?
   let gpuEstimatedWaitSeconds: Int?
+  let submittedAt: String?
 
   enum CodingKeys: String, CodingKey {
     case jobID = "job_id"
@@ -3153,6 +3280,7 @@ private struct PrivateBetaJobState: Decodable, Sendable {
     case gpuPreemptible = "gpu_preemptible"
     case gpuSelectionReason = "gpu_selection_reason"
     case gpuEstimatedWaitSeconds = "gpu_estimated_wait_seconds"
+    case submittedAt = "submitted_at"
   }
 }
 
@@ -3514,7 +3642,12 @@ enum LocalProjectLibrary {
           modifiedAt: modifiedAt,
           hasResults: hasResults,
           jobState: state?.slurmState,
-          durationSeconds: manifest.canonicalAudio.metadata?.durationSec
+          durationSeconds: manifest.canonicalAudio.metadata?.durationSec,
+          submittedAt: parseBackendDate(state?.submittedAt),
+          pipelineStage: state?.pipelineStage,
+          taskKind: state?.taskKind,
+          gpuType: state?.slurmGPUType,
+          estimatedWaitSeconds: state?.gpuEstimatedWaitSeconds
         )
       )
     }
@@ -3537,6 +3670,16 @@ enum LocalProjectLibrary {
     try? url.resourceValues(
       forKeys: [.contentModificationDateKey]
     ).contentModificationDate
+  }
+
+  private static func parseBackendDate(_ value: String?) -> Date? {
+    guard let value else { return nil }
+    let fractional = ISO8601DateFormatter()
+    fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    if let date = fractional.date(from: value) {
+      return date
+    }
+    return ISO8601DateFormatter().date(from: value)
   }
 
   private static func newestBundleModificationDate(in exportsURL: URL) -> Date? {

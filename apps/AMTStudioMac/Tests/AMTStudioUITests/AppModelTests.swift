@@ -6,6 +6,67 @@ import XCTest
 
 @MainActor
 final class AppModelTests: XCTestCase {
+  func testActiveProjectElapsedTimeUsesStableSubmissionTimestamp() {
+    let submittedAt = Date(timeIntervalSince1970: 1_000)
+    let firstRefresh = LocalProjectItem(
+      projectID: "song",
+      title: "Song",
+      url: URL(fileURLWithPath: "/tmp/song"),
+      modifiedAt: Date(timeIntervalSince1970: 1_100),
+      hasResults: false,
+      jobState: "RUNNING",
+      submittedAt: submittedAt
+    )
+    let laterRefresh = LocalProjectItem(
+      projectID: "song",
+      title: "Song",
+      url: URL(fileURLWithPath: "/tmp/song"),
+      modifiedAt: Date(timeIntervalSince1970: 1_590),
+      hasResults: false,
+      jobState: "RUNNING",
+      submittedAt: submittedAt
+    )
+
+    XCTAssertEqual(
+      firstRefresh.elapsedSeconds(at: Date(timeIntervalSince1970: 1_600)),
+      600
+    )
+    XCTAssertEqual(
+      laterRefresh.elapsedSeconds(at: Date(timeIntervalSince1970: 1_600)),
+      600
+    )
+  }
+
+  func testCompletionEstimateIsFutureRangeAndRespondsToPipelineStage() {
+    let now = Date(timeIntervalSince1970: 10_000)
+    let submittedAt = now.addingTimeInterval(-20 * 60)
+    let early = TaskCompletionEstimator.estimate(
+      submittedAt: submittedAt,
+      now: now,
+      audioDurationSeconds: 4 * 60,
+      taskKind: "full_transcription",
+      gpuType: "l40",
+      slurmState: "RUNNING",
+      pipelineStage: "full_transcription",
+      estimatedWaitSeconds: 0
+    )
+    let packaging = TaskCompletionEstimator.estimate(
+      submittedAt: submittedAt,
+      now: now,
+      audioDurationSeconds: 4 * 60,
+      taskKind: "full_transcription",
+      gpuType: "l40",
+      slurmState: "RUNNING",
+      pipelineStage: "packaging",
+      estimatedWaitSeconds: 0
+    )
+
+    XCTAssertGreaterThan(early.earliest, now)
+    XCTAssertGreaterThan(early.latest, early.earliest)
+    XCTAssertGreaterThan(packaging.earliest, now)
+    XCTAssertLessThan(packaging.latest, early.latest)
+  }
+
   func testHyakWallTimePolicyExtendsAndEscalatesLongSongs() {
     XCTAssertEqual(
       HyakWallTimePolicy.automaticHours(durationSeconds: 7 * 60),
@@ -752,6 +813,7 @@ final class AppModelTests: XCTestCase {
         "canonical_audio": [
           "path": "audio/canonical/mix.flac",
           "sha256": String(repeating: "b", count: 64),
+          "metadata": ["duration_sec": 240.0],
         ],
       ],
       to: activeProject.appendingPathComponent("manifest.json")
@@ -761,6 +823,10 @@ final class AppModelTests: XCTestCase {
         "job_id": "fixture-job",
         "slurm_state": "RUNNING",
         "pipeline_stage": "full_transcription",
+        "submitted_at": "2026-07-28T18:00:00.123456+00:00",
+        "task_kind": "full_transcription",
+        "slurm_gpu_type": "l40",
+        "gpu_estimated_wait_seconds": 60,
       ],
       to: activeProject.appendingPathComponent("app/private_beta_job.json")
     )
@@ -771,6 +837,11 @@ final class AppModelTests: XCTestCase {
     XCTAssertEqual(items[0].title, "正在识别的歌")
     XCTAssertTrue(items[0].hasActiveJob)
     XCTAssertFalse(items[0].canMoveToTrash)
+    XCTAssertEqual(items[0].durationSeconds, 240)
+    XCTAssertEqual(items[0].taskKind, "full_transcription")
+    XCTAssertEqual(items[0].gpuType, "l40")
+    XCTAssertEqual(items[0].estimatedWaitSeconds, 60)
+    XCTAssertNotNil(items[0].submittedAt)
     XCTAssertEqual(items[1].title, "以前的歌")
     XCTAssertEqual(items[1].stateLabel, "尚无结果")
     XCTAssertTrue(items[1].canMoveToTrash)

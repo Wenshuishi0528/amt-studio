@@ -1,12 +1,27 @@
 # Project status
 
-Current product milestone: Task 009B3K installs the owner-selected cover as the
-real macOS application icon for AMT Studio 0.2.0
+Current product milestone: Task 009B3L provides stable active-task timing and a
+coarse processing completion estimate in AMT Studio 0.2.0
 Research status: Gate 4 remains not passed for the rejected fusion routes; no
 new dataset, fusion, retuning, or training work is in the product critical path
-Current task: complete and package the macOS icon resource
-Next task: owner visual confirmation after reopening the packaged app
+Current task: complete and package timer/ETA presentation
+Next task: owner visual confirmation against live tasks
 Current branch: `main`
+
+Implemented for Task 009B3L:
+
+- active task elapsed time is anchored to the immutable backend
+  `submitted_at`, not the frequently rewritten state-file modification date;
+- library timers update once per second without resetting during the 20-second
+  Slurm monitor refresh;
+- the processing-flow page displays elapsed time and a dynamic estimated
+  completion range based on duration, task type, GPU, queue estimate, and
+  current stage;
+- the UI calls the estimate approximate and explains that automatic recovery
+  and cluster congestion can move it;
+- `make check` passes 295 Python and 59 Swift tests with three expected private
+  integration skips. The formal Xcode project and packaged release app both
+  build successfully; no Hyak job was changed or submitted.
 
 Implemented for Task 009B3K:
 

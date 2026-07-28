@@ -1286,13 +1286,28 @@ private struct LibraryProjectRow: View {
             Text(project.title)
               .lineLimit(1)
               .font(.subheadline.weight(isSelected ? .semibold : .regular))
-            HStack(spacing: 5) {
-              Text(project.stateLabel)
-              Text("·")
-              Text(project.modifiedAt, style: .relative)
+            if project.hasActiveJob {
+              TimelineView(.periodic(from: .now, by: 1)) { context in
+                HStack(spacing: 5) {
+                  Text(project.stateLabel)
+                  if let elapsed = project.elapsedSeconds(at: context.date) {
+                    Text("·")
+                    Text(Self.elapsedLabel(elapsed))
+                      .monospacedDigit()
+                  }
+                }
+              }
+              .font(.caption2)
+              .foregroundStyle(.secondary)
+            } else {
+              HStack(spacing: 5) {
+                Text(project.stateLabel)
+                Text("·")
+                Text(project.modifiedAt, style: .relative)
+              }
+              .font(.caption2)
+              .foregroundStyle(.secondary)
             }
-            .font(.caption2)
-            .foregroundStyle(.secondary)
           }
           Spacer(minLength: 2)
           if isSelected {
@@ -1343,6 +1358,18 @@ private struct LibraryProjectRow: View {
       .accessibilityLabel("\(project.title) 更多操作")
       .accessibilityIdentifier("library-actions-\(project.projectID)")
     }
+  }
+
+  private static func elapsedLabel(_ interval: TimeInterval) -> String {
+    let seconds = max(0, Int(interval))
+    if seconds < 60 {
+      return "\(seconds) 秒"
+    }
+    let minutes = seconds / 60
+    if minutes < 60 {
+      return "\(minutes) 分 \(seconds % 60) 秒"
+    }
+    return "\(minutes / 60) 小时 \(minutes % 60) 分"
   }
 
   private var projectIcon: String {
@@ -1709,6 +1736,49 @@ private struct JobProgressView: View {
         }
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
 
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+          HStack(spacing: 18) {
+            if let timing = model.activeProjectTiming,
+              let elapsed = timing.elapsedSeconds(at: context.date)
+            {
+              Label(
+                "任务已用时 \(Self.elapsedLabel(elapsed))",
+                systemImage: "timer"
+              )
+              .monospacedDigit()
+              Divider()
+                .frame(height: 22)
+            }
+            if let estimate = model.activeProjectTiming?
+              .completionEstimate(at: context.date)
+            {
+              Label(
+                "预计完成 \(Self.estimateLabel(estimate, now: context.date))",
+                systemImage: "clock.badge.checkmark"
+              )
+            } else {
+              Label(
+                "正在收集完成时间估算所需信息",
+                systemImage: "clock.badge.questionmark"
+              )
+            }
+            Spacer()
+          }
+          .font(.callout.weight(.medium))
+          .foregroundStyle(theme.mutedText)
+          .padding(.horizontal, 18)
+          .frame(height: 52)
+          .background(theme.raisedSurface)
+          .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+              .stroke(theme.border, lineWidth: 1)
+          }
+        }
+
+        Text("预计时间根据歌曲长度、GPU、排队估计和当前处理阶段动态计算，仅供参考；自动补漏和集群拥堵可能使范围变化。")
+          .font(.caption)
+          .foregroundStyle(theme.quietText)
+
         HStack(spacing: 12) {
           Button("刷新任务", systemImage: "arrow.clockwise") {
             model.refreshBetaJob()
@@ -1897,6 +1967,36 @@ private struct JobProgressView: View {
 
   private var isTargetedRecoveryJob: Bool {
     model.betaTaskKind == "targeted_gap_recovery"
+  }
+
+  private static func elapsedLabel(_ interval: TimeInterval) -> String {
+    let seconds = max(0, Int(interval))
+    if seconds < 60 {
+      return "\(seconds) 秒"
+    }
+    let minutes = seconds / 60
+    if minutes < 60 {
+      return "\(minutes) 分 \(seconds % 60) 秒"
+    }
+    return "\(minutes / 60) 小时 \(minutes % 60) 分"
+  }
+
+  private static func estimateLabel(
+    _ estimate: TaskCompletionEstimate,
+    now: Date
+  ) -> String {
+    let earliest = dateLabel(estimate.earliest, now: now)
+    let latest = dateLabel(estimate.latest, now: now)
+    return "\(earliest)–\(latest)"
+  }
+
+  private static func dateLabel(_ date: Date, now: Date) -> String {
+    if Calendar.current.isDate(date, inSameDayAs: now) {
+      return date.formatted(date: .omitted, time: .shortened)
+    }
+    return date.formatted(
+      .dateTime.month(.abbreviated).day().hour().minute()
+    )
   }
 
   private var connectionLabel: String {

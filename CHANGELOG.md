@@ -4,6 +4,29 @@ This project records changes by numbered research task until formal semantic
 versions and releases begin. Dates and commit identifiers refer to the local
 Git history.
 
+## Task 009B3L — Stable task timer and completion estimate — 2026-07-28
+
+### Fixed
+
+- Active-library timers now use the immutable backend `submitted_at` timestamp
+  instead of the job-state file modification time, so periodic Slurm refreshes
+  no longer reset the displayed elapsed time.
+
+### Added
+
+- The processing-flow page now displays continuously updating task elapsed time
+  and a coarse completion-time range.
+- The estimate responds to audio duration, task type, selected GPU, queue
+  estimate, and the current pipeline stage, and is explicitly labeled as
+  non-guaranteed.
+
+### Verified
+
+- Regression tests prove that changing a project file modification time cannot
+  change its elapsed timer and that later pipeline stages shorten the estimate.
+- `make check` passes 295 Python and 59 Swift tests with three expected private
+  integration skips; the formal Xcode project and packaged app build.
+
 ## Task 009B3K — macOS application icon — 2026-07-28
 
 ### Changed

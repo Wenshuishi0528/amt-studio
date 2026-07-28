@@ -1569,3 +1569,35 @@ Evidence:
 - the packaged Info.plist resolves `AMTStudioIcon`, the 2.4 MB `.icns` resource
   is present, and strict code-signature verification succeeds;
 - no Hyak job, model inference, or product-data change ran.
+
+## Task 009B3L: stable active-task timing and coarse completion estimate
+
+Goal:
+
+- stop active-task elapsed timers from resetting during background refresh;
+- show a useful but scientifically cautious completion estimate on the
+  processing-flow page.
+
+Frozen product rule:
+
+- elapsed time is anchored to backend `submitted_at`; filesystem modification
+  time remains only a library sorting and inactive-project recency signal;
+- missing legacy timestamps show no fabricated elapsed counter;
+- completion is presented as a range, not an exact promise;
+- the range may use audio duration, task type, GPU, initial queue estimate, and
+  current pipeline stage, and the UI must disclose congestion and recovery
+  uncertainty;
+- the feature is presentation-only and must not query, cancel, resubmit, or
+  otherwise alter Hyak work.
+
+Evidence:
+
+- tests prove two refreshed project snapshots with different `modifiedAt`
+  values produce the same elapsed time from one `submittedAt`;
+- tests cover fractional Python ISO-8601 timestamp parsing and verify that a
+  packaging-stage estimate is earlier than an otherwise identical
+  full-transcription estimate;
+- `make check` passes 295 Python and 59 Swift tests with three expected
+  private-environment skips;
+- the formal Xcode project and packaged release app both build successfully;
+- no Hyak job, model inference, or product-data change ran.
