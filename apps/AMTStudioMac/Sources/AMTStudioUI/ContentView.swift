@@ -266,7 +266,7 @@ public struct ContentView: View {
         Text(
           summary.kind == .percussionRepeats
             ? "将折叠“\(track.label)”尾部 \(summary.fragmentCount) 个疑似重复短击。真实鼓点也可能相似，操作会立即保存但可以撤销。"
-            : "将把“\(track.label)”中的 \(summary.fragmentCount) 个首尾相接同音片段合并为延长音。原识别版本不变，操作会立即保存且可以撤销。"
+            : "将在“\(track.label)”中把 \(summary.fragmentCount) 个首尾相接的同音碎片重建为 \(summary.groupCount) 个连续音。原识别版本不变，保存后会立即重新读取校验，操作可以撤销。"
         )
       } else if let track = trackPendingFragmentRepair {
         Text(
@@ -551,7 +551,7 @@ public struct ContentView: View {
                       Text(track.label)
                         .lineLimit(1)
                       Text(
-                        "\(track.instrument ?? "未知乐器") · \(track.eventCount) 音符"
+                        "\(track.instrument ?? "未知乐器") · \(model.displayedEventCount(for: track)) 音符"
                       )
                       .font(.caption2)
                       .foregroundStyle(.secondary)

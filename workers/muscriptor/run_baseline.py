@@ -321,6 +321,14 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Run and preserve JSONL only; do not run the second MIDI decode.",
     )
+    parser.add_argument(
+        "--allow-empty-jsonl",
+        action="store_true",
+        help=(
+            "Treat an existing empty JSONL as a valid zero-candidate result. "
+            "Only bounded recovery callers should use this."
+        ),
+    )
     parser.add_argument("--pins", type=Path, default=DEFAULT_PINS)
     parser.add_argument(
         "--prelude-forcing",
@@ -334,6 +342,8 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     run_id = validate_run_id(args.run_id)
     instruments = normalize_instruments(args.instruments)
+    if args.allow_empty_jsonl and not args.skip_midi:
+        raise ValueError("--allow-empty-jsonl requires --skip-midi")
     project_dir = args.project.expanduser().resolve()
     worker_env = args.worker_env.expanduser().resolve()
     provenance_path = args.weight_provenance.expanduser().resolve()
@@ -444,6 +454,7 @@ def main(argv: list[str] | None = None) -> int:
         "prelude_forcing": args.prelude_forcing,
         "instruments": instruments,
         "skip_midi": args.skip_midi,
+        "allow_empty_jsonl": args.allow_empty_jsonl,
         "device": args.device,
         "dtype": args.dtype,
         "input": {
@@ -494,6 +505,7 @@ def main(argv: list[str] | None = None) -> int:
             "instruments": instruments,
             "device": args.device,
             "skip_midi": args.skip_midi,
+            "allow_empty_jsonl": args.allow_empty_jsonl,
         },
         "reproducibility": {
             "random_seed": None,
@@ -531,7 +543,9 @@ def main(argv: list[str] | None = None) -> int:
         manifest["timings"]["jsonl"] = jsonl_result
         if jsonl_result["exit_code"] != 0:
             raise RuntimeError("MuScriptor native JSONL command failed")
-        if not native_events.is_file() or native_events.stat().st_size == 0:
+        if not native_events.is_file():
+            raise RuntimeError("MuScriptor reported success without native JSONL output")
+        if native_events.stat().st_size == 0 and not args.allow_empty_jsonl:
             raise RuntimeError("MuScriptor reported success without native JSONL output")
 
         if midi_command is not None:

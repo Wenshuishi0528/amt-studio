@@ -104,6 +104,29 @@ final class ProjectAndEditingTests: XCTestCase {
     XCTAssertEqual(groups[0].offsetSec, 4)
   }
 
+  func testWholeTrackSustainAnalyzerPlansEveryContinuousChordVoice() {
+    let chordFragments = (0..<6).flatMap { pitchIndex in
+      (0..<12).map { fragmentIndex in
+        testNote(
+          id: "chord-\(pitchIndex)-\(fragmentIndex)",
+          onset: 4 + Double(fragmentIndex) * 0.25,
+          offset: 4 + Double(fragmentIndex + 1) * 0.25,
+          pitch: 48 + Double(pitchIndex) * 3
+        )
+      }
+    }
+
+    let groups = SustainFragmentAnalyzer.fragmentedGroups(
+      notes: chordFragments,
+      timelineEnd: 20
+    )
+
+    XCTAssertEqual(groups.count, 6)
+    XCTAssertEqual(groups.reduce(0) { $0 + $1.fragmentCount }, 72)
+    XCTAssertTrue(groups.allSatisfy { $0.onsetSec == 4 })
+    XCTAssertTrue(groups.allSatisfy { $0.offsetSec == 7 })
+  }
+
   func testPercussionRepeatAnalyzerRequiresDenseTailPattern() {
     let repeatedHits = (0..<8).map { index in
       testNote(
@@ -207,6 +230,54 @@ final class ProjectAndEditingTests: XCTestCase {
     XCTAssertEqual(merged.count, 1)
     XCTAssertEqual(merged[0].onsetSec, 9)
     XCTAssertEqual(merged[0].offsetSec, 10)
+  }
+
+  func testSustainMergePersistsAsContinuousNotesAfterReopen() throws {
+    let fixture = try FixtureProject()
+    defer { fixture.remove() }
+    let snapshot = try ProjectLoader.open(projectURL: fixture.root)
+    var editor = try EditorProject(
+      snapshot: snapshot,
+      bundleID: "bundle-a",
+      selectedTrackID: "candidate-a"
+    )
+    let fragments = (0..<12).map { index in
+      testNote(
+        id: "persistent-fragment-\(index)",
+        onset: 4 + Double(index) * 0.25,
+        offset: 4 + Double(index + 1) * 0.25,
+        pitch: 60
+      )
+    }
+    for fragment in fragments {
+      try editor.create(fragment)
+    }
+    let merged = try editor.mergeSustainFragments([
+      SustainFragmentGroup(
+        pitchMIDI: 60,
+        noteIDs: fragments.map(\.id),
+        onsetSec: 4,
+        offsetSec: 7
+      )
+    ])
+    try editor.save()
+
+    let reopened = try EditorProject(
+      snapshot: snapshot,
+      bundleID: "bundle-a",
+      selectedTrackID: "candidate-a"
+    )
+    let mergedID = try XCTUnwrap(merged.first?.id)
+    let persisted = try XCTUnwrap(
+      reopened.notes.first(where: { $0.id == mergedID })
+    )
+    XCTAssertEqual(persisted.onsetSec, 4)
+    XCTAssertEqual(persisted.offsetSec, 7)
+    XCTAssertTrue(
+      Set(reopened.notes.map(\.id)).isDisjoint(
+        with: Set(fragments.map(\.id))
+      )
+    )
   }
 
   func testPercussionRepeatCollapseKeepsOneHitAndIsUndoable() throws {

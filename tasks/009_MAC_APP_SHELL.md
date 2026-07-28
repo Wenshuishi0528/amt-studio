@@ -24,7 +24,56 @@ recoverable project deletion, and keeps tail-repair status visible. Task
 009B2U removes unrestricted main-melody fallback, rejects excessive automatic
 voice growth, and restores the latest eligible source version by default.
 Task 009B3A adds an optional Hyak-only GAME singing-voice single-track route
-while retaining MuScriptor full multitrack as the persisted default.
+while retaining MuScriptor full multitrack as the persisted default. Task
+009B3D closes the real zero-candidate recovery failure and makes whole-track
+continuous-note rebuilding a durable per-track product operation.
+
+## Task 009B3D: zero-candidate recovery and durable continuous notes
+
+Objective:
+
+- repair the latest selected-gap task without mistaking “the model found no
+  notes” for a GPU or inference crash;
+- make the owner's same-pitch continuous-note repair reusable on every similar
+  pitched track, with truthful preview and verified persistence.
+
+Implemented:
+
+- only bounded child decodes invoked by targeted recovery pass the new
+  `--allow-empty-jsonl` contract. A present zero-byte native event file becomes
+  a valid zero-candidate run; missing output and empty whole-song inference
+  remain failures;
+- zero-candidate recovery produces an immutable derived bundle whose product
+  track is unchanged and whose manifest records zero recovered candidates.
+  Swift status text reports that result directly;
+- failed Hyak refreshes fetch available run/log artifacts and expose the
+  worker's recorded reason. Targeted success records the recovered candidate
+  count in validated local state;
+- request-path validation uses the resolved file's identity and requires it to
+  be a direct member of the project's requests directory, fixing canonical
+  NFC/NFD spelling differences without weakening containment;
+- the per-track menu rescans the selected track, reports the actual number of
+  fragments and replacement groups, rebuilds all conservative same-pitch
+  groups, saves once, reopens the editor, and verifies new IDs exist while old
+  fragments do not. This path is available for every pitched product track;
+  percussion retains its distinct repeated-hit treatment.
+
+Evidence:
+
+- preserved Jobs `37811672` and `37811709` both ran on an A100 compute node,
+  exited MuScriptor successfully, and wrote an empty native events JSONL for
+  the selected intro. That is the exact case covered by the new bounded
+  contract;
+- `make check` passes all 291 Python and 49 Swift tests, with three expected
+  skips requiring private live integration. New regressions cover empty child
+  output, unchanged packaging, state summaries, NFC/NFD paths, exact fragment
+  counts, multi-voice grouping, and save/reopen persistence;
+- the single bounded review found one P1 request-directory symlink escape.
+  Resolved paths must remain inside the project before their filesystem
+  identity is accepted, preserving Unicode compatibility without weakening
+  containment;
+- original model bundles and both failed attempts remain unchanged. A corrected
+  real retry is submitted only after this committed worker is synchronized.
 
 ## Task 009B3C: visible GAME job progress
 

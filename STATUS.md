@@ -1,14 +1,38 @@
 # Project status
 
-Current product milestone: Task 009B3C makes an active GAME job's real pipeline
-progress visible even when the project already has earlier editable results
+Current product milestone: Task 009B3D makes zero-candidate targeted recovery
+a successful unchanged result and makes continuous-note rebuilding durable on
+every pitched product track
 Research status: Gate 4 remains not passed for the rejected fusion routes; no
 new dataset, fusion, retuning, or training work is in the product critical path
-Current task: show submission, GPU wait, separation, GAME large, rhythm, and
-result retrieval as distinct phases with a reversible return to earlier results
-Next task: owner listening review of the completed GAME large result; do not
-auto-promote it over MuScriptor voice without that evidence
+Current task: close the real failed-recovery and fragmented-sustain product
+paths without changing model scope or source tracks
+Next task: owner listening review of the completed GAME large result and any
+recovered melody; do not auto-promote either without that evidence
 Current branch: `main`
+
+Implemented for Task 009B3D:
+
+- the latest selected-gap attempts reached MuScriptor successfully but emitted
+  an existing empty native JSONL. Bounded recovery now treats that as a valid
+  zero-candidate outcome and creates an unchanged derived version; whole-song
+  recognition still fails closed on an empty model output;
+- targeted result state records the recovered candidate count. The app now
+  distinguishes “completed with no new notes” from infrastructure failure, and
+  fetched failed-run evidence can expose the model's actual error instead of a
+  generic dialog;
+- canonically equivalent NFC/NFD request paths are validated by filesystem
+  identity, removing the second local status-reading failure seen on the
+  Japanese project name;
+- every pitched track can rescan and preview all interior or trailing
+  same-pitch continuous-note fragments, report the exact replacement count,
+  rebuild them as one saved undoable edit, and reopen the project to verify
+  persistence. Drums retain their separate repeated-hit rule;
+- full `make check` passes 291 Python and 49 Swift tests with three expected
+  private-integration skips. The single bounded review found one P1
+  request-directory symlink escape; containment is restored without losing
+  NFC/NFD compatibility. The latest real task retry is recorded separately
+  after the corrected committed worker is synchronized.
 
 Implemented for Task 009B3C:
 

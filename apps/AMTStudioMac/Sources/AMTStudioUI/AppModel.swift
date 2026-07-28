@@ -278,7 +278,7 @@ public struct TrailingCleanupSummary: Sendable, Equatable {
 
   public var badgeLabel: String {
     switch kind {
-    case .sustain: "延音碎片 \(fragmentCount)"
+    case .sustain: "连续音碎片 \(fragmentCount) → \(groupCount)"
     case .percussionRepeats: "尾部重复打击 \(fragmentCount)"
     }
   }
@@ -721,6 +721,13 @@ public final class AppModel: ObservableObject {
     MelodyTrackSelector.productTracks(from: trackChoices)
   }
 
+  public func displayedEventCount(for track: EditorTrack) -> Int {
+    guard editor?.selectedTrack.id == track.id else {
+      return track.eventCount
+    }
+    return notes.count
+  }
+
   public func canDeleteTrack(_ trackID: String) -> Bool {
     visibleTrackChoices.count > 1
       && visibleTrackChoices.contains(where: { $0.id == trackID })
@@ -1112,13 +1119,28 @@ public final class AppModel: ObservableObject {
         ? try editor.collapsePercussionRepeats(groups)
         : try editor.mergeSustainFragments(groups)
       try editor.save()
-      self.editor = editor
-      recordSave(editor)
+      let persisted = try EditorProject(
+        snapshot: editor.snapshot,
+        bundleID: editor.bundleID,
+        selectedTrackID: editor.selectedTrack.id
+      )
+      let persistedIDs = Set(persisted.notes.map(\.id))
+      let mergedIDs = Set(merged.map(\.id))
+      let sourceFragmentIDs = Set(groups.flatMap(\.noteIDs))
+      guard mergedIDs.isSubset(of: persistedIDs),
+        persistedIDs.isDisjoint(with: sourceFragmentIDs)
+      else {
+        throw AMTProjectError.invalidEvent(
+          "连续音修复没有完整保存，请保持原轨不变后重试"
+        )
+      }
+      self.editor = persisted
+      recordSave(persisted)
       selectedNoteID = merged.first?.id
       statusMessage =
         isPercussion
         ? "已把 \(fragmentCount) 个尾部重复打击折叠为 \(merged.count) 个单次打击；已保存且可撤销"
-        : "已把 \(fragmentCount) 个延音碎片合并为 \(merged.count) 个延长音；已保存且可撤销"
+        : "已把 \(fragmentCount) 个碎片重建为 \(merged.count) 个连续音；保存校验通过且可撤销"
       errorMessage = nil
       updateMelodyCoverage()
       refreshTrailingCleanupDiagnostics()
@@ -1266,7 +1288,7 @@ public final class AppModel: ObservableObject {
     }
     return isPercussionTrack(track)
       ? "重新扫描尾部重复打击…"
-      : "重新扫描并修复整轨延音碎片…"
+      : "预览并重建整轨连续音…"
   }
 
   public func seekToNextMelodyGap() {
@@ -2176,7 +2198,9 @@ public final class AppModel: ObservableObject {
       openProject(betaProjectURL)
       statusMessage =
         betaTaskKind == "targeted_gap_recovery"
-        ? "所选空缺已重算；正在打开新识别版本"
+        ? response.recoveredCandidateNoteCount == 0
+          ? "重算完成，但模型没有生成新音符；原音轨保持不变"
+          : "所选空缺已重算；正在打开新识别版本"
         : betaTaskKind == "game_vocal_transcription"
           ? "GAME 主唱旋律单轨已取回；正在打开新版本"
           : activeComputeMode == .hyak
@@ -2191,10 +2215,13 @@ public final class AppModel: ObservableObject {
         errorMessage = nil
         statusMessage = "本机计算已停止；未完成项目与日志已经保留"
       } else {
-        errorMessage =
+        let prefix =
           activeComputeMode == .hyak
-          ? "Hyak 任务失败；项目日志已经保留，可据此定位问题。"
-          : "本机任务失败；项目日志已经保留，可据此定位问题。"
+          ? "Hyak 任务失败"
+          : "本机任务失败"
+        errorMessage =
+          response.failureReason.map { "\(prefix)：\($0)" }
+          ?? "\(prefix)；项目日志已经保留，可据此定位问题。"
         statusMessage = "识别失败"
       }
     case "running":

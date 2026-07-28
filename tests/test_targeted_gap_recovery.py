@@ -164,6 +164,7 @@ class TargetedGapRecoveryTests(unittest.TestCase):
             arguments[index + 1],
             "clean_electric_guitar",
         )
+        self.assertIn("--allow-empty-jsonl", arguments)
 
     def test_selected_gaps_are_one_request_with_bounded_windows(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -318,6 +319,69 @@ class TargetedGapRecoveryTests(unittest.TestCase):
             self.assertEqual(
                 output_canonical["claims"]["targeted_source_bundle_id"],
                 "source-bundle",
+            )
+            self.assertEqual(manifest["status"], "succeeded")
+
+    def test_empty_recovery_is_a_successful_unchanged_version(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            project, canonical = _fixture_project(Path(temporary))
+            spec = plan_selected_gaps(
+                project,
+                probe_id="targeted-recovery-empty",
+                source_bundle_id="source-bundle",
+                source_track_id="voice",
+                intervals=[(10, 30)],
+            )
+            source_path = project / "exports/source-bundle/tracks/voice.jsonl"
+            source_events = read_jsonl(source_path)
+            run_manifest = (
+                project
+                / "runs/targeted-recovery-empty/run_manifest.json"
+            )
+            run_manifest.parent.mkdir(parents=True)
+            atomic_write_json(
+                run_manifest,
+                {"schema_version": 1, "status": "succeeded"},
+            )
+            output = (
+                project
+                / "exports/targeted-recovery-empty-multitrack"
+            )
+
+            manifest = build_recovery_bundle(
+                project,
+                spec=spec,
+                source_canonical=canonical,
+                source_events=source_events,
+                candidates=[],
+                product_candidates=[],
+                product_admission=automatic_voice_candidate_admission(
+                    source_note_count=len(source_events),
+                    candidate_note_count=0,
+                ),
+                run_manifest_path=run_manifest,
+                output_dir=output,
+            )
+
+            output_canonical = json.loads(
+                (output / "canonical_project.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            voice = next(
+                track
+                for track in output_canonical["tracks"]
+                if track["track_id"] == "voice"
+            )
+            self.assertEqual(voice["event_count"], len(source_events))
+            self.assertEqual(
+                output_canonical["claims"][
+                    "recovered_candidate_note_count"
+                ],
+                0,
+            )
+            self.assertFalse(
+                output_canonical["claims"]["automatic_merge_performed"]
             )
             self.assertEqual(manifest["status"], "succeeded")
 

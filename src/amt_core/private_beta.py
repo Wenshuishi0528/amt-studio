@@ -578,6 +578,7 @@ def _validate_state(project_dir: Path, state: dict[str, Any]) -> dict[str, Any]:
         "gpu_probed_candidate_count",
         "gpu_estimated_start_at",
         "gpu_estimated_wait_seconds",
+        "recovered_candidate_note_count",
     }
     if set(state) - allowed:
         raise PrivateBetaError("任务状态文件包含未知字段")
@@ -686,7 +687,15 @@ def _validate_state(project_dir: Path, state: dict[str, Any]) -> dict[str, Any]:
         request = _require_state_string(state, "recovery_request_path")
         request_path = Path(request)
         try:
-            request_path.expanduser().resolve(strict=True).relative_to(project_dir)
+            resolved_request = request_path.expanduser().resolve(strict=True)
+            requests_dir = (project_dir / "requests").resolve(strict=True)
+            requests_dir.relative_to(project_dir)
+            if (
+                not requests_dir.is_dir()
+                or not resolved_request.is_file()
+                or not resolved_request.parent.samefile(requests_dir)
+            ):
+                raise OSError("request is not a direct file in the project requests dir")
         except (OSError, ValueError) as exc:
             raise PrivateBetaError("任务状态 recovery_request_path 无效") from exc
         selected_gap_count = state.get("selected_gap_count")
@@ -696,6 +705,16 @@ def _validate_state(project_dir: Path, state: dict[str, Any]) -> dict[str, Any]:
             or not 1 <= selected_gap_count <= 16
         ):
             raise PrivateBetaError("任务状态 selected_gap_count 无效")
+    recovered_count = state.get("recovered_candidate_note_count")
+    if recovered_count is not None and (
+        task_kind != "targeted_gap_recovery"
+        or not isinstance(recovered_count, int)
+        or isinstance(recovered_count, bool)
+        or recovered_count < 0
+    ):
+        raise PrivateBetaError(
+            "任务状态 recovered_candidate_note_count 无效"
+        )
     if recognition_mode == "game_vocal":
         _require_state_string(
             state,
@@ -1869,6 +1888,7 @@ def _run_local_gap_recovery_pipeline(
             / "bundle_manifest.json"
         ).is_file():
             raise PrivateBetaError("本机空缺重算没有生成最终版本")
+        _record_result_summary(project_dir, state)
         state["status"] = "succeeded"
         state["slurm_state"] = "COMPLETED"
         state["pipeline_stage"] = "complete"
@@ -2181,6 +2201,72 @@ def _fetch_results(
         )
 
 
+def _record_result_summary(
+    project_dir: Path,
+    state: dict[str, Any],
+) -> None:
+    if state.get("task_kind") != "targeted_gap_recovery":
+        return
+    manifest_path = (
+        project_dir
+        / "exports"
+        / state["bundle_id"]
+        / "bundle_manifest.json"
+    )
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return
+    claims = manifest.get("claims") if isinstance(manifest, dict) else None
+    count = (
+        claims.get("recovered_candidate_note_count")
+        if isinstance(claims, dict)
+        else None
+    )
+    if isinstance(count, int) and not isinstance(count, bool) and count >= 0:
+        state["recovered_candidate_note_count"] = count
+
+
+def _fetch_failure_artifacts(
+    connection: HyakConnection,
+    project_dir: Path,
+    state: dict[str, Any],
+) -> None:
+    remote_project = state["remote_project_dir"]
+    for relative in (f"runs/{state['run_id']}", "logs"):
+        local_parent = project_dir / Path(relative).parent
+        local_parent.mkdir(parents=True, exist_ok=True)
+        _run(
+            [
+                "rsync",
+                "-az",
+                "--partial",
+                "-e",
+                connection.rsync_shell(),
+                f"{connection.host}:{remote_project}/{relative}/",
+                f"{project_dir / relative}/",
+            ],
+            timeout=1800,
+        )
+
+
+def _record_failure_reason(
+    project_dir: Path,
+    state: dict[str, Any],
+) -> None:
+    manifest_path = (
+        project_dir / "runs" / state["run_id"] / "run_manifest.json"
+    )
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return
+    error = manifest.get("error") if isinstance(manifest, dict) else None
+    message = error.get("message") if isinstance(error, dict) else None
+    if isinstance(message, str) and message.strip():
+        state["failure_reason"] = message.strip()
+
+
 def _pipeline_stage(
     connection: HyakConnection,
     state: dict[str, Any],
@@ -2279,6 +2365,14 @@ def refresh_job(project_dir: Path) -> dict[str, Any]:
     if state["backend"] == "local":
         return _refresh_local_job(project_dir, state)
     if state.get("status") in {"succeeded", "failed", "cancelled"}:
+        if state.get("status") == "failed" and not state.get("failure_reason"):
+            try:
+                connection = HyakConnection.discover(state["host"])
+                _fetch_failure_artifacts(connection, project_dir, state)
+                _record_failure_reason(project_dir, state)
+                _write_state(project_dir, state)
+            except PrivateBetaError:
+                pass
         return state
     connection = HyakConnection.discover(state["host"])
     job_id = str(state["job_id"])
@@ -2302,6 +2396,7 @@ def refresh_job(project_dir: Path) -> dict[str, Any]:
     state["slurm_state"] = slurm_state
     if slurm_state == "COMPLETED":
         _fetch_results(connection, project_dir, state)
+        _record_result_summary(project_dir, state)
         state["status"] = "succeeded"
         state["pipeline_stage"] = "complete"
         state["completed_at"] = _utc_now()
@@ -2315,6 +2410,11 @@ def refresh_job(project_dir: Path) -> dict[str, Any]:
         "BOOT_FAIL",
         "DEADLINE",
     }:
+        try:
+            _fetch_failure_artifacts(connection, project_dir, state)
+            _record_failure_reason(project_dir, state)
+        except PrivateBetaError:
+            pass
         state["status"] = "failed"
         state["pipeline_stage"] = "failed"
         state["completed_at"] = _utc_now()

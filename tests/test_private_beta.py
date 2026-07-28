@@ -23,6 +23,8 @@ from amt_core.private_beta import (
     _load_state,
     _pipeline_stage,
     _plan_hyak_gpu,
+    _record_failure_reason,
+    _record_result_summary,
     _select_gpu_probe,
     _slurm_time_limit,
     _unique_project_dir,
@@ -36,6 +38,42 @@ from workers.muscriptor import run_baseline
 
 
 class PrivateBetaTests(unittest.TestCase):
+    def test_result_and_failure_summaries_are_read_from_fetched_artifacts(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            project = Path(temporary) / "song"
+            bundle = project / "exports/gap-run-multitrack"
+            run = project / "runs/gap-run"
+            bundle.mkdir(parents=True)
+            run.mkdir(parents=True)
+            atomic_write_json(
+                bundle / "bundle_manifest.json",
+                {
+                    "schema_version": 1,
+                    "claims": {"recovered_candidate_note_count": 0},
+                },
+            )
+            atomic_write_json(
+                run / "run_manifest.json",
+                {
+                    "schema_version": 1,
+                    "status": "failed",
+                    "error": {"message": "bounded worker failure"},
+                },
+            )
+            state = {
+                "task_kind": "targeted_gap_recovery",
+                "bundle_id": "gap-run-multitrack",
+                "run_id": "gap-run",
+            }
+
+            _record_result_summary(project, state)
+            _record_failure_reason(project, state)
+
+            self.assertEqual(state["recovered_candidate_note_count"], 0)
+            self.assertEqual(state["failure_reason"], "bounded worker failure")
+
     def test_separator_discovers_deployed_private_weight_layout(self) -> None:
         checkpoint = (
             "/remote/amt-studio/weights/separator/0.44.5/"
@@ -428,13 +466,16 @@ print("worker import ok")
             decomposed_id = unicodedata.normalize("NFD", project_id)
             self.assertNotEqual(decomposed_id, project_id)
             project = root / decomposed_id
-            project.mkdir()
+            (project / "requests").mkdir(parents=True)
+            request_path = project / "requests" / "safe-run.json"
+            atomic_write_json(request_path, {"schema_version": 1})
             atomic_write_json(
                 project / "manifest.json",
                 {"schema_version": 1, "project_id": project_id},
             )
             state = {
                 "schema_version": 1,
+                "task_kind": "targeted_gap_recovery",
                 "status": "submitted",
                 "submitted_at": "2026-07-26T00:00:00+00:00",
                 "project_id": project_id,
@@ -448,6 +489,10 @@ print("worker import ok")
                 "job_id": "12345",
                 "run_id": "safe-run",
                 "bundle_id": "safe-run-multitrack",
+                "source_bundle_id": "source-bundle",
+                "source_track_id": "voice",
+                "recovery_request_path": str(request_path),
+                "selected_gap_count": 1,
                 "weight_provenance_path": (
                     "/mmfs1/gscratch/group/netid/weights/provenance.json"
                 ),
@@ -458,6 +503,25 @@ print("worker import ok")
 
             self.assertEqual(loaded["project_id"], project_id)
             self.assertEqual(loaded["pipeline_stage"], "queued")
+            self.assertEqual(loaded["selected_gap_count"], 1)
+
+            request_path.unlink()
+            (project / "requests").rmdir()
+            outside = root / "outside"
+            outside.mkdir()
+            (project / "requests").symlink_to(
+                outside,
+                target_is_directory=True,
+            )
+            escaped_request = project / "requests" / "safe-run.json"
+            atomic_write_json(escaped_request, {"schema_version": 1})
+            state["recovery_request_path"] = str(escaped_request)
+
+            with self.assertRaisesRegex(
+                PrivateBetaError,
+                "recovery_request_path",
+            ):
+                _validate_state(project.resolve(), state)
 
     def test_local_state_and_readiness_do_not_start_inference(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

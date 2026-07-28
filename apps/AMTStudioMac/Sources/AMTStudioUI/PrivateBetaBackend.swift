@@ -29,6 +29,8 @@ struct PrivateBetaResponse: Decodable, Sendable {
   let gpuPreemptible: Bool?
   let gpuSelectionReason: String?
   let gpuEstimatedWaitSeconds: Int?
+  let failureReason: String?
+  let recoveredCandidateNoteCount: Int?
 
   enum CodingKeys: String, CodingKey {
     case ok
@@ -59,6 +61,8 @@ struct PrivateBetaResponse: Decodable, Sendable {
     case gpuPreemptible = "gpu_preemptible"
     case gpuSelectionReason = "gpu_selection_reason"
     case gpuEstimatedWaitSeconds = "gpu_estimated_wait_seconds"
+    case failureReason = "failure_reason"
+    case recoveredCandidateNoteCount = "recovered_candidate_note_count"
   }
 }
 

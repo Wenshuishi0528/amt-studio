@@ -1550,6 +1550,7 @@ def _directed_child_arguments(
         device,
         "--prelude-forcing",
         "--skip-midi",
+        "--allow-empty-jsonl",
     ]
     if instrument is not None:
         arguments.extend(["--instruments", instrument])

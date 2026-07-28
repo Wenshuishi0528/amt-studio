@@ -6,6 +6,36 @@ import XCTest
 
 @MainActor
 final class AppModelTests: XCTestCase {
+  func testSustainRepairSummaryExplainsTheActualReplacement() {
+    let summary = TrailingCleanupSummary(
+      kind: .sustain,
+      groupCount: 162,
+      fragmentCount: 3_076
+    )
+    XCTAssertEqual(summary.badgeLabel, "连续音碎片 3076 → 162")
+  }
+
+  func testPrivateBackendResponseCarriesFailureAndEmptyRecoveryDetails()
+    throws
+  {
+    let data = Data(
+      """
+      {
+        "ok": true,
+        "status": "failed",
+        "failure_reason": "bounded worker failure",
+        "recovered_candidate_note_count": 0
+      }
+      """.utf8
+    )
+    let response = try JSONDecoder().decode(
+      PrivateBetaResponse.self,
+      from: data
+    )
+    XCTAssertEqual(response.failureReason, "bounded worker failure")
+    XCTAssertEqual(response.recoveredCandidateNoteCount, 0)
+  }
+
   func testConfiguredRealProjectOpensWithoutBlockingMainActor() async throws {
     guard
       let projectPath = ProcessInfo.processInfo.environment[

@@ -38,7 +38,7 @@ instrument = (
     else "acoustic_piano"
 )
 if format_name == "jsonl":
-    values = [
+    values = [] if instrument == "empty_voice" else [
         {
             "type": "start",
             "pitch": 60,
@@ -176,6 +176,76 @@ class MuScriptorRunnerTests(unittest.TestCase):
 
             with self.assertRaisesRegex(RuntimeError, "immutable run directory"):
                 run_baseline.main(argv)
+
+            empty_argv = [
+                *argv[: argv.index("--run-id") + 1],
+                "empty-recovery",
+                *argv[argv.index("--run-id") + 2 :],
+                "--instruments",
+                "empty_voice",
+                "--skip-midi",
+                "--allow-empty-jsonl",
+            ]
+            with (
+                mock.patch.object(
+                    run_baseline,
+                    "worker_diagnostics",
+                    return_value=diagnostics,
+                ),
+                contextlib.redirect_stdout(io.StringIO()),
+            ):
+                empty_exit_code = run_baseline.main(empty_argv)
+            self.assertEqual(empty_exit_code, 0)
+            empty_dir = project / "runs" / "empty-recovery"
+            empty_manifest = json.loads(
+                (empty_dir / "run_manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(empty_manifest["status"], "succeeded")
+            self.assertTrue(empty_manifest["decoding"]["allow_empty_jsonl"])
+            self.assertEqual(
+                empty_manifest["metrics"]["descriptive_event_summary"][
+                    "event_count"
+                ],
+                0,
+            )
+            self.assertEqual(
+                (empty_dir / "raw" / "events.native.jsonl").stat().st_size,
+                0,
+            )
+
+            rejected_empty_argv = [
+                value
+                for value in empty_argv
+                if value != "--allow-empty-jsonl"
+            ]
+            rejected_empty_argv[
+                rejected_empty_argv.index("empty-recovery")
+            ] = "empty-full-run"
+            with (
+                mock.patch.object(
+                    run_baseline,
+                    "worker_diagnostics",
+                    return_value=diagnostics,
+                ),
+                contextlib.redirect_stdout(io.StringIO()),
+            ):
+                rejected_empty_exit = run_baseline.main(
+                    rejected_empty_argv
+                )
+            self.assertEqual(rejected_empty_exit, 1)
+            rejected_manifest = json.loads(
+                (
+                    project
+                    / "runs"
+                    / "empty-full-run"
+                    / "run_manifest.json"
+                ).read_text(encoding="utf-8")
+            )
+            self.assertEqual(rejected_manifest["status"], "failed")
+            self.assertIn(
+                "without native JSONL output",
+                rejected_manifest["error"]["message"],
+            )
 
             failed_argv = list(argv)
             failed_argv[failed_argv.index("fixture-run")] = "diagnostics-failure"

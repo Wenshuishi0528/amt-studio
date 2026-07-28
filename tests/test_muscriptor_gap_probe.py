@@ -104,6 +104,7 @@ class MuScriptorGapProbeTests(unittest.TestCase):
         index = arguments.index("--instruments")
         self.assertEqual(arguments[index + 1], "voice")
         self.assertEqual(arguments.count("--instruments"), 1)
+        self.assertIn("--allow-empty-jsonl", arguments)
 
     def test_residual_fallback_decode_is_unconstrained_and_bounded(self) -> None:
         arguments = _directed_child_arguments(
@@ -116,6 +117,7 @@ class MuScriptorGapProbeTests(unittest.TestCase):
             instrument=None,
         )
         self.assertNotIn("--instruments", arguments)
+        self.assertIn("--allow-empty-jsonl", arguments)
 
         target = TargetInterval("gap-01", 0, 20, "reported omission")
         window = ProbeWindow("window-01", 0, 24, (target,))

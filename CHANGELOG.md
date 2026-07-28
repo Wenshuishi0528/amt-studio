@@ -4,6 +4,34 @@ This project records changes by numbered research task until formal semantic
 versions and releases begin. Dates and commit identifiers refer to the local
 Git history.
 
+## Task 009B3D — Zero-candidate recovery and durable continuous notes — 2026-07-27
+
+### Fixed
+
+- Bounded MuScriptor gap recovery now accepts an existing empty native JSONL
+  as a valid zero-candidate result and builds an unchanged derived version.
+  Whole-song inference retains the strict non-empty-output requirement.
+- Targeted task state carries the recovered candidate count, and failed jobs
+  fetch available run/log evidence so the app can show an actual worker reason.
+- Canonically equivalent NFC/NFD request paths are validated by filesystem
+  identity instead of a Unicode-sensitive lexical comparison.
+- Every pitched product track can preview and rebuild same-pitch continuous
+  fragments across the whole song. The saved edit is immediately reopened and
+  verified; drums keep their separate repeated-hit cleanup.
+
+### Verified
+
+- The two preserved failed attempts (`37811672`, `37811709`) both completed
+  MuScriptor on an A100 node and produced an empty native event file, proving
+  the failure was wrapper classification rather than a GPU/model crash.
+- Full `make check` passes 291 Python and 49 Swift tests with three expected
+  private-integration skips. Focused regressions cover bounded empty output,
+  unchanged recovery packaging, Unicode state restoration, actionable failure
+  details, all-track continuous-note planning, and save/reopen persistence.
+- The single bounded review found one P1 request-directory symlink escape.
+  Project containment is restored while canonically equivalent Unicode paths
+  remain accepted.
+
 ## Task 009B3C — Visible GAME job progress — 2026-07-27
 
 ### Changed
