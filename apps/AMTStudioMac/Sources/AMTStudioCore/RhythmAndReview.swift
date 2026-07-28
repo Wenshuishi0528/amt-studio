@@ -209,11 +209,45 @@ public enum CanonicalTimeline {
 }
 
 public enum SustainFragmentAnalyzer {
+  public static func fragmentedGroups(
+    notes: [EditorNote],
+    timelineEnd: Double,
+    maximumGap: Double = 0.03,
+    shortDurationThreshold: Double = 0.35
+  ) -> [SustainFragmentGroup] {
+    groups(
+      notes: CanonicalTimeline.clippedNotes(
+        notes,
+        duration: timelineEnd
+      ),
+      timelineEnd: timelineEnd,
+      maximumGap: maximumGap,
+      shortDurationThreshold: shortDurationThreshold,
+      requireTrailing: false
+    )
+  }
+
   public static func trailingGroups(
     notes: [EditorNote],
     timelineEnd: Double,
     maximumGap: Double = 0.03,
     shortDurationThreshold: Double = 0.35
+  ) -> [SustainFragmentGroup] {
+    groups(
+      notes: notes,
+      timelineEnd: timelineEnd,
+      maximumGap: maximumGap,
+      shortDurationThreshold: shortDurationThreshold,
+      requireTrailing: true
+    )
+  }
+
+  private static func groups(
+    notes: [EditorNote],
+    timelineEnd: Double,
+    maximumGap: Double,
+    shortDurationThreshold: Double,
+    requireTrailing: Bool
   ) -> [SustainFragmentGroup] {
     guard timelineEnd.isFinite, timelineEnd > 0 else { return [] }
     var result: [SustainFragmentGroup] = []
@@ -229,7 +263,8 @@ public enum SustainFragmentAnalyzer {
           if let candidate = candidate(
             chain,
             effectiveEnd: timelineEnd,
-            shortDurationThreshold: shortDurationThreshold
+            shortDurationThreshold: shortDurationThreshold,
+            requireTrailing: requireTrailing
           ) {
             result.append(candidate)
           }
@@ -242,7 +277,8 @@ public enum SustainFragmentAnalyzer {
       if let candidate = candidate(
         chain,
         effectiveEnd: timelineEnd,
-        shortDurationThreshold: shortDurationThreshold
+        shortDurationThreshold: shortDurationThreshold,
+        requireTrailing: requireTrailing
       ) {
         result.append(candidate)
       }
@@ -256,15 +292,21 @@ public enum SustainFragmentAnalyzer {
   private static func candidate(
     _ notes: [EditorNote],
     effectiveEnd: Double,
-    shortDurationThreshold: Double
+    shortDurationThreshold: Double,
+    requireTrailing: Bool
   ) -> SustainFragmentGroup? {
     guard let first = notes.first, let last = notes.last,
       notes.count >= 4,
-      last.offsetSec >= effectiveEnd - 0.5,
-      first.onsetSec >= effectiveEnd - 30,
       last.offsetSec - first.onsetSec >= 2
     else {
       return nil
+    }
+    if requireTrailing {
+      guard last.offsetSec >= effectiveEnd - 0.5,
+        first.onsetSec >= effectiveEnd - 30
+      else {
+        return nil
+      }
     }
     let shortCount = notes.lazy.filter {
       $0.offsetSec - $0.onsetSec <= shortDurationThreshold
@@ -276,10 +318,7 @@ public enum SustainFragmentAnalyzer {
       pitchMIDI: first.pitchMIDI,
       noteIDs: notes.map(\.id),
       onsetSec: first.onsetSec,
-      offsetSec: min(
-        effectiveEnd,
-        notes.map(\.offsetSec).max() ?? last.offsetSec
-      )
+      offsetSec: min(effectiveEnd, last.offsetSec)
     )
   }
 }

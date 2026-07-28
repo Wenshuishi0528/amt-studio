@@ -75,6 +75,35 @@ final class ProjectAndEditingTests: XCTestCase {
     XCTAssertTrue(clamped.allSatisfy { $0.offsetSec == 10 })
   }
 
+  func testWholeTrackSustainAnalyzerFindsInteriorFragmentation() {
+    let interiorFragments = (0..<8).map { index in
+      testNote(
+        id: "interior-\(index)",
+        onset: 2 + Double(index) * 0.25,
+        offset: 2 + Double(index + 1) * 0.25,
+        pitch: 60
+      )
+    }
+    let separatedRepeats = (0..<8).map { index in
+      testNote(
+        id: "repeat-\(index)",
+        onset: 8 + Double(index) * 0.25,
+        offset: 8.15 + Double(index) * 0.25,
+        pitch: 64
+      )
+    }
+
+    let groups = SustainFragmentAnalyzer.fragmentedGroups(
+      notes: interiorFragments + separatedRepeats,
+      timelineEnd: 20
+    )
+
+    XCTAssertEqual(groups.count, 1)
+    XCTAssertEqual(groups[0].noteIDs, interiorFragments.map(\.id))
+    XCTAssertEqual(groups[0].onsetSec, 2)
+    XCTAssertEqual(groups[0].offsetSec, 4)
+  }
+
   func testPercussionRepeatAnalyzerRequiresDenseTailPattern() {
     let repeatedHits = (0..<8).map { index in
       testNote(
@@ -506,6 +535,130 @@ final class ProjectAndEditingTests: XCTestCase {
     }
     let snapshot = try ProjectLoader.open(catalog, bundleID: "bundle-b")
     XCTAssertEqual(snapshot.canonicalProject.projectID, "项目-unicode")
+  }
+
+  func testTrackArrangementCopyMergeAndDeleteCreateDerivedBundles() throws {
+    let fixture = try FixtureProject(bundleIDs: ["bundle-a", "bundle-b"])
+    defer { fixture.remove() }
+    let sourceCatalog = try ProjectLoader.inspect(fixture.root)
+    let sourceA = try Data(
+      contentsOf: fixture.root.appendingPathComponent(
+        "exports/bundle-a/canonical_project.json"
+      )
+    )
+    let sourceB = try Data(
+      contentsOf: fixture.root.appendingPathComponent(
+        "exports/bundle-b/canonical_project.json"
+      )
+    )
+
+    let copied = try TrackArrangementBuilder.derive(
+      catalog: sourceCatalog,
+      targetBundleID: "bundle-a",
+      action: .copy(
+        sourceBundleID: "bundle-b",
+        sourceTrackID: "candidate-a"
+      )
+    )
+    var catalog = try ProjectLoader.inspect(fixture.root)
+    let copiedSnapshot = try ProjectLoader.open(
+      catalog,
+      bundleID: copied.bundleID
+    )
+    XCTAssertEqual(copiedSnapshot.tracks.count, 2)
+    XCTAssertEqual(copiedSnapshot.notes.count, 4)
+    XCTAssertEqual(
+      copiedSnapshot.tracks.last?.id,
+      copied.selectedTrackID
+    )
+    XCTAssertTrue(
+      copiedSnapshot.notes
+        .filter { $0.trackID == copied.selectedTrackID }
+        .allSatisfy {
+          $0.tags.contains("app-track-copy")
+            && !$0.sourceEventIDs.isEmpty
+        }
+    )
+
+    let merged = try TrackArrangementBuilder.derive(
+      catalog: catalog,
+      targetBundleID: copied.bundleID,
+      action: .merge(
+        trackIDs: Set(copiedSnapshot.tracks.map(\.id)),
+        instrumentSourceTrackID: copied.selectedTrackID
+      )
+    )
+    catalog = try ProjectLoader.inspect(fixture.root)
+    let mergedSnapshot = try ProjectLoader.open(
+      catalog,
+      bundleID: merged.bundleID
+    )
+    XCTAssertEqual(mergedSnapshot.tracks.count, 1)
+    XCTAssertEqual(mergedSnapshot.notes.count, 4)
+    XCTAssertEqual(mergedSnapshot.tracks[0].instrument, "voice")
+    XCTAssertTrue(
+      mergedSnapshot.notes.allSatisfy { $0.instrument == "voice" }
+    )
+    XCTAssertTrue(
+      mergedSnapshot.notes.allSatisfy {
+        $0.tags.contains("app-track-merge")
+      }
+    )
+    let mergedMIDI = fixture.root.appendingPathComponent(
+      "exports/merged-arrangement.mid"
+    )
+    let exportReport = try MIDIExporter.exportArrangement(
+      snapshot: mergedSnapshot,
+      bundleID: merged.bundleID,
+      to: mergedMIDI,
+      includedTrackIDs: Set(mergedSnapshot.tracks.map(\.id))
+    )
+    XCTAssertEqual(exportReport.trackCount, 1)
+    XCTAssertEqual(exportReport.noteCount, 4)
+    XCTAssertEqual(
+      String(
+        data: try Data(contentsOf: mergedMIDI).prefix(4),
+        encoding: .ascii
+      ),
+      "MThd"
+    )
+
+    let deleted = try TrackArrangementBuilder.derive(
+      catalog: catalog,
+      targetBundleID: copied.bundleID,
+      action: .delete(trackID: "candidate-a")
+    )
+    catalog = try ProjectLoader.inspect(fixture.root)
+    let deletedSnapshot = try ProjectLoader.open(
+      catalog,
+      bundleID: deleted.bundleID
+    )
+    XCTAssertEqual(deletedSnapshot.tracks.count, 1)
+    XCTAssertEqual(deletedSnapshot.tracks[0].id, copied.selectedTrackID)
+    XCTAssertThrowsError(
+      try TrackArrangementBuilder.derive(
+        catalog: catalog,
+        targetBundleID: deleted.bundleID,
+        action: .delete(trackID: copied.selectedTrackID)
+      )
+    )
+
+    XCTAssertEqual(
+      try Data(
+        contentsOf: fixture.root.appendingPathComponent(
+          "exports/bundle-a/canonical_project.json"
+        )
+      ),
+      sourceA
+    )
+    XCTAssertEqual(
+      try Data(
+        contentsOf: fixture.root.appendingPathComponent(
+          "exports/bundle-b/canonical_project.json"
+        )
+      ),
+      sourceB
+    )
   }
 
   func testDuplicateCanonicalTrackIDsAreRejectedBeforeMixingNotes() throws {

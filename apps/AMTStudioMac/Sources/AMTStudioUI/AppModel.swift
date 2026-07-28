@@ -163,6 +163,25 @@ enum MelodyTrackSelector {
         : track.label
     }
   }
+
+  static func productTracks(from tracks: [EditorTrack]) -> [EditorTrack] {
+    let hasEnhanced = tracks.contains {
+      ["voice_enhanced", "voice_auto_enhanced"].contains($0.id)
+    }
+    return tracks.filter { track in
+      guard track.role != "diagnostic_candidate" else { return false }
+      if hasEnhanced,
+        ["voice_raw", "voice_gap_candidate"].contains(track.id)
+      {
+        return false
+      }
+      return ![
+        "gap_raw_candidate",
+        "gap_accompaniment_filtered",
+        "gap_monophonic_candidate",
+      ].contains(track.id)
+    }
+  }
 }
 
 public struct LocalProjectItem: Sendable, Equatable, Identifiable {
@@ -232,7 +251,7 @@ public struct TrailingCleanupSummary: Sendable, Equatable {
 
   public var badgeLabel: String {
     switch kind {
-    case .sustain: "尾部延音碎片 \(fragmentCount)"
+    case .sustain: "延音碎片 \(fragmentCount)"
     case .percussionRepeats: "尾部重复打击 \(fragmentCount)"
     }
   }
@@ -271,7 +290,6 @@ public final class AppModel: ObservableObject {
   @Published public private(set) var isLoadingSelection = false
   @Published public private(set) var melodyGaps: [MelodyGap] = []
   @Published public private(set) var selectedGapIDs = Set<String>()
-  @Published public private(set) var showMelodyVersions = false
   @Published public private(set) var appearanceMode: AMTAppearanceMode =
     .precision
   @Published public private(set) var computeMode: ComputeMode = .hyak
@@ -282,6 +300,7 @@ public final class AppModel: ObservableObject {
   @Published public private(set) var trailingCleanupSummaries: [String: TrailingCleanupSummary] =
     [:]
   @Published public private(set) var lastSavedAt: Date?
+  @Published public private(set) var isManagingTracks = false
 
   public let transport = AudioTransport()
 
@@ -312,6 +331,9 @@ public final class AppModel: ObservableObject {
   private var pendingCompletedTrackID: String?
   private var selectionLoadTask: Task<Void, Never>?
   private var selectionLoadGeneration = UUID()
+  private var trackManagementTask: Task<Void, Never>?
+  private var trackManagementGeneration = UUID()
+  private var pendingFragmentRepairTrackID: String?
 
   public init(
     defaults: UserDefaults = .standard,
@@ -583,7 +605,7 @@ public final class AppModel: ObservableObject {
   }
 
   public var bundleChoices: [CanonicalBundleChoice] {
-    (catalog?.bundles ?? []).sorted {
+    (catalog?.bundles ?? []).filter(\.isDefaultEligible).sorted {
       if $0.modifiedAt == $1.modifiedAt {
         return $0.id > $1.id
       }
@@ -608,10 +630,47 @@ public final class AppModel: ObservableObject {
   }
 
   public var visibleTrackChoices: [EditorTrack] {
-    guard !showMelodyVersions else { return trackChoices }
-    return trackChoices.filter {
-      !["voice_raw", "voice_gap_candidate"].contains($0.id)
+    MelodyTrackSelector.productTracks(from: trackChoices)
+  }
+
+  public func canDeleteTrack(_ trackID: String) -> Bool {
+    visibleTrackChoices.count > 1
+      && visibleTrackChoices.contains(where: { $0.id == trackID })
+  }
+
+  public func bundleDisplayName(_ bundleID: String) -> String {
+    let ordered = bundleChoices.sorted {
+      if $0.modifiedAt == $1.modifiedAt {
+        return $0.id < $1.id
+      }
+      return $0.modifiedAt < $1.modifiedAt
     }
+    guard
+      let index = ordered.firstIndex(where: { $0.id == bundleID })
+    else {
+      return bundleID
+    }
+    let isCustom =
+      ordered[index].manifest.claims?["app_derived_arrangement"]
+      == .bool(true)
+    return isCustom
+      ? "自定义版本 \(index + 1)"
+      : "识别版本 \(index + 1)"
+  }
+
+  public func productTracks(in bundleID: String) -> [EditorTrack] {
+    guard
+      let bundle = catalog?.bundles.first(where: {
+        $0.id == bundleID && $0.isDefaultEligible
+      })
+    else {
+      return []
+    }
+    return MelodyTrackSelector.productTracks(from: bundle.tracks)
+  }
+
+  public var otherProductBundles: [CanonicalBundleChoice] {
+    bundleChoices.filter { $0.id != selectedBundleID }
   }
 
   public var audibleTrackIDs: Set<String> {
@@ -918,14 +977,14 @@ public final class AppModel: ObservableObject {
     if tags.contains("automatic-sustain-cleanup")
       || tags.contains("automatic-percussion-repeat-cleanup")
     {
-      return "这一识别版本生成时已经自动处理过当前音轨的尾部；目前没有新的保守修复候选。"
+      return "这一识别版本生成时已经处理过当前音轨；目前没有新的保守修复候选。"
     }
     if tags.contains("app-sustain-merge")
       || tags.contains("app-percussion-repeat-collapse")
     {
-      return "当前音轨的尾部修复已经保存；目前没有新的保守修复候选。"
+      return "当前音轨的碎片修复已经保存；目前没有新的保守修复候选。"
     }
-    return "已检查当前音轨，暂未发现符合保守规则的尾部延音碎片或重复打击。"
+    return "已检查当前音轨，暂未发现符合规则的延音碎片或尾部重复打击。"
   }
 
   public func performTrailingCleanup() {
@@ -933,7 +992,7 @@ public final class AppModel: ObservableObject {
       guard var editor else { return }
       let groups = trailingCleanupGroups
       guard !groups.isEmpty else {
-        statusMessage = "当前音轨没有符合条件的结尾碎片"
+        statusMessage = "当前音轨没有符合条件的碎片"
         return
       }
       let fragmentCount = groups.reduce(0) { $0 + $1.fragmentCount }
@@ -948,8 +1007,8 @@ public final class AppModel: ObservableObject {
       selectedNoteID = merged.first?.id
       statusMessage =
         isPercussion
-        ? "已把 \(fragmentCount) 个结尾重复打击折叠为 \(merged.count) 个单次打击；可撤销"
-        : "已把 \(fragmentCount) 个结尾碎片合并为 \(merged.count) 个延长音；可撤销"
+        ? "已把 \(fragmentCount) 个尾部重复打击折叠为 \(merged.count) 个单次打击；已保存且可撤销"
+        : "已把 \(fragmentCount) 个延音碎片合并为 \(merged.count) 个延长音；已保存且可撤销"
       errorMessage = nil
       updateMelodyCoverage()
       refreshTrailingCleanupDiagnostics()
@@ -969,11 +1028,8 @@ public final class AppModel: ObservableObject {
         timelineEnd: canonicalTimelineDuration
       )
     }
-    return SustainFragmentAnalyzer.trailingGroups(
-      notes: CanonicalTimeline.clippedNotes(
-        notes,
-        duration: canonicalTimelineDuration
-      ),
+    return SustainFragmentAnalyzer.fragmentedGroups(
+      notes: notes,
       timelineEnd: canonicalTimelineDuration
     )
   }
@@ -1080,18 +1136,14 @@ public final class AppModel: ObservableObject {
     }) == true
   }
 
-  public func setShowMelodyVersions(_ isVisible: Bool) {
-    showMelodyVersions = isVisible
-    guard !isVisible,
-      let editor,
-      ["voice_raw", "voice_gap_candidate"].contains(editor.selectedTrack.id),
-      let preferred = snapshot.flatMap({
-        MelodyTrackSelector.preferred(in: $0.tracks)
-      })
-    else {
+  public func repairFragments(in trackID: String) {
+    guard trackChoices.contains(where: { $0.id == trackID }) else { return }
+    if editor?.selectedTrack.id == trackID {
+      performTrailingCleanup()
       return
     }
-    chooseTrack(preferred.id)
+    pendingFragmentRepairTrackID = trackID
+    chooseTrack(trackID)
   }
 
   public func seekToNextMelodyGap() {
@@ -1126,6 +1178,9 @@ public final class AppModel: ObservableObject {
   public func openProject(_ url: URL) {
     projectLoadTask?.cancel()
     selectionLoadTask?.cancel()
+    trackManagementTask?.cancel()
+    trackManagementGeneration = UUID()
+    isManagingTracks = false
     selectionLoadGeneration = UUID()
     isLoadingSelection = false
     let generation = UUID()
@@ -1295,12 +1350,120 @@ public final class AppModel: ObservableObject {
         guard let self, self.selectionLoadGeneration == generation else {
           return
         }
+        if self.pendingFragmentRepairTrackID == id {
+          self.pendingFragmentRepairTrackID = nil
+        }
         self.present(error)
       }
       if let self, self.selectionLoadGeneration == generation {
         self.isLoadingSelection = false
       }
     }
+  }
+
+  public func copyTrack(
+    from sourceBundleID: String,
+    trackID: String
+  ) {
+    deriveTrackArrangement(
+      .copy(
+        sourceBundleID: sourceBundleID,
+        sourceTrackID: trackID
+      ),
+      progress: "正在复制所选音轨并创建自定义版本…"
+    )
+  }
+
+  public func mergeTracks(
+    _ trackIDs: Set<String>,
+    instrumentSourceTrackID: String
+  ) {
+    deriveTrackArrangement(
+      .merge(
+        trackIDs: trackIDs,
+        instrumentSourceTrackID: instrumentSourceTrackID
+      ),
+      progress: "正在合并 \(trackIDs.count) 条音轨并创建自定义版本…"
+    )
+  }
+
+  public func deleteTrack(_ trackID: String) {
+    guard canDeleteTrack(trackID) else {
+      statusMessage = "当前版本至少需要保留一条可见产品音轨"
+      return
+    }
+    deriveTrackArrangement(
+      .delete(trackID: trackID),
+      progress: "正在从自定义副本中删除音轨…"
+    )
+  }
+
+  private func deriveTrackArrangement(
+    _ action: TrackArrangementAction,
+    progress: String
+  ) {
+    guard !isManagingTracks, let catalog, let targetBundleID = selectedBundleID
+    else {
+      return
+    }
+    isManagingTracks = true
+    statusMessage = progress
+    errorMessage = nil
+    trackManagementTask?.cancel()
+    let generation = UUID()
+    trackManagementGeneration = generation
+    trackManagementTask = Task { [weak self] in
+      defer {
+        if self?.trackManagementGeneration == generation {
+          self?.isManagingTracks = false
+        }
+      }
+      do {
+        let result = try await Task.detached(priority: .userInitiated) {
+          try TrackArrangementBuilder.derive(
+            catalog: catalog,
+            targetBundleID: targetBundleID,
+            action: action
+          )
+        }.value
+        let refreshed = try await Task.detached(priority: .userInitiated) {
+          try ProjectLoader.inspect(catalog.rootURL)
+        }.value
+        let prepared = try await Task.detached(priority: .userInitiated) {
+          try PreparedSelection.loadBundle(
+            catalog: refreshed,
+            bundleID: result.bundleID,
+            preferredTrackID: result.selectedTrackID
+          )
+        }.value
+        guard !Task.isCancelled, let self,
+          self.trackManagementGeneration == generation,
+          self.catalog?.rootURL == catalog.rootURL
+        else {
+          return
+        }
+        self.catalog = refreshed
+        if self.selectedBundleID == targetBundleID {
+          self.applyPreparedSelection(prepared)
+          self.statusMessage =
+            "已创建 \(self.bundleDisplayName(result.bundleID))："
+            + "\(result.trackCount) 轨、\(result.noteCount) 个音符；原识别版本未修改"
+        } else {
+          self.statusMessage =
+            "自定义版本已创建；你已切换版本，因此没有自动跳转"
+        }
+        self.refreshProjectLibrary()
+      } catch is CancellationError {
+        return
+      } catch {
+        guard let self else { return }
+        self.present(error)
+      }
+    }
+  }
+
+  func waitForTrackManagementForTesting() async {
+    await trackManagementTask?.value
   }
 
   public func selectPreviousReviewNote() {
@@ -1590,6 +1753,10 @@ public final class AppModel: ObservableObject {
     }
     updateMelodyCoverage()
     refreshTrailingCleanupDiagnostics()
+    if pendingFragmentRepairTrackID == prepared.editor?.selectedTrack.id {
+      pendingFragmentRepairTrackID = nil
+      performTrailingCleanup()
+    }
   }
 
   private func applyPreparedProject(_ prepared: PreparedProject) {
@@ -1663,7 +1830,7 @@ public final class AppModel: ObservableObject {
           "新补漏结果未通过主旋律准入，已保留当前安全版本"
         errorMessage =
           completedBundle.defaultExclusionReason
-          ?? "新补漏结果仅保留为诊断版本，没有自动覆盖主旋律"
+          ?? "新补漏结果未进入产品版本，没有自动覆盖主旋律"
       }
     }
   }
@@ -2318,7 +2485,7 @@ private struct PreparedProject: Sendable {
     {
       warning =
         workspaceBundle.defaultExclusionReason
-        ?? "上次打开的自动增强版本未通过默认产品准入，已改用安全版本"
+        ?? "上次打开的是实验中间结果，已改用可用产品版本"
     } else if let workspace {
       do {
         guard workspace.projectID == catalog.manifest.projectID,
@@ -2382,7 +2549,7 @@ private struct PreparedProject: Sendable {
         jobState: jobState,
         statusMessage: catalog.bundles.isEmpty
           ? "项目还没有可打开的识别结果"
-          : "所有自动增强版本都未通过默认准入；可手动打开诊断版本",
+          : "当前没有可用产品版本",
         warning: warning
       )
     }
@@ -2422,7 +2589,7 @@ private struct PreparedProject: Sendable {
       return "已打开增强主唱；原始 voice 与补漏候选仍可单独切换"
     }
     if editor.selectedTrack.id == "voice_auto_enhanced" {
-      return "已打开自动增强主旋律（Beta）；原始与仅补漏版本保留在诊断详情"
+      return "已打开自动增强主旋律（Beta）"
     }
     if editor.selectedTrack.instrument?.lowercased() == "voice" {
       return "已打开 voice 主唱候选；长空缺会单独提示，不再把它冒充完整主旋律"

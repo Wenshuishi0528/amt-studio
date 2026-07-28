@@ -841,6 +841,107 @@ final class AppModelTests: XCTestCase {
     XCTAssertEqual(reopened.notes.first, moved)
   }
 
+  func testDiagnosticBundlesAreHiddenAndTrackCopyOpensCustomVersion() async throws {
+    let fixture = try AppFixtureProject()
+    defer { fixture.remove() }
+    try fixture.duplicateBundle(as: "bundle-ui-2")
+    try fixture.duplicateBundle(
+      as: "bundle-diagnostic",
+      claims: [
+        "automatic_candidate_admission":
+          "rejected_excessive_voice_growth"
+      ]
+    )
+    let suiteName = "AMTStudioUITests.\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let model = AppModel(
+      defaults: defaults,
+      initialProjectURL: fixture.root,
+      restoreRecent: false
+    )
+    model.openInitialProjectIfNeeded()
+    await model.waitForProjectLoadForTesting()
+
+    XCTAssertEqual(
+      Set(model.bundleChoices.map(\.id)),
+      Set(["bundle-ui", "bundle-ui-2"])
+    )
+    XCTAssertFalse(
+      model.bundleChoices.contains { $0.id == "bundle-diagnostic" }
+    )
+    model.chooseBundle("bundle-ui")
+    await model.waitForSelectionLoadForTesting()
+    model.copyTrack(
+      from: "bundle-ui-2",
+      trackID: "candidate-ui"
+    )
+    await model.waitForTrackManagementForTesting()
+
+    let customID = try XCTUnwrap(model.selectedBundleID)
+    XCTAssertTrue(customID.hasPrefix("custom-"))
+    XCTAssertEqual(model.snapshot?.tracks.count, 2)
+    XCTAssertEqual(model.snapshot?.notes.count, 2)
+    XCTAssertEqual(model.editor?.selectedTrack.id, "candidate-ui-copy")
+    XCTAssertEqual(model.bundleChoices.count, 3)
+    XCTAssertFalse(model.isManagingTracks)
+    let untouchedSource = try ProjectLoader.open(
+      try ProjectLoader.inspect(fixture.root),
+      bundleID: "bundle-ui"
+    )
+    XCTAssertEqual(untouchedSource.tracks.count, 1)
+    XCTAssertEqual(untouchedSource.notes.count, 1)
+  }
+
+  func testLastVisibleProductTrackCannotBeDeleted() async throws {
+    let fixture = try AppFixtureProject()
+    defer { fixture.remove() }
+    let model = AppModel(
+      initialProjectURL: fixture.root,
+      restoreRecent: false,
+      persistRecentProject: false
+    )
+    model.openInitialProjectIfNeeded()
+    await model.waitForProjectLoadForTesting()
+
+    XCTAssertEqual(model.visibleTrackChoices.map(\.id), ["candidate-ui"])
+    XCTAssertFalse(model.canDeleteTrack("candidate-ui"))
+    model.deleteTrack("candidate-ui")
+    XCTAssertEqual(model.statusMessage, "当前版本至少需要保留一条可见产品音轨")
+    XCTAssertFalse(model.isManagingTracks)
+  }
+
+  func testTrackCopyCannotReopenAProjectTheUserLeft() async throws {
+    let first = try AppFixtureProject()
+    let second = try AppFixtureProject()
+    defer {
+      first.remove()
+      second.remove()
+    }
+    try first.duplicateBundle(as: "bundle-ui-2")
+    let model = AppModel(
+      initialProjectURL: first.root,
+      restoreRecent: false,
+      persistRecentProject: false
+    )
+    model.openInitialProjectIfNeeded()
+    await model.waitForProjectLoadForTesting()
+
+    model.copyTrack(
+      from: "bundle-ui-2",
+      trackID: "candidate-ui"
+    )
+    model.openProject(second.root)
+    await model.waitForTrackManagementForTesting()
+    await model.waitForProjectLoadForTesting()
+
+    XCTAssertEqual(
+      model.catalog?.rootURL.standardizedFileURL.path,
+      second.root.standardizedFileURL.path
+    )
+    XCTAssertFalse(model.isManagingTracks)
+  }
+
   func testMixerControlsAndSettingsPersistAcrossRestart() async throws {
     let fixture = try AppFixtureProject()
     defer { fixture.remove() }
@@ -1056,6 +1157,28 @@ private final class AppFixtureProject {
       ],
       to: bundleURL.appendingPathComponent("bundle_manifest.json")
     )
+  }
+
+  func duplicateBundle(
+    as bundleID: String,
+    claims: [String: Any]? = nil
+  ) throws {
+    let source = root.appendingPathComponent("exports/bundle-ui")
+    let destination = root.appendingPathComponent("exports/\(bundleID)")
+    try FileManager.default.copyItem(at: source, to: destination)
+    guard let claims else { return }
+    let manifestURL = destination.appendingPathComponent(
+      "bundle_manifest.json"
+    )
+    guard
+      var manifest = try JSONSerialization.jsonObject(
+        with: Data(contentsOf: manifestURL)
+      ) as? [String: Any]
+    else {
+      throw CocoaError(.fileReadCorruptFile)
+    }
+    manifest["claims"] = claims
+    try writeFixtureJSON(manifest, to: manifestURL)
   }
 
   func remove() {

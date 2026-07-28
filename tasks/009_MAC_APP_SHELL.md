@@ -1139,3 +1139,51 @@ Evidence:
 - full `make check` passes 282 Python and 39 Swift tests with three expected
   environment-gated skips. No Hyak job, local inference, dataset experiment,
   or model training ran.
+
+## Task 009B2Z: cross-version track management and per-track repair
+
+Objective:
+
+- remove experiment-only “diagnostic version” concepts from the ordinary
+  product workflow without deleting their immutable evidence;
+- let a user assemble a preferred arrangement from tracks in different
+  recognition versions without overwriting any model output;
+- put create/delete note actions together and expose conservative fragment
+  repair from each track's own settings.
+
+Implemented:
+
+- the product version list now contains only eligible bundles. Rejected
+  historical recovery and stage-comparison artifacts remain on disk and
+  traceable but are not ordinary navigation choices;
+- `管理版本与音轨` copies a materialized track from another eligible version,
+  merges at least two current tracks with a participant chosen as the resulting
+  instrument, or deletes a track. Each action atomically writes and verifies a
+  new `custom-*` canonical bundle; no source bundle is modified;
+- copied and merged notes receive unique derived IDs while preserving source
+  bundle, source track, source event IDs, model lineage, and saved edits.
+  Merge is an explicit union with no hidden overlap deletion. The selected
+  instrument is applied to both track metadata and every merged event;
+- deletion refuses the last visible product track. Generation guards prevent
+  a completed background operation from reopening an old project after the
+  user has switched projects;
+- the detailed piano-roll toolbar now places `删除音符` beside `新增音符`.
+  Every visible track has an `音轨设置` menu. Pitched tracks can confirm a
+  whole-track same-pitch sustain-fragment repair; drums retain the separate
+  trailing-repeat collapse. Both are persisted as one undoable edit.
+
+Evidence:
+
+- focused tests cover copy/merge/delete, immutable source bytes, merged MIDI,
+  instrument consistency, last-visible-track protection, cross-project
+  completion races, and interior versus separated same-pitch patterns;
+- both configured real-project tests open
+  `gap-recovery-20260728T000154Z-244743c9-raw-product` on
+  `voice_auto_enhanced` and export valid MIDI;
+- final `make check` passes 282 Python and 44 Swift tests with three expected
+  private-environment skips. Strict Swift formatting, `git diff --check`,
+  release packaging, plist validation, signing, and signed-app launch pass;
+- the one `/review` invocation was stopped when it expanded into paused
+  Task 007D. Its two relevant P1 findings were fixed with targeted regressions;
+  no second or expanded review was run;
+- no Hyak job, local inference, dataset experiment, or training work ran.

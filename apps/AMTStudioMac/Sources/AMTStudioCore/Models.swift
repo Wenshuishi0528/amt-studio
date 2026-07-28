@@ -529,6 +529,7 @@ public struct CanonicalBundleChoice: Sendable, Equatable, Identifiable {
   public let directoryURL: URL
   public let canonicalProjectURL: URL
   public let manifest: BundleManifest
+  public let tracks: [EditorTrack]
   public let modifiedAt: Date
   public let isDefaultEligible: Bool
   public let defaultExclusionReason: String?
@@ -538,6 +539,7 @@ public struct CanonicalBundleChoice: Sendable, Equatable, Identifiable {
     directoryURL: URL,
     canonicalProjectURL: URL,
     manifest: BundleManifest,
+    tracks: [EditorTrack],
     modifiedAt: Date,
     isDefaultEligible: Bool,
     defaultExclusionReason: String?
@@ -546,9 +548,35 @@ public struct CanonicalBundleChoice: Sendable, Equatable, Identifiable {
     self.directoryURL = directoryURL
     self.canonicalProjectURL = canonicalProjectURL
     self.manifest = manifest
+    self.tracks = tracks
     self.modifiedAt = modifiedAt
     self.isDefaultEligible = isDefaultEligible
     self.defaultExclusionReason = defaultExclusionReason
+  }
+}
+
+public enum TrackArrangementAction: Sendable, Equatable {
+  case copy(sourceBundleID: String, sourceTrackID: String)
+  case merge(trackIDs: Set<String>, instrumentSourceTrackID: String)
+  case delete(trackID: String)
+}
+
+public struct TrackArrangementResult: Sendable, Equatable {
+  public let bundleID: String
+  public let selectedTrackID: String
+  public let trackCount: Int
+  public let noteCount: Int
+
+  public init(
+    bundleID: String,
+    selectedTrackID: String,
+    trackCount: Int,
+    noteCount: Int
+  ) {
+    self.bundleID = bundleID
+    self.selectedTrackID = selectedTrackID
+    self.trackCount = trackCount
+    self.noteCount = noteCount
   }
 }
 
@@ -577,7 +605,7 @@ public enum MainMelodyDefaultPolicy {
     if automaticAdmissionDecision == "rejected_excessive_voice_growth" {
       return MainMelodyDefaultAssessment(
         isEligible: false,
-        reason: "自动增强主旋律未通过生成时的数量准入，已保留为诊断版本",
+        reason: "这个旧自动增强结果未通过当时的产品准入，已从普通版本列表隐藏",
         sourceNoteCount: trackCounts["voice_raw"],
         enhancedNoteCount: trackCounts["voice_auto_enhanced"],
         maximumAddedNoteCount: nil
@@ -613,7 +641,7 @@ public enum MainMelodyDefaultPolicy {
     guard let source = trackCounts["voice_raw"] else {
       return MainMelodyDefaultAssessment(
         isEligible: false,
-        reason: "自动增强版本缺少可核对的原始 voice，已保留为诊断版本",
+        reason: "自动增强结果缺少可核对的原始 voice，已从普通版本列表隐藏",
         sourceNoteCount: nil,
         enhancedNoteCount: enhanced,
         maximumAddedNoteCount: nil

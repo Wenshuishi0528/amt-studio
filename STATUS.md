@@ -1,15 +1,39 @@
 # Project status
 
-Current product milestone: Task 009B2Y uses the owner-selected raw generated
-voice candidates for gap recovery and removes the song-length-blind note cap
+Current product milestone: Task 009B2Z adds non-destructive cross-version track
+management and per-track sustain-fragment repair to the native editor
 Research status: Gate 4 remains not passed for the rejected fusion routes; no
 new dataset, fusion, retuning, or training work is in the product critical path
-Current task: both automatic and user-selected gap recovery now merge the raw
-voice-constrained generation from the selected empty windows without a fixed
-candidate-count ceiling
-Next task: owner listening review of the new 1,186-note real-song product
-version; do not start another model route from this implementation task alone
+Current task: ordinary users see product versions only and can copy a track
+from another version, merge or remove tracks in a derived custom version, and
+repair detected per-track fragmentation without overwriting model outputs
+Next task: owner interaction check of the rebuilt app; do not start another
+model route from this editor task alone
 Current branch: `main`
+
+Implemented and verified for Task 009B2Z:
+
+- old rejected and three-stage experiment bundles remain immutable evidence
+  but are hidden from the ordinary version list. The app no longer asks a
+  normal user to understand a “diagnostic version”;
+- `管理版本与音轨` copies one product track from another version into the
+  current arrangement, merges two or more current tracks while letting the
+  user choose the resulting instrument, or removes a track. Every action
+  creates a new `custom-*` canonical bundle; source versions and saved edits
+  are materialized but never overwritten;
+- merged tracks keep every source note and provenance without automatic
+  overlap deletion. The selected instrument is applied consistently to both
+  the track and its events. The app refuses to remove the last visible product
+  track and cannot jump back to an old project if the user changes projects
+  while an arrangement operation finishes;
+- `删除音符` now sits beside `新增音符` in the current-track editor. Each track
+  has an `音轨设置` menu with a confirmed, saved, undoable repair for detected
+  same-pitch sustain fragmentation; drums retain their separate conservative
+  trailing-repeat collapse instead of being converted to long tones;
+- final `make check` passes 282 Python and 44 Swift tests with three expected
+  private-environment skips. Strict Swift formatting, `git diff --check`, the
+  signed app build, and both configured real-project open/export paths pass.
+  No Hyak or local model job ran.
 
 Implemented and verified for Task 009B2Y:
 

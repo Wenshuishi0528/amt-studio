@@ -10,8 +10,10 @@ public struct ContentView: View {
   @ObservedObject private var model: AppModel
   @State private var isShowingSettings = false
   @State private var isConfirmingGapRecovery = false
+  @State private var isShowingTrackManager = false
   @State private var librarySearchText = ""
   @State private var projectPendingDeletion: LocalProjectItem?
+  @State private var trackPendingFragmentRepair: EditorTrack?
 
   public init(model: AppModel) {
     self.model = model
@@ -157,6 +159,9 @@ public struct ContentView: View {
     .sheet(isPresented: $isShowingSettings) {
       SettingsView(model: model)
     }
+    .sheet(isPresented: $isShowingTrackManager) {
+      TrackManagerView(model: model)
+    }
     .confirmationDialog(
       "重新分析所选空缺？",
       isPresented: $isConfirmingGapRecovery,
@@ -195,6 +200,34 @@ public struct ContentView: View {
       if let project = projectPendingDeletion {
         Text(
           "“\(project.title)”的原曲、识别版本和人工修改会一起移到 macOS 废纸篓，可从废纸篓恢复。正在运行的任务不会被允许删除。"
+        )
+      }
+    }
+    .confirmationDialog(
+      "智能修复当前音轨的碎片？",
+      isPresented: Binding(
+        get: { trackPendingFragmentRepair != nil },
+        set: { if !$0 { trackPendingFragmentRepair = nil } }
+      ),
+      titleVisibility: .visible
+    ) {
+      if let track = trackPendingFragmentRepair {
+        Button("修复并保存") {
+          model.repairFragments(in: track.id)
+          trackPendingFragmentRepair = nil
+        }
+      }
+      Button("取消", role: .cancel) {
+        trackPendingFragmentRepair = nil
+      }
+    } message: {
+      if let track = trackPendingFragmentRepair,
+        let summary = model.trailingCleanupSummaries[track.id]
+      {
+        Text(
+          summary.kind == .percussionRepeats
+            ? "将折叠“\(track.label)”尾部 \(summary.fragmentCount) 个疑似重复短击。真实鼓点也可能相似，操作会立即保存但可以撤销。"
+            : "将把“\(track.label)”中的 \(summary.fragmentCount) 个首尾相接同音片段合并为延长音。原识别版本不变，操作会立即保存且可以撤销。"
         )
       }
     }
@@ -391,22 +424,19 @@ public struct ContentView: View {
               model.chooseBundle(bundle.id)
             } label: {
               VStack(alignment: .leading, spacing: 3) {
-                Text(bundle.id)
+                Text(model.bundleDisplayName(bundle.id))
                   .lineLimit(1)
                 Text(
-                  bundle.isDefaultEligible
-                    ? "\(bundle.manifest.outputs.count) 个已校验文件"
-                    : "诊断版本 · 未作为默认主旋律"
+                  "\(model.productTracks(in: bundle.id).count) 条产品音轨 · \(bundle.id)"
                 )
+                .lineLimit(1)
                 .font(.caption)
-                .foregroundStyle(
-                  bundle.isDefaultEligible ? Color.secondary : Color.orange
-                )
+                .foregroundStyle(Color.secondary)
               }
             }
             .buttonStyle(.plain)
             .disabled(model.isLoadingSelection)
-            .help(bundle.defaultExclusionReason ?? "已通过默认产品准入")
+            .help("打开这个产品版本")
             .accessibilityIdentifier("bundle-\(bundle.id)")
           }
         }
@@ -529,28 +559,49 @@ public struct ContentView: View {
                 .font(.caption2.monospacedDigit())
                 .frame(width: 34, alignment: .trailing)
               }
+              HStack {
+                Menu("音轨设置", systemImage: "gearshape") {
+                  Button("编辑这条音轨", systemImage: "pencil") {
+                    model.chooseTrack(track.id)
+                  }
+                  if let cleanup = model.trailingCleanupSummaries[track.id] {
+                    Button(
+                      cleanup.kind == .percussionRepeats
+                        ? "智能处理尾部重复打击"
+                        : "智能修复延音碎片",
+                      systemImage: "wand.and.sparkles"
+                    ) {
+                      trackPendingFragmentRepair = track
+                    }
+                  } else {
+                    Button(
+                      "未发现可修复碎片",
+                      systemImage: "checkmark.seal"
+                    ) {}
+                    .disabled(true)
+                  }
+                  Divider()
+                  Button("复制、合并或删除音轨…", systemImage: "square.stack.3d.up") {
+                    isShowingTrackManager = true
+                  }
+                }
+                .menuStyle(.borderlessButton)
+                .accessibilityIdentifier("track-settings-\(track.id)")
+                Spacer()
+              }
             }
             .padding(.vertical, 3)
           }
-          if model.hasEnhancedVoiceTrack {
-            Text(
-              "默认只显示一条增强主旋律；合奏与标准完整多轨不会叠加原始、补漏和增强三个版本。"
-            )
-            .font(.caption2)
-            .foregroundStyle(.secondary)
-            Toggle(
-              "显示主旋律诊断版本",
-              isOn: Binding(
-                get: { model.showMelodyVersions },
-                set: { model.setShowMelodyVersions($0) }
-              )
-            )
-            .toggleStyle(.switch)
+          Button("管理版本与音轨", systemImage: "square.stack.3d.up") {
+            isShowingTrackManager = true
           }
+          .buttonStyle(.bordered)
+          .disabled(model.isManagingTracks || model.isLoadingSelection)
+          .accessibilityIdentifier("manage-tracks")
           Text("点名称编辑该轨；M 静音，S 独奏。乐器名称是模型预测，可能误分类。")
             .font(.caption2)
             .foregroundStyle(.secondary)
-          Text("橙色尾部提示按音轨独立处理；先点音轨，再在右侧确认清理。")
+          Text("实验中间结果已隐藏；橙色碎片提示可从每条音轨的齿轮菜单一键修复。")
             .font(.caption2)
             .foregroundStyle(.secondary)
         }
@@ -1580,6 +1631,200 @@ private struct LibraryHomeView: View {
   }
 }
 
+private struct TrackManagerView: View {
+  @ObservedObject var model: AppModel
+  @Environment(\.dismiss) private var dismiss
+  @State private var sourceBundleID = ""
+  @State private var sourceTrackID = ""
+  @State private var mergeTrackIDs = Set<String>()
+  @State private var instrumentSourceTrackID = ""
+  @State private var deleteTrackID = ""
+  @State private var isConfirmingDelete = false
+
+  var body: some View {
+    VStack(spacing: 0) {
+      HStack {
+        VStack(alignment: .leading, spacing: 3) {
+          Text("管理版本与音轨")
+            .font(.title2.weight(.semibold))
+          Text("所有操作都会创建新的自定义版本，原识别版本不会被覆盖。")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        Spacer()
+        if model.isManagingTracks {
+          ProgressView()
+            .controlSize(.small)
+        }
+        Button("完成") {
+          dismiss()
+        }
+      }
+      .padding(20)
+
+      Divider()
+
+      Form {
+        Section("当前目标版本") {
+          LabeledContent(
+            "版本",
+            value: model.selectedBundleID.map(model.bundleDisplayName) ?? "未选择"
+          )
+          Text("复制是从其他版本取一条轨加入这里；合并和删除也只发生在新副本里。")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+
+        Section("从其他版本复制音轨") {
+          if model.otherProductBundles.isEmpty {
+            Text("当前没有其他可用版本可供复制。")
+              .foregroundStyle(.secondary)
+          } else {
+            Picker("来源版本", selection: $sourceBundleID) {
+              ForEach(model.otherProductBundles) { bundle in
+                Text(model.bundleDisplayName(bundle.id)).tag(bundle.id)
+              }
+            }
+            Picker("来源音轨", selection: $sourceTrackID) {
+              ForEach(sourceTracks) { track in
+                Text(
+                  "\(track.label) · \(track.instrument ?? "未知乐器") · \(track.eventCount) 音符"
+                )
+                .tag(track.id)
+              }
+            }
+            Button("复制到当前版本", systemImage: "doc.on.doc") {
+              model.copyTrack(
+                from: sourceBundleID,
+                trackID: sourceTrackID
+              )
+              dismiss()
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(
+              sourceBundleID.isEmpty || sourceTrackID.isEmpty
+                || model.isManagingTracks
+            )
+            Text("来源音轨会完整复制并记录来源；同名时自动生成新名称。")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          }
+        }
+
+        Section("合并当前版本的音轨") {
+          ForEach(model.visibleTrackChoices) { track in
+            Toggle(
+              isOn: Binding(
+                get: { mergeTrackIDs.contains(track.id) },
+                set: { selected in
+                  if selected {
+                    mergeTrackIDs.insert(track.id)
+                  } else {
+                    mergeTrackIDs.remove(track.id)
+                  }
+                  normalizeInstrumentSource()
+                }
+              )
+            ) {
+              Text(
+                "\(track.label) · \(track.instrument ?? "未知乐器") · \(track.eventCount) 音符"
+              )
+            }
+            .toggleStyle(.checkbox)
+          }
+          Picker("合并后使用哪条轨的乐器", selection: $instrumentSourceTrackID) {
+            ForEach(selectedMergeTracks) { track in
+              Text("\(track.label) · \(track.instrument ?? "未知乐器")")
+                .tag(track.id)
+            }
+          }
+          .disabled(mergeTrackIDs.count < 2)
+          Button("合并所选 \(mergeTrackIDs.count) 轨", systemImage: "arrow.triangle.merge") {
+            model.mergeTracks(
+              mergeTrackIDs,
+              instrumentSourceTrackID: instrumentSourceTrackID
+            )
+            dismiss()
+          }
+          .buttonStyle(.borderedProminent)
+          .disabled(
+            mergeTrackIDs.count < 2 || instrumentSourceTrackID.isEmpty
+              || model.isManagingTracks
+          )
+          Text("合并会保留所选轨的全部音符，不自动删除重叠音符；合并后仍可逐个编辑。")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+
+        Section("删除当前版本中的音轨") {
+          Picker("要删除的音轨", selection: $deleteTrackID) {
+            ForEach(model.visibleTrackChoices) { track in
+              Text("\(track.label) · \(track.eventCount) 音符")
+                .tag(track.id)
+            }
+          }
+          Button("从新副本删除这条音轨", systemImage: "trash", role: .destructive) {
+            isConfirmingDelete = true
+          }
+          .disabled(
+            deleteTrackID.isEmpty || !model.canDeleteTrack(deleteTrackID)
+              || model.isManagingTracks
+          )
+          Text("原识别版本及其音轨不会删除；软件至少保留一条可见产品音轨。")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+      }
+      .formStyle(.grouped)
+    }
+    .frame(width: 680, height: 760)
+    .onAppear {
+      initializeSelections()
+    }
+    .onChange(of: sourceBundleID) {
+      sourceTrackID = sourceTracks.first?.id ?? ""
+    }
+    .confirmationDialog(
+      "从自定义副本中删除所选音轨？",
+      isPresented: $isConfirmingDelete,
+      titleVisibility: .visible
+    ) {
+      Button("删除并创建新版本", role: .destructive) {
+        model.deleteTrack(deleteTrackID)
+        dismiss()
+      }
+      Button("取消", role: .cancel) {}
+    } message: {
+      Text("模型原始版本不会被修改；这项操作只生成一个不含该音轨的新版本。")
+    }
+  }
+
+  private var sourceTracks: [EditorTrack] {
+    model.productTracks(in: sourceBundleID)
+  }
+
+  private var selectedMergeTracks: [EditorTrack] {
+    model.visibleTrackChoices.filter { mergeTrackIDs.contains($0.id) }
+  }
+
+  private func initializeSelections() {
+    sourceBundleID = model.otherProductBundles.first?.id ?? ""
+    sourceTrackID = sourceTracks.first?.id ?? ""
+    deleteTrackID =
+      model.editor?.selectedTrack.id
+      ?? model.visibleTrackChoices.first?.id
+      ?? ""
+    normalizeInstrumentSource()
+  }
+
+  private func normalizeInstrumentSource() {
+    guard mergeTrackIDs.contains(instrumentSourceTrackID) else {
+      instrumentSourceTrackID = selectedMergeTracks.first?.id ?? ""
+      return
+    }
+  }
+}
+
 private struct EmptyStateView: View {
   let icon: String
   let title: String
@@ -1625,7 +1870,9 @@ private struct WorkspaceView: View {
           selectedTrackLabel: editor.selectedTrack.label,
           isLoadingSelection: model.isLoadingSelection,
           theme: theme,
-          onAddNote: model.createNoteAtPlayhead
+          canDeleteNote: model.selectedNote != nil,
+          onAddNote: model.createNoteAtPlayhead,
+          onDeleteNote: model.deleteSelectedNote
         )
         Divider()
         if pianoRollDisplayMode == .allTracks {
@@ -1687,8 +1934,7 @@ private struct WorkspaceView: View {
       if let note = model.selectedNote {
         NoteInspector(
           note: note,
-          onCommit: model.commit,
-          onDelete: model.deleteSelectedNote
+          onCommit: model.commit
         )
         .id("\(note.id)-\(note.onsetSec)-\(note.offsetSec)-\(note.pitchMIDI)")
       } else {
@@ -1705,10 +1951,6 @@ private struct WorkspaceView: View {
           .keyboardShortcut("n", modifiers: [.command, .shift])
           .accessibilityIdentifier("add-note-empty-inspector")
         }
-      }
-      if model.editor != nil {
-        Divider()
-        TrailingCleanupPanel(model: model)
       }
       if model.hasConfidenceReviewData {
         Divider()
@@ -2095,79 +2337,6 @@ private struct ProjectReviewPanel: View {
   }
 }
 
-private struct TrailingCleanupPanel: View {
-  @ObservedObject var model: AppModel
-  @State private var isConfirmingTrailingCleanup = false
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: 8) {
-      if let summary = model.currentTrailingCleanupSummary {
-        Label(
-          summary.kind == .percussionRepeats
-            ? "结尾疑似重复打击"
-            : "结尾疑似延音碎片",
-          systemImage: "waveform.path"
-        )
-        .font(.subheadline.weight(.semibold))
-        .foregroundStyle(.orange)
-        Text(
-          summary.kind == .percussionRepeats
-            ? "检测到 \(summary.groupCount) 种鼓音、\(summary.fragmentCount) 个周期性短击"
-            : "检测到 \(summary.groupCount) 个音高被切成 \(summary.fragmentCount) 个连续片段"
-        )
-        .font(.caption)
-        Button(
-          summary.kind == .percussionRepeats
-            ? "折叠重复打击"
-            : "合并为延长音",
-          systemImage: "arrow.triangle.merge"
-        ) {
-          isConfirmingTrailingCleanup = true
-        }
-        .buttonStyle(.borderedProminent)
-        .accessibilityIdentifier("clean-trailing-fragments")
-        Text(
-          summary.kind == .percussionRepeats
-            ? "只折叠当前鼓轨结尾同鼓音的密集重复；真实鼓点或滚奏也可能相似，操作可撤销。"
-            : "只处理当前音轨结尾首尾相接的同音片段；原始识别不变，操作可撤销。"
-        )
-        .font(.caption2)
-        .foregroundStyle(.secondary)
-      } else {
-        Label("尾部修复", systemImage: "checkmark.seal")
-          .font(.subheadline.weight(.semibold))
-          .foregroundStyle(.secondary)
-        Text(model.currentTrailingCleanupStatus)
-          .font(.caption)
-          .foregroundStyle(.secondary)
-        Text("切换音轨后这里会重新检查；发现候选时会出现“合并为延长音”或“折叠重复打击”按钮。")
-          .font(.caption2)
-          .foregroundStyle(.tertiary)
-      }
-    }
-    .padding(12)
-    .accessibilityIdentifier("trailing-cleanup-panel")
-    .confirmationDialog(
-      model.currentTrailingCleanupSummary?.kind == .percussionRepeats
-        ? "折叠当前鼓轨的结尾重复打击？"
-        : "把当前音轨的结尾碎片合并为延长音？",
-      isPresented: $isConfirmingTrailingCleanup,
-      titleVisibility: .visible
-    ) {
-      Button(
-        model.currentTrailingCleanupSummary?.kind == .percussionRepeats
-          ? "折叠并保存"
-          : "合并并保存"
-      ) {
-        model.performTrailingCleanup()
-      }
-      Button("取消", role: .cancel) {}
-    } message: {
-      Text("真实轮指、重复弹奏、鼓点或滚奏也可能长得相似；这里只按你的确认写入当前音轨的一条可撤销修正，不会修改模型原始音轨。")
-    }
-  }
-}
-
 private enum PianoRollDisplayMode: String, CaseIterable, Identifiable {
   case allTracks
   case currentTrack
@@ -2188,7 +2357,9 @@ private struct PianoRollModeBar: View {
   let selectedTrackLabel: String
   let isLoadingSelection: Bool
   let theme: AMTTheme
+  let canDeleteNote: Bool
   let onAddNote: () -> Void
+  let onDeleteNote: () -> Void
 
   var body: some View {
     HStack(spacing: 12) {
@@ -2228,6 +2399,17 @@ private struct PianoRollModeBar: View {
         .buttonStyle(.borderedProminent)
         .keyboardShortcut("n", modifiers: [.command, .shift])
         .accessibilityIdentifier("add-note-at-playhead")
+        Button(
+          "删除音符",
+          systemImage: "trash",
+          role: .destructive
+        ) {
+          onDeleteNote()
+        }
+        .buttonStyle(.bordered)
+        .disabled(!canDeleteNote)
+        .keyboardShortcut(.delete, modifiers: [])
+        .accessibilityIdentifier("delete-note")
       }
 
       Button(
@@ -2986,7 +3168,6 @@ private struct NoteBlock: View {
 private struct NoteInspector: View {
   let note: EditorNote
   let onCommit: (EditorNote) -> Void
-  let onDelete: () -> Void
 
   @State private var onset: Double
   @State private var offset: Double
@@ -2994,12 +3175,10 @@ private struct NoteInspector: View {
 
   init(
     note: EditorNote,
-    onCommit: @escaping (EditorNote) -> Void,
-    onDelete: @escaping () -> Void
+    onCommit: @escaping (EditorNote) -> Void
   ) {
     self.note = note
     self.onCommit = onCommit
-    self.onDelete = onDelete
     _onset = State(initialValue: note.onsetSec)
     _offset = State(initialValue: note.offsetSec)
   }
@@ -3068,11 +3247,6 @@ private struct NoteInspector: View {
           Label("来源信息", systemImage: "info.circle")
         }
         .accessibilityIdentifier("note-provenance-disclosure")
-      }
-
-      Section {
-        Button("删除音符", role: .destructive, action: onDelete)
-          .accessibilityIdentifier("delete-note")
       }
     }
     .formStyle(.grouped)

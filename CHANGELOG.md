@@ -4,6 +4,41 @@ This project records changes by numbered research task until formal semantic
 versions and releases begin. Dates and commit identifiers refer to the local
 Git history.
 
+## Task 009B2Z — Cross-version track management — 2026-07-27
+
+Commit: this task's final commit
+
+### Added
+
+- Added a product-facing track manager that copies a track from another
+  eligible version, merges selected tracks with an explicit instrument source,
+  or removes a track from a newly derived custom version.
+- Added atomic `custom-*` canonical bundles with source-bundle/track/event
+  provenance, manifest hashes, post-write validation, and no source overwrite.
+- Added per-track settings with confirmed, persistent, undoable sustain
+  fragmentation repair. Pitched tracks use whole-track same-pitch analysis;
+  drums retain the conservative trailing-repeat rule.
+
+### Changed
+
+- Hid rejected experiment bundles and intermediate comparison tracks from
+  ordinary product navigation while preserving their immutable evidence.
+- Moved note deletion beside note creation in the detailed piano-roll toolbar.
+- Applied the selected merged instrument to both canonical track metadata and
+  every merged event, refused deletion of the last visible product track, and
+  prevented a finishing track operation from reopening a project the user
+  already left.
+
+### Verified
+
+- `make check` passes 282 Python and 44 Swift tests with three expected
+  private-environment skips. Derived copy/merge/delete, original immutability,
+  merged MIDI export, last-track protection, project-switch races, and
+  whole-track fragmentation detection have focused regressions.
+- Strict Swift formatting, `git diff --check`, signed app packaging, and both
+  configured real-project open/export paths pass. No Hyak or local model job
+  was submitted.
+
 ## Task 009B2Y — Raw gap recovery without a count cap — 2026-07-27
 
 Commit: this task's final commit
