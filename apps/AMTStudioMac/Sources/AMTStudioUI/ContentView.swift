@@ -6,6 +6,71 @@ import UniformTypeIdentifiers
   import AMTStudioCore
 #endif
 
+enum AMTProductIdentity {
+  static let author = "wenshuishi26"
+  static let fallbackVersion = "0.2.0"
+  static let fallbackBuild = "2"
+
+  static var version: String {
+    Bundle.main.object(
+      forInfoDictionaryKey: "CFBundleShortVersionString"
+    ) as? String ?? fallbackVersion
+  }
+
+  static var build: String {
+    Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
+      ?? fallbackBuild
+  }
+
+  static var coverImage: NSImage? {
+    guard
+      let url = Bundle.main.url(
+        forResource: "AMTStudioCover",
+        withExtension: "png"
+      )
+    else {
+      return nil
+    }
+    return NSImage(contentsOf: url)
+  }
+}
+
+private struct AMTCoverArtwork: View {
+  let cornerRadius: CGFloat
+
+  var body: some View {
+    Group {
+      if let image = AMTProductIdentity.coverImage {
+        Image(nsImage: image)
+          .resizable()
+          .scaledToFit()
+      } else {
+        ZStack {
+          LinearGradient(
+            colors: [
+              Color(red: 0.72, green: 0.91, blue: 1.0),
+              Color(red: 0.20, green: 0.72, blue: 0.96),
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+          )
+          Image(systemName: "waveform.path")
+            .font(.system(size: 22, weight: .semibold))
+            .foregroundStyle(.white)
+        }
+      }
+    }
+    .clipShape(
+      RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+    )
+    .overlay {
+      RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        .stroke(Color.white.opacity(0.16), lineWidth: 1)
+    }
+    .shadow(color: Color.cyan.opacity(0.16), radius: 12, y: 5)
+  }
+}
+
 public struct ContentView: View {
   @ObservedObject private var model: AppModel
   @State private var isShowingSettings = false
@@ -1195,14 +1260,8 @@ private struct AMTBrandHeader: View {
 
   var body: some View {
     HStack(spacing: 11) {
-      ZStack {
-        RoundedRectangle(cornerRadius: 8, style: .continuous)
-          .fill(theme.accentGradient.opacity(0.18))
-        Image(systemName: "waveform.path")
-          .font(.system(size: 19, weight: .semibold))
-          .foregroundStyle(theme.accentGradient)
-      }
-      .frame(width: 38, height: 38)
+      AMTCoverArtwork(cornerRadius: 9)
+        .frame(width: 44, height: 44)
       VStack(alignment: .leading, spacing: 2) {
         Text("AMT Studio")
           .font(.system(size: 17, weight: .semibold, design: .rounded))
@@ -1214,6 +1273,11 @@ private struct AMTBrandHeader: View {
         .font(.system(size: 9, weight: .semibold, design: .monospaced))
         .tracking(1.1)
         .foregroundStyle(theme.mutedText)
+        Text(
+          "v\(AMTProductIdentity.version) · \(AMTProductIdentity.author)"
+        )
+        .font(.system(size: 9, weight: .medium, design: .monospaced))
+        .foregroundStyle(theme.quietText)
       }
     }
   }
@@ -1367,6 +1431,31 @@ private struct SettingsView: View {
           .font(.caption)
           .foregroundStyle(theme.mutedText)
       }
+
+      Divider()
+        .overlay(theme.border)
+
+      HStack(spacing: 16) {
+        AMTCoverArtwork(cornerRadius: 14)
+          .frame(width: 78, height: 78)
+        VStack(alignment: .leading, spacing: 5) {
+          Text("AMT Studio")
+            .font(.title3.bold())
+          Text(
+            "版本 \(AMTProductIdentity.version)（构建 \(AMTProductIdentity.build)）"
+          )
+          .font(.callout.monospacedDigit())
+          Text("作者 \(AMTProductIdentity.author)")
+            .font(.callout)
+            .foregroundStyle(theme.mutedText)
+          Text("Private Beta")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(theme.accent)
+        }
+        Spacer()
+      }
+      .accessibilityElement(children: .combine)
+      .accessibilityIdentifier("about-amt-studio")
 
       Label(
         "设置不会重载歌曲、重新提交 Hyak 作业或改变任何 MIDI。",
@@ -1751,18 +1840,27 @@ private struct LibraryHomeView: View {
   var body: some View {
     ScrollView {
       VStack(alignment: .leading, spacing: 26) {
-        VStack(alignment: .leading, spacing: 8) {
-          Text("SIGNAL TO SCORE")
-            .font(.system(size: 11, weight: .bold, design: .monospaced))
-            .tracking(1.6)
-            .foregroundStyle(theme.accent)
-          Label("AMT Studio", systemImage: "waveform.path")
-            .font(.system(size: 34, weight: .bold, design: .rounded))
-          Text(
-            "把一首歌变成可以试听、分轨和编辑的 MIDI。下一首歌将使用\(computeMode.label)；默认仍是 Hyak GPU。"
-          )
-          .font(.title3)
-          .foregroundStyle(theme.mutedText)
+        HStack(spacing: 22) {
+          AMTCoverArtwork(cornerRadius: 22)
+            .frame(width: 138, height: 138)
+          VStack(alignment: .leading, spacing: 8) {
+            Text("SIGNAL TO SCORE")
+              .font(.system(size: 11, weight: .bold, design: .monospaced))
+              .tracking(1.6)
+              .foregroundStyle(theme.accent)
+            Text("AMT Studio")
+              .font(.system(size: 34, weight: .bold, design: .rounded))
+            Text(
+              "把一首歌变成可以试听、分轨和编辑的 MIDI。下一首歌将使用\(computeMode.label)；默认仍是 Hyak GPU。"
+            )
+            .font(.title3)
+            .foregroundStyle(theme.mutedText)
+            Text(
+              "v\(AMTProductIdentity.version) · \(AMTProductIdentity.author)"
+            )
+            .font(.caption.weight(.semibold).monospaced())
+            .foregroundStyle(theme.quietText)
+          }
         }
 
         HStack(spacing: 16) {

@@ -1,14 +1,28 @@
 # Project status
 
-Current product milestone: Task 009B3G adds a persistent sequential multi-song
-queue without changing the one-active-job Hyak safety boundary
+Current product milestone: Task 009B3H brands the private Beta as AMT Studio
+0.2.0 by wenshuishi26 with the owner-selected product cover
 Research status: Gate 4 remains not passed for the rejected fusion routes; no
 new dataset, fusion, retuning, or training work is in the product critical path
-Current task: complete and package multi-select import, automatic queue
-advancement, restart recovery, and per-song frozen settings
-Next task: owner validation with an actual multi-song selection; do not submit
-test music or resume residual-sustain work without a new request
+Current task: complete and package the selected cover, visible version, build,
+and author identity
+Next task: owner visual confirmation; do not submit music or resume model work
+without a new request
 Current branch: `main`
+
+Implemented for Task 009B3H:
+
+- the selected sky-blue/champagne-gold artwork is now a project-owned resource
+  shown on the library home, sidebar brand header, and Settings about card;
+- the app visibly reports `v0.2.0 · wenshuishi26`, while Settings also reports
+  build `2`. The same version and author are present in the plist, Xcode build
+  settings, and Python package metadata;
+- the signed release app contains a byte-identical copy of the 1254 x 1254
+  cover. Both source and package resource hashes are
+  `ea9d44fd188d9a9ab915633ba06ec3171ea338fc7b69791670d20f2bddf26c23`;
+- `make check` passes 294 Python and 52 Swift tests with three expected private
+  integration skips. Formatting, plist, packaging, resource, signature, and
+  diff validation pass.
 
 Implemented for Task 009B3G:
 

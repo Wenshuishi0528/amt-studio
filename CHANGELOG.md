@@ -4,6 +4,29 @@ This project records changes by numbered research task until formal semantic
 versions and releases begin. Dates and commit identifiers refer to the local
 Git history.
 
+## Task 009B3H — Product artwork and identity — 2026-07-28
+
+### Added
+
+- Added the owner-selected bright sky-blue and champagne-gold cover to the
+  library home, sidebar brand header, and Settings about card.
+- Added visible author identity `wenshuishi26` and bundle-backed version/build
+  labels.
+
+### Changed
+
+- Advanced AMT Studio from `0.1.0 (1)` to private Beta `0.2.0 (2)`.
+- Synchronized the macOS plist, Xcode settings, and Python package metadata.
+
+### Verified
+
+- The signed release app contains the exact selected 1254 x 1254 PNG; source
+  and packaged SHA-256 are both
+  `ea9d44fd188d9a9ab915633ba06ec3171ea338fc7b69791670d20f2bddf26c23`.
+- `make check` passes 294 Python and 52 Swift tests with three expected private
+  integration skips. Swift formatting, plist validation, release packaging,
+  signing, and diff checks pass.
+
 ## Task 009B3G — Persistent sequential multi-song queue — 2026-07-28
 
 ### Added

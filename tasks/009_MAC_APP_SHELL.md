@@ -31,7 +31,31 @@ restores new-song import for Finder-launched app processes whose inherited
 environment omits Homebrew audio tools. Task 009B3F makes the following
 Mac-to-Hyak code snapshot transfer cache-safe and reusable. Task 009B3G adds a
 persistent sequential multi-song queue while preserving the single-active-job
-boundary.
+boundary. Task 009B3H adds the selected product artwork plus visible,
+bundle-backed version and author identity.
+
+## Task 009B3H: product artwork and identity
+
+Objective:
+
+- adopt the owner-selected bright sky-blue and champagne-gold cover;
+- expose one truthful application version and author identity in normal UI;
+- package the exact artwork in both Swift Package and Xcode application builds.
+
+Implemented and verified:
+
+- `AMTStudioCover.png` is shown on the library home, sidebar brand header, and
+  Settings about card, with a deterministic fallback if a test host has no app
+  resources;
+- the visible identity is `AMT Studio 0.2.0`, build `2`, by
+  `wenshuishi26`. `Info.plist`, Xcode marketing/build settings, and the root
+  Python package metadata agree;
+- the signed release app contains the exact selected 1254 x 1254 PNG under
+  `Contents/Resources`; its packaged and source SHA-256 values both equal
+  `ea9d44fd188d9a9ab915633ba06ec3171ea338fc7b69791670d20f2bddf26c23`;
+- `make check` passes 294 Python and 52 Swift tests with three expected private
+  integration skips. Strict Swift formatting, plist validation, release
+  packaging, resource hashes, signing, and `git diff --check` pass.
 
 ## Task 009B3G: persistent sequential multi-song queue
 
