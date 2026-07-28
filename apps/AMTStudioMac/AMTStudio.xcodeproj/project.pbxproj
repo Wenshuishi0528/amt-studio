@@ -21,6 +21,7 @@
 		00000000000000000000005B /* AMTAppearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000003B /* AMTAppearance.swift */; };
 		00000000000000000000005C /* RhythmAndReview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000000000000000000003C /* RhythmAndReview.swift */; };
 		00000000000000000000005D /* AMTStudioCover.png in Resources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000041 /* AMTStudioCover.png */; };
+		00000000000000000000005E /* AMTStudioIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = 000000000000000000000042 /* AMTStudioIcon.icns */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -51,6 +52,7 @@
 		00000000000000000000003B /* AMTAppearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/AMTStudioUI/AMTAppearance.swift; sourceTree = "<group>"; };
 		00000000000000000000003C /* RhythmAndReview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/AMTStudioCore/RhythmAndReview.swift; sourceTree = "<group>"; };
 		000000000000000000000041 /* AMTStudioCover.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = Support/AMTStudioCover.png; sourceTree = "<group>"; };
+		000000000000000000000042 /* AMTStudioIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = Support/AMTStudioIcon.icns; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -122,6 +124,7 @@
 			children = (
 				000000000000000000000040 /* Info.plist */,
 				000000000000000000000041 /* AMTStudioCover.png */,
+				000000000000000000000042 /* AMTStudioIcon.icns */,
 			);
 			name = Support;
 			sourceTree = "<group>";
@@ -210,6 +213,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				00000000000000000000005D /* AMTStudioCover.png in Resources */,
+				00000000000000000000005E /* AMTStudioIcon.icns in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

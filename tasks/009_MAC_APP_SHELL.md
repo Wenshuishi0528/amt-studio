@@ -1544,3 +1544,28 @@ Evidence:
   private-environment skips;
 - the formal Xcode project build and packaged release app both succeed;
 - no new Hyak job, local inference, dataset experiment, or training work ran.
+
+## Task 009B3K: install the selected macOS application icon
+
+Goal:
+
+- keep the owner-selected cover artwork unchanged;
+- use that artwork as the actual Finder, Dock, and application-dialog icon;
+- ensure both supported build paths package the same icon.
+
+Frozen product rule:
+
+- `AMTStudioCover.png` remains the single visual source selected by the owner;
+- `AMTStudioIcon.icns` is a mechanical multi-resolution conversion of that
+  source, not a new design;
+- `Info.plist` declares `CFBundleIconFile=AMTStudioIcon`;
+- both the formal Xcode resource phase and `build_app.sh` must include the icon.
+
+Evidence:
+
+- `make check` passes 295 Python and 57 Swift tests with three expected
+  private-environment skips;
+- the formal Xcode project build and packaged release app both succeed;
+- the packaged Info.plist resolves `AMTStudioIcon`, the 2.4 MB `.icns` resource
+  is present, and strict code-signature verification succeeds;
+- no Hyak job, model inference, or product-data change ran.

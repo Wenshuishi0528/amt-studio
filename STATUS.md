@@ -1,14 +1,24 @@
 # Project status
 
-Current product milestone: Task 009B3J adds duration-aware Hyak wall time and
-checkpoint-based timeout continuation to AMT Studio 0.2.0
+Current product milestone: Task 009B3K installs the owner-selected cover as the
+real macOS application icon for AMT Studio 0.2.0
 Research status: Gate 4 remains not passed for the rejected fusion routes; no
 new dataset, fusion, retuning, or training work is in the product critical path
-Current task: complete and package automatic 1/2/3-hour submission policy plus
-safe continuation of timed-out multitrack post-processing
-Next task: owner workflow confirmation; do not submit music or resume model
-work without a new request
+Current task: complete and package the macOS icon resource
+Next task: owner visual confirmation after reopening the packaged app
 Current branch: `main`
+
+Implemented for Task 009B3K:
+
+- the previously selected light-blue record, waveform, and piano-roll artwork
+  remains the in-app cover and now also provides the application icon;
+- a standard multi-resolution `AMTStudioIcon.icns` is embedded by both the
+  Xcode target and standalone release packaging script;
+- the packaged app declares `CFBundleIconFile=AMTStudioIcon`, contains the
+  verified icon resource, and passes strict code-signature verification;
+- `make check` passes 295 Python and 57 Swift tests with three expected private
+  integration skips. The formal Xcode project and packaged release app both
+  build successfully.
 
 Implemented for Task 009B3J:
 

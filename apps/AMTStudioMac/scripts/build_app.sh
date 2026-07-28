@@ -7,9 +7,11 @@ OUTPUT_ROOT="$PACKAGE_ROOT/dist"
 APP_PATH="$OUTPUT_ROOT/AMT Studio.app"
 PLIST_PATH="$PACKAGE_ROOT/Support/Info.plist"
 COVER_PATH="$PACKAGE_ROOT/Support/AMTStudioCover.png"
+ICON_PATH="$PACKAGE_ROOT/Support/AMTStudioIcon.icns"
 
 /usr/bin/plutil -lint "$PLIST_PATH"
 test -f "$COVER_PATH"
+test -f "$ICON_PATH"
 swift build \
   --package-path "$PACKAGE_ROOT" \
   --configuration release \
@@ -30,6 +32,8 @@ STAGING_APP="$STAGING_ROOT/AMT Studio.app"
 /bin/cp "$PLIST_PATH" "$STAGING_APP/Contents/Info.plist"
 /bin/cp "$COVER_PATH" \
   "$STAGING_APP/Contents/Resources/AMTStudioCover.png"
+/bin/cp "$ICON_PATH" \
+  "$STAGING_APP/Contents/Resources/AMTStudioIcon.icns"
 SIGNING_IDENTITY="${AMT_STUDIO_CODESIGN_IDENTITY:-}"
 if [[ -z "$SIGNING_IDENTITY" ]]; then
   SIGNING_IDENTITY="$(

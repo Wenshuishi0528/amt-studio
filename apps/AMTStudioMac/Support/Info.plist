@@ -11,6 +11,8 @@
   <string>AMTStudio</string>
   <key>CFBundleIdentifier</key>
   <string>com.amtstudio.editor</string>
+  <key>CFBundleIconFile</key>
+  <string>AMTStudioIcon</string>
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
   <key>CFBundleName</key>

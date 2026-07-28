@@ -4,6 +4,22 @@ This project records changes by numbered research task until formal semantic
 versions and releases begin. Dates and commit identifiers refer to the local
 Git history.
 
+## Task 009B3K — macOS application icon — 2026-07-28
+
+### Changed
+
+- Reused the owner-selected AMT Studio cover artwork as the macOS application
+  icon instead of the generic blank executable icon.
+- Added a standard multi-resolution `.icns` resource to both the formal Xcode
+  target and the standalone release packaging script.
+
+### Verified
+
+- `make check` passes 295 Python and 57 Swift tests with three expected private
+  integration skips.
+- The formal Xcode project builds successfully, and the signed packaged app
+  declares `AMTStudioIcon` and contains a valid 2.4 MB Mac icon resource.
+
 ## Task 009B3J — Duration-aware Hyak time and timeout continuation — 2026-07-28
 
 ### Added
