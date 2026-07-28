@@ -1111,6 +1111,90 @@ final class AppModelTests: XCTestCase {
     )
   }
 
+  func testMultipleSongsQueueWhileActiveAndFreezeTheirSettings() async throws {
+    let fixture = try AppFixtureProject()
+    defer { fixture.remove() }
+    try fixture.writePrivateBetaState(
+      jobID: "active-job",
+      slurmState: "RUNNING",
+      pipelineStage: "full_transcription",
+      backend: "hyak",
+      taskKind: "full_transcription"
+    )
+    let suiteName = "AMTStudioUITests.\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let model = AppModel(
+      defaults: defaults,
+      initialProjectURL: fixture.root,
+      restoreRecent: false,
+      persistRecentProject: false
+    )
+    model.openInitialProjectIfNeeded()
+    await model.waitForProjectLoadForTesting()
+    XCTAssertTrue(model.hasActiveBetaJob)
+
+    model.setComputeMode(.localCPU)
+    model.setHyakTimeLimitHours(7)
+    model.enqueueSongs([
+      URL(fileURLWithPath: "/tmp/第一首歌.mp3"),
+      URL(fileURLWithPath: "/tmp/第二首歌.wav"),
+    ])
+
+    XCTAssertEqual(model.songQueue.map(\.title), ["第一首歌", "第二首歌"])
+    XCTAssertEqual(model.songQueue.map(\.state), [.waiting, .waiting])
+    XCTAssertTrue(model.songQueue.allSatisfy { $0.computeMode == .localCPU })
+    XCTAssertTrue(
+      model.songQueue.allSatisfy { $0.recognitionMode == .multitrack }
+    )
+    XCTAssertTrue(
+      model.songQueue.allSatisfy { $0.hyakTimeLimitHours == 7 }
+    )
+
+    model.setRecognitionMode(.gameVocal)
+    model.enqueueSongs([
+      URL(fileURLWithPath: "/tmp/第三首歌.flac")
+    ])
+    XCTAssertEqual(model.songQueue.last?.recognitionMode, .gameVocal)
+    XCTAssertEqual(model.songQueue.last?.computeMode, .hyak)
+    XCTAssertEqual(model.songQueue.first?.computeMode, .localCPU)
+
+    let reopened = AppModel(defaults: defaults, restoreRecent: false)
+    XCTAssertEqual(reopened.songQueue, model.songQueue)
+    XCTAssertEqual(reopened.songQueue.count, 3)
+  }
+
+  func testInterruptedSubmissionRequiresManualRetryToAvoidDuplicateJob() throws {
+    let suiteName = "AMTStudioUITests.\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let item = SongQueueItem(
+      id: UUID(),
+      title: "未确认提交",
+      audioURL: URL(fileURLWithPath: "/tmp/interrupted.mp3"),
+      computeMode: .hyak,
+      recognitionMode: .multitrack,
+      hyakTimeLimitHours: 1,
+      state: .submitting,
+      failureMessage: nil,
+      bookmarkData: nil
+    )
+    defaults.set(
+      try JSONEncoder().encode([item]),
+      forKey: "AMTStudio.songQueue.v1"
+    )
+
+    let model = AppModel(defaults: defaults, restoreRecent: false)
+
+    XCTAssertEqual(model.songQueue.count, 1)
+    XCTAssertEqual(model.songQueue[0].state, .failed)
+    XCTAssertTrue(
+      model.songQueue[0].failureMessage?.contains("避免重复任务") == true
+    )
+    XCTAssertNil(model.betaJobID)
+    XCTAssertNil(model.betaProjectURL)
+  }
+
   func testActiveGameProjectOpensProgressAndCanReturnToExistingResult() async throws {
     let fixture = try AppFixtureProject()
     defer { fixture.remove() }

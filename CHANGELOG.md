@@ -4,6 +4,37 @@ This project records changes by numbered research task until formal semantic
 versions and releases begin. Dates and commit identifiers refer to the local
 Git history.
 
+## Task 009B3G — Persistent sequential multi-song queue — 2026-07-28
+
+### Added
+
+- The audio picker accepts multiple songs and creates an ordered local queue.
+  Each item freezes its recognition mode, compute target, and Hyak wall time
+  when selected.
+- The sidebar shows waiting, submitting, and failed items with retry and
+  removal controls. A failed submission remains inspectable but does not block
+  later waiting songs.
+- Pending paths use local security-scoped bookmarks and survive application
+  restarts. An interrupted, unconfirmed submission requires manual retry so
+  the app cannot silently duplicate a remote job.
+
+### Changed
+
+- Recognition and compute settings can be changed for future additions while
+  an existing task is active. Already queued items retain their original
+  settings.
+- Every known terminal Slurm state advances the next waiting song; Hyak login
+  expiry pauses advancement until the user reconnects through Terminal.
+
+### Verified
+
+- Focused tests cover multi-song ordering, frozen mixed configurations,
+  persistence, and duplicate-safe recovery from an interrupted submission.
+- Full `make check` passes 294 Python and 52 Swift tests with three expected
+  private-integration skips. The signed release app builds and relaunches.
+- No song or model job was submitted by this implementation; the existing
+  active task was left intact.
+
 ## Task 009B3F — Cache-safe reusable Hyak code sync — 2026-07-27
 
 ### Fixed

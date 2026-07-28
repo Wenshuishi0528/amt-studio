@@ -50,7 +50,6 @@ public struct ContentView: View {
             }
           }
         }
-        .disabled(model.isBetaBusy || model.hasActiveBetaJob)
         .help("选择下一首歌生成完整多轨或 GAME 主唱旋律单轨")
         .accessibilityIdentifier("recognition-mode-menu")
         Menu(model.computeMode.label, systemImage: model.computeMode.icon) {
@@ -67,7 +66,6 @@ public struct ContentView: View {
             }
           }
         }
-        .disabled(model.isBetaBusy || model.hasActiveBetaJob)
         .help("选择下一首歌使用 Hyak、本机 GPU 或本机 CPU")
         .accessibilityIdentifier("compute-mode-menu")
         Button(hyakActionTitle, systemImage: hyakActionIcon) {
@@ -80,18 +78,11 @@ public struct ContentView: View {
         .disabled(model.hyakConnectionState == .checking)
         .help(hyakActionHelp)
         .accessibilityIdentifier("connect-hyak")
-        Button("识别歌曲", systemImage: "waveform.badge.plus") {
+        Button("添加歌曲", systemImage: "waveform.badge.plus") {
           importAudioPanel()
         }
-        .disabled(
-          model.isBetaBusy || model.hasActiveBetaJob
-            || model.isLoadingProject
-        )
-        .help(
-          model.hasActiveBetaJob
-            ? "当前已有任务，完成或失败前不会重复提交"
-            : transcriptionHelp
-        )
+        .disabled(model.isLoadingProject)
+        .help("可一次选择多首歌曲；软件会按顺序逐首处理")
         .accessibilityIdentifier("transcribe-song")
         if model.isBetaBusy {
           ProgressView()
@@ -347,6 +338,60 @@ public struct ContentView: View {
         }
       }
 
+      if !model.songQueue.isEmpty {
+        Section {
+          ForEach(Array(model.songQueue.enumerated()), id: \.element.id) {
+            offset,
+            item in
+            VStack(alignment: .leading, spacing: 6) {
+              HStack(alignment: .firstTextBaseline) {
+                Text("\(offset + 1). \(item.title)")
+                  .lineLimit(1)
+                Spacer()
+                if item.state == .submitting {
+                  ProgressView()
+                    .controlSize(.small)
+                }
+              }
+              Text(item.configurationLabel)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+              Text(item.failureMessage ?? item.state.label)
+                .font(.caption)
+                .foregroundStyle(
+                  item.state == .failed ? Color.orange : Color.secondary
+                )
+                .lineLimit(2)
+              HStack {
+                if item.state == .failed {
+                  Button("重试") {
+                    model.retryQueuedSong(item.id)
+                  }
+                  .buttonStyle(.borderless)
+                }
+                Spacer()
+                Button("移除", systemImage: "xmark") {
+                  model.removeQueuedSong(item.id)
+                }
+                .buttonStyle(.borderless)
+                .disabled(item.state == .submitting)
+              }
+            }
+            .accessibilityIdentifier("song-queue-\(item.id.uuidString)")
+          }
+        } header: {
+          HStack {
+            Text("任务队列")
+            Spacer()
+            Text("\(model.songQueue.count) 首")
+              .font(.caption.monospacedDigit())
+              .foregroundStyle(.secondary)
+          }
+        } footer: {
+          Text("当前任务结束后自动开始下一首；提交失败不会阻塞后面的歌曲。")
+        }
+      }
+
       Section("项目") {
         if let manifest = model.catalog?.manifest {
           LabeledContent(
@@ -372,7 +417,6 @@ public struct ContentView: View {
             Text(mode.label).tag(mode)
           }
         }
-        .disabled(model.isBetaBusy || model.hasActiveBetaJob)
         .accessibilityIdentifier("recognition-mode-picker")
         Text(model.recognitionMode.detail)
           .font(.caption)
@@ -389,7 +433,6 @@ public struct ContentView: View {
             Text(mode.label).tag(mode)
           }
         }
-        .disabled(model.isBetaBusy || model.hasActiveBetaJob)
         .accessibilityIdentifier("compute-mode-picker")
         Text(model.computeMode.detail)
           .font(.caption)
@@ -913,17 +956,6 @@ public struct ContentView: View {
     }
   }
 
-  private var transcriptionHelp: String {
-    switch model.computeMode {
-    case .hyak:
-      "选择音频；Hyak 会自动选择预计最快的兼容 GPU"
-    case .localGPU:
-      "选择音频并在本机 Apple GPU 后台识别"
-    case .localCPU:
-      "选择音频并在本机 CPU 低优先级后台识别"
-    }
-  }
-
   @ViewBuilder
   private var detail: some View {
     if model.isLoadingProject {
@@ -983,13 +1015,13 @@ public struct ContentView: View {
 
   private func importAudioPanel() {
     let panel = NSOpenPanel()
-    panel.title = "选择要识别的歌曲"
+    panel.title = "选择一首或多首要识别的歌曲"
     panel.canChooseDirectories = false
     panel.canChooseFiles = true
-    panel.allowsMultipleSelection = false
+    panel.allowsMultipleSelection = true
     panel.allowedContentTypes = [.audio]
-    if panel.runModal() == .OK, let url = panel.url {
-      model.transcribeSong(url)
+    if panel.runModal() == .OK {
+      model.enqueueSongs(panel.urls)
     }
   }
 
@@ -1735,7 +1767,7 @@ private struct LibraryHomeView: View {
 
         HStack(spacing: 16) {
           Button(action: onTranscribe) {
-            Label("识别一首新歌", systemImage: "waveform.badge.plus")
+            Label("添加歌曲（可多选）", systemImage: "waveform.badge.plus")
               .font(.headline)
               .frame(maxWidth: .infinity, minHeight: 70)
           }

@@ -1,14 +1,36 @@
 # Project status
 
-Current product milestone: Task 009B3F makes Mac-to-Hyak code synchronization
-bounded, cache-safe, and reusable across songs on the same committed version
+Current product milestone: Task 009B3G adds a persistent sequential multi-song
+queue without changing the one-active-job Hyak safety boundary
 Research status: Gate 4 remains not passed for the rejected fusion routes; no
 new dataset, fusion, retuning, or training work is in the product critical path
-Current task: close the code-sync timeout that occurred after local import but
-before project upload or Slurm submission
-Next task: resume the paused residual-sustain and recognition-setting work only
-after the owner confirms new-song submission can pass local import
+Current task: complete and package multi-select import, automatic queue
+advancement, restart recovery, and per-song frozen settings
+Next task: owner validation with an actual multi-song selection; do not submit
+test music or resume residual-sustain work without a new request
 Current branch: `main`
+
+Implemented for Task 009B3G:
+
+- the song picker accepts one or many audio files. Every selection becomes a
+  local queue item with its recognition mode, compute target, and Hyak time
+  limit frozen at enqueue time;
+- only one project task is active. A succeeded, failed, cancelled, timed-out,
+  preempted, or otherwise terminal task automatically releases the next
+  waiting song; a failed local submission is retained for retry but does not
+  block later waiting items;
+- pending items and security-scoped bookmarks persist locally across app
+  restarts. An item interrupted during submission confirmation is restored as
+  manual-retry-only, preventing an ambiguous restart from creating a duplicate
+  Hyak job;
+- the sidebar shows the ordered queue, frozen configuration, submission state,
+  retry, and removal controls. Recognition and compute settings remain
+  editable for future queue additions while an existing task runs;
+- the release app was rebuilt and relaunched with no saved queue, so the
+  owner's already active task was monitored rather than replaced. No model job
+  was submitted by this implementation;
+- `make check` passes 294 Python and 52 Swift tests with three expected private
+  integration skips.
 
 Implemented for Task 009B3F:
 

@@ -26,7 +26,7 @@ public enum HyakConnectionState: String, Sendable {
   case loginRequired
 }
 
-public enum ComputeMode: String, CaseIterable, Identifiable, Sendable {
+public enum ComputeMode: String, CaseIterable, Codable, Identifiable, Sendable {
   case hyak
   case localGPU
   case localCPU
@@ -74,7 +74,7 @@ public enum ComputeMode: String, CaseIterable, Identifiable, Sendable {
   }
 }
 
-public enum RecognitionMode: String, CaseIterable, Identifiable, Sendable {
+public enum RecognitionMode: String, CaseIterable, Codable, Identifiable, Sendable {
   case multitrack
   case gameVocal = "game_vocal"
 
@@ -266,6 +266,70 @@ public struct LocalProjectItem: Sendable, Equatable, Identifiable {
     terminalFailureStates.union(["COMPLETED"])
 }
 
+public enum SongQueueState: String, Codable, Equatable, Sendable {
+  case waiting
+  case submitting
+  case failed
+
+  public var label: String {
+    switch self {
+    case .waiting: "等待前一首完成"
+    case .submitting: "正在提交"
+    case .failed: "提交失败，可重试"
+    }
+  }
+}
+
+public struct SongQueueItem: Codable, Sendable, Equatable, Identifiable {
+  public let id: UUID
+  public let title: String
+  public let audioURL: URL
+  public let computeMode: ComputeMode
+  public let recognitionMode: RecognitionMode
+  public let hyakTimeLimitHours: Int
+  public fileprivate(set) var state: SongQueueState
+  public fileprivate(set) var failureMessage: String?
+  fileprivate let bookmarkData: Data?
+
+  init(
+    id: UUID,
+    title: String,
+    audioURL: URL,
+    computeMode: ComputeMode,
+    recognitionMode: RecognitionMode,
+    hyakTimeLimitHours: Int,
+    state: SongQueueState,
+    failureMessage: String?,
+    bookmarkData: Data?
+  ) {
+    self.id = id
+    self.title = title
+    self.audioURL = audioURL
+    self.computeMode = computeMode
+    self.recognitionMode = recognitionMode
+    self.hyakTimeLimitHours = hyakTimeLimitHours
+    self.state = state
+    self.failureMessage = failureMessage
+    self.bookmarkData = bookmarkData
+  }
+
+  public var configurationLabel: String {
+    "\(recognitionMode == .multitrack ? "完整多轨" : "GAME 主唱") · \(computeMode.label)"
+  }
+
+  fileprivate func resolvedAudioURL() -> URL {
+    guard let bookmarkData else { return audioURL }
+    var isStale = false
+    return
+      (try? URL(
+        resolvingBookmarkData: bookmarkData,
+        options: [.withSecurityScope],
+        relativeTo: nil,
+        bookmarkDataIsStale: &isStale
+      )) ?? audioURL
+  }
+}
+
 public enum TrailingCleanupKind: Sendable, Equatable {
   case sustain
   case percussionRepeats
@@ -331,6 +395,7 @@ public final class AppModel: ObservableObject {
     [:]
   @Published public private(set) var lastSavedAt: Date?
   @Published public private(set) var isManagingTracks = false
+  @Published public private(set) var songQueue: [SongQueueItem] = []
 
   public let transport = AudioTransport()
 
@@ -345,6 +410,7 @@ public final class AppModel: ObservableObject {
   private let computeModeKey = "AMTStudio.computeMode"
   private let recognitionModeKey = "AMTStudio.recognitionMode"
   private let hyakTimeLimitHoursKey = "AMTStudio.hyakTimeLimitHours"
+  private let songQueueKey = "AMTStudio.songQueue.v1"
   private var pendingInitialProjectURL: URL?
   private var betaMonitor: Task<Void, Never>?
   private var connectionMonitor: Task<Void, Never>?
@@ -391,6 +457,9 @@ public final class AppModel: ObservableObject {
     let savedTimeLimit = defaults.integer(forKey: hyakTimeLimitHoursKey)
     hyakTimeLimitHours =
       (1...24).contains(savedTimeLimit) ? savedTimeLimit : 1
+    songQueue = Self.restoreSongQueue(
+      from: defaults.data(forKey: songQueueKey)
+    )
     if let initialProjectURL {
       pendingInitialProjectURL = initialProjectURL
     } else if restoreRecent,
@@ -415,7 +484,10 @@ public final class AppModel: ObservableObject {
   }
 
   public func openInitialProjectIfNeeded() {
-    guard let pendingInitialProjectURL else { return }
+    guard let pendingInitialProjectURL else {
+      processSongQueueIfPossible()
+      return
+    }
     self.pendingInitialProjectURL = nil
     openProject(pendingInitialProjectURL)
   }
@@ -529,50 +601,158 @@ public final class AppModel: ObservableObject {
   }
 
   public func transcribeSong(_ audioURL: URL) {
-    guard !isBetaBusy else { return }
-    guard !(recognitionMode.requiresHyak && computeMode != .hyak) else {
-      errorMessage =
-        "GAME 依赖 Hyak 上隔离的 BS-Roformer 与 CUDA 环境；请把计算位置切换为 Hyak GPU。"
-      statusMessage = "GAME 主唱旋律目前仅支持 Hyak"
+    enqueueSongs([audioURL])
+  }
+
+  public func enqueueSongs(_ audioURLs: [URL]) {
+    let existingPaths = Set(
+      songQueue.map { $0.audioURL.standardizedFileURL.path }
+    )
+    var queuedPaths = existingPaths
+    var addedCount = 0
+    for audioURL in audioURLs {
+      let standardizedURL = audioURL.standardizedFileURL
+      guard queuedPaths.insert(standardizedURL.path).inserted else {
+        continue
+      }
+      let effectiveComputeMode =
+        recognitionMode.requiresHyak ? ComputeMode.hyak : computeMode
+      let bookmarkData = try? standardizedURL.bookmarkData(
+        options: [.withSecurityScope],
+        includingResourceValuesForKeys: nil,
+        relativeTo: nil
+      )
+      songQueue.append(
+        SongQueueItem(
+          id: UUID(),
+          title: standardizedURL.deletingPathExtension().lastPathComponent,
+          audioURL: standardizedURL,
+          computeMode: effectiveComputeMode,
+          recognitionMode: recognitionMode,
+          hyakTimeLimitHours: hyakTimeLimitHours,
+          state: .waiting,
+          failureMessage: nil,
+          bookmarkData: bookmarkData
+        ))
+      addedCount += 1
+    }
+    guard addedCount > 0 else {
+      statusMessage = "所选歌曲已经在等待队列中"
       return
     }
+    persistSongQueue()
+    statusMessage =
+      addedCount == 1
+      ? "已加入任务队列"
+      : "已加入 \(addedCount) 首歌曲，将按顺序逐首识别"
+    errorMessage = nil
+    processSongQueueIfPossible()
+  }
+
+  public func retryQueuedSong(_ id: UUID) {
+    guard
+      let index = songQueue.firstIndex(where: { $0.id == id }),
+      songQueue[index].state == .failed
+    else {
+      return
+    }
+    songQueue[index].state = .waiting
+    songQueue[index].failureMessage = nil
+    persistSongQueue()
+    processSongQueueIfPossible()
+  }
+
+  public func removeQueuedSong(_ id: UUID) {
+    guard
+      let index = songQueue.firstIndex(where: { $0.id == id }),
+      songQueue[index].state != .submitting
+    else {
+      return
+    }
+    let title = songQueue[index].title
+    songQueue.remove(at: index)
+    persistSongQueue()
+    statusMessage = "已从等待队列移除“\(title)”"
+  }
+
+  private func processSongQueueIfPossible() {
+    guard !isBetaBusy, !hasActiveBetaJob else { return }
+    guard
+      let index = songQueue.firstIndex(where: { $0.state == .waiting })
+    else {
+      return
+    }
+    let item = songQueue[index]
+    let audioURL = item.resolvedAudioURL()
     let accessing = audioURL.startAccessingSecurityScopedResource()
-    let requestedMode = computeMode
-    let requestedTimeLimit = hyakTimeLimitHours
-    let requestedRecognitionMode = recognitionMode
+    songQueue[index].state = .submitting
+    songQueue[index].failureMessage = nil
+    persistSongQueue()
     isBetaBusy = true
     statusMessage =
-      requestedMode == .hyak
-      ? "正在准备音频、上传 Hyak 并提交 GPU 任务…"
-      : "正在准备本机项目并启动\(requestedMode.label)后台任务…"
+      item.computeMode == .hyak
+      ? "正在提交“\(item.title)”到 Hyak；后面还有 \(waitingSongCount) 首…"
+      : "正在为“\(item.title)”启动\(item.computeMode.label)任务…"
     errorMessage = nil
     Task {
+      var shouldAdvance = false
       do {
         let backend = try PrivateBetaBackend.locate()
         let response = try await Task.detached(priority: .userInitiated) {
           try backend.start(
             audioURL: audioURL,
-            computeMode: requestedMode,
-            hyakTimeLimitHours: requestedTimeLimit,
-            recognitionMode: requestedRecognitionMode
+            computeMode: item.computeMode,
+            hyakTimeLimitHours: item.hyakTimeLimitHours,
+            recognitionMode: item.recognitionMode
           )
         }.value
         try handleBetaResponse(response)
+        songQueue.removeAll { $0.id == item.id }
+        persistSongQueue()
         showJobProgress()
-        if requestedMode == .hyak {
+        if item.computeMode == .hyak {
           hyakConnectionState = .connected
         }
         if let betaProjectURL {
           startMonitoring(projectURL: betaProjectURL)
         }
+        shouldAdvance =
+          !hasActiveBetaJob
+          && response.status != "succeeded"
       } catch {
+        if let backendError = error as? PrivateBetaBackendError,
+          case .hyakLoginRequired = backendError
+        {
+          updateQueuedSong(
+            item.id,
+            state: .waiting,
+            failureMessage: nil
+          )
+        } else {
+          let message =
+            (error as? LocalizedError)?.errorDescription
+            ?? error.localizedDescription
+          updateQueuedSong(
+            item.id,
+            state: .failed,
+            failureMessage: message
+          )
+          shouldAdvance = true
+        }
         presentBetaError(error)
       }
       if accessing {
         audioURL.stopAccessingSecurityScopedResource()
       }
       isBetaBusy = false
+      if shouldAdvance {
+        processSongQueueIfPossible()
+      }
     }
+  }
+
+  public var waitingSongCount: Int {
+    songQueue.lazy.filter { $0.state == .waiting }.count
   }
 
   public func addGameVocalVersion() {
@@ -668,14 +848,13 @@ public final class AppModel: ObservableObject {
     Task {
       await refreshBetaJob(projectURL: betaProjectURL)
       isBetaBusy = false
+      processSongQueueIfPossible()
     }
   }
 
   public var hasActiveBetaJob: Bool {
     betaProjectURL != nil
-      && !["COMPLETED", "FAILED", "CANCELLED"].contains(
-        betaSlurmState ?? ""
-      )
+      && !LocalProjectItem.terminalStates.contains(betaSlurmState ?? "")
   }
 
   public var shouldShowJobProgress: Bool {
@@ -842,7 +1021,7 @@ public final class AppModel: ObservableObject {
   }
 
   public func setComputeMode(_ mode: ComputeMode) {
-    guard !isBetaBusy, !hasActiveBetaJob, computeMode != mode else { return }
+    guard computeMode != mode else { return }
     guard !(recognitionMode.requiresHyak && mode != .hyak) else {
       statusMessage = "GAME 主唱旋律使用 Hyak 上隔离的 CUDA 模型环境"
       return
@@ -856,9 +1035,7 @@ public final class AppModel: ObservableObject {
   }
 
   public func setRecognitionMode(_ mode: RecognitionMode) {
-    guard !isBetaBusy, !hasActiveBetaJob, recognitionMode != mode else {
-      return
-    }
+    guard recognitionMode != mode else { return }
     recognitionMode = mode
     defaults.set(mode.rawValue, forKey: recognitionModeKey)
     if mode.requiresHyak, computeMode != .hyak {
@@ -1949,9 +2126,7 @@ public final class AppModel: ObservableObject {
         localDevice: state.localDevice
       )
       if prepared.catalog.bundles.isEmpty
-        || !["COMPLETED", "FAILED", "CANCELLED"].contains(
-          state.slurmState ?? ""
-        )
+        || !LocalProjectItem.terminalStates.contains(state.slurmState ?? "")
       {
         isShowingJobProgress = true
         rememberActiveBetaProject()
@@ -1980,6 +2155,7 @@ public final class AppModel: ObservableObject {
           ?? "新补漏结果未进入产品版本，没有自动覆盖主旋律"
       }
     }
+    processSongQueueIfPossible()
   }
 
   private func refreshMIDIPreview() {
@@ -2109,9 +2285,9 @@ public final class AppModel: ObservableObject {
       while !Task.isCancelled {
         guard !Task.isCancelled, let self else { return }
         await self.refreshBetaJob(projectURL: projectURL)
-        if self.betaSlurmState == "COMPLETED"
-          || self.betaSlurmState == "FAILED"
-          || self.betaSlurmState == "CANCELLED"
+        if LocalProjectItem.terminalStates.contains(
+          self.betaSlurmState ?? ""
+        )
           || self.hyakConnectionState == .loginRequired
         {
           return
@@ -2224,6 +2400,7 @@ public final class AppModel: ObservableObject {
           ?? "\(prefix)；项目日志已经保留，可据此定位问题。"
         statusMessage = "识别失败"
       }
+      processSongQueueIfPossible()
     case "running":
       rememberActiveBetaProject()
       switch betaPipelineStage {
@@ -2304,12 +2481,11 @@ public final class AppModel: ObservableObject {
       errorMessage = nil
       if resumeJob, let betaProjectURL {
         await refreshBetaJob(projectURL: betaProjectURL)
-        if !["COMPLETED", "FAILED", "CANCELLED"].contains(
-          betaSlurmState ?? ""
-        ) {
+        if !LocalProjectItem.terminalStates.contains(betaSlurmState ?? "") {
           startMonitoring(projectURL: betaProjectURL)
         }
       }
+      processSongQueueIfPossible()
       return true
     } catch {
       hyakConnectionState = .loginRequired
@@ -2331,6 +2507,42 @@ public final class AppModel: ObservableObject {
       return
     }
     present(error)
+  }
+
+  private func updateQueuedSong(
+    _ id: UUID,
+    state: SongQueueState,
+    failureMessage: String?
+  ) {
+    guard let index = songQueue.firstIndex(where: { $0.id == id }) else {
+      return
+    }
+    songQueue[index].state = state
+    songQueue[index].failureMessage = failureMessage
+    persistSongQueue()
+  }
+
+  private func persistSongQueue() {
+    guard let data = try? JSONEncoder().encode(songQueue) else { return }
+    defaults.set(data, forKey: songQueueKey)
+  }
+
+  private static func restoreSongQueue(from data: Data?) -> [SongQueueItem] {
+    guard
+      let data,
+      var restored = try? JSONDecoder().decode(
+        [SongQueueItem].self,
+        from: data
+      )
+    else {
+      return []
+    }
+    for index in restored.indices where restored[index].state == .submitting {
+      restored[index].state = .failed
+      restored[index].failureMessage =
+        "软件上次在提交确认前关闭。为避免重复任务，请确认后手动重试。"
+    }
+    return restored
   }
 
   private func rememberActiveBetaProject() {

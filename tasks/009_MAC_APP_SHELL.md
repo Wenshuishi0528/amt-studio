@@ -29,7 +29,34 @@ while retaining MuScriptor full multitrack as the persisted default. Task
 continuous-note rebuilding a durable per-track product operation. Task 009B3E
 restores new-song import for Finder-launched app processes whose inherited
 environment omits Homebrew audio tools. Task 009B3F makes the following
-Mac-to-Hyak code snapshot transfer cache-safe and reusable.
+Mac-to-Hyak code snapshot transfer cache-safe and reusable. Task 009B3G adds a
+persistent sequential multi-song queue while preserving the single-active-job
+boundary.
+
+## Task 009B3G: persistent sequential multi-song queue
+
+Objective:
+
+- let a normal user select several songs once and process them one by one;
+- keep only one active local or Hyak model task at a time;
+- survive app restarts without silently duplicating an ambiguous submission.
+
+Implemented and verified:
+
+- the audio picker accepts multiple files and stores an ordered queue. Each
+  item freezes the recognition mode, compute target, and Hyak time limit that
+  were selected when it entered the queue;
+- pending items and security-scoped bookmarks persist in local user defaults.
+  A prior `submitting` item is restored as failed/manual-retry-only so a crash
+  window cannot automatically create a duplicate remote task;
+- a terminal task advances the first waiting item. Failed local submissions
+  remain visible and retryable but are skipped when later waiting items exist;
+  expired Hyak authentication pauses instead of repeatedly attempting login;
+- the sidebar exposes queue order, configuration, state, retry, and removal.
+  Settings can change for later additions while an active task continues;
+- full `make check` passes 294 Python and 52 Swift tests with three expected
+  private integration skips. The signed app was rebuilt and relaunched with no
+  persisted queue, so no model job was submitted or replaced.
 
 ## Task 009B3F: cache-safe reusable Hyak code sync
 
