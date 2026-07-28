@@ -141,6 +141,7 @@ private struct AMTCoverArtwork: View {
 public struct ContentView: View {
   @ObservedObject private var model: AppModel
   @State private var isShowingSettings = false
+  @State private var isShowingHyakCapacity = false
   @State private var isConfirmingGapRecovery = false
   @State private var isShowingTrackManager = false
   @State private var librarySearchText = ""
@@ -321,6 +322,9 @@ public struct ContentView: View {
     }
     .sheet(isPresented: $isShowingSettings) {
       SettingsView(model: model)
+    }
+    .sheet(isPresented: $isShowingHyakCapacity) {
+      HyakCapacityView(model: model, theme: theme)
     }
     .sheet(isPresented: $isShowingTrackManager) {
       TrackManagerView(model: model)
@@ -617,6 +621,12 @@ public struct ContentView: View {
             "新任务时限",
             value: "\(model.hyakTimeLimitHours) 小时"
           )
+          Button("查看 Hyak 资源状态", systemImage: "chart.bar.xaxis") {
+            isShowingHyakCapacity = true
+            model.refreshHyakCapacity()
+          }
+          .disabled(model.isCheckingHyakCapacity)
+          .accessibilityIdentifier("show-hyak-capacity")
         } else {
           Button("检查本机环境", systemImage: "checkmark.shield") {
             model.checkLocalCompute()
@@ -1427,6 +1437,196 @@ private struct AMTBrandHeader: View {
         .foregroundStyle(theme.quietText)
       }
     }
+  }
+}
+
+private struct HyakCapacityView: View {
+  @ObservedObject var model: AppModel
+  let theme: AMTTheme
+  @Environment(\.dismiss) private var dismiss
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 18) {
+      HStack(alignment: .top) {
+        VStack(alignment: .leading, spacing: 6) {
+          Label("Hyak 资源状态", systemImage: "chart.bar.xaxis")
+            .font(.title2.bold())
+          Text("只读检查 · 不会提交占位作业或占用 GPU")
+            .font(.callout)
+            .foregroundStyle(theme.mutedText)
+        }
+        Spacer()
+        if model.isCheckingHyakCapacity {
+          ProgressView()
+            .controlSize(.small)
+        }
+        Button("关闭") {
+          dismiss()
+        }
+      }
+
+      HStack(spacing: 12) {
+        summaryCard(
+          title: "我的运行任务",
+          value: model.hyakCapacityRunningJobs,
+          color: theme.active
+        )
+        summaryCard(
+          title: "我的排队任务",
+          value: model.hyakCapacityPendingJobs,
+          color: .orange
+        )
+        summaryCard(
+          title: "其他状态",
+          value: model.hyakCapacityOtherJobs,
+          color: theme.quietText
+        )
+      }
+
+      if model.hyakGPUCapacity.isEmpty {
+        ContentUnavailableView {
+          Label(
+            model.isCheckingHyakCapacity ? "正在查询调度器" : "暂无 GPU 状态",
+            systemImage: model.isCheckingHyakCapacity
+              ? "arrow.triangle.2.circlepath"
+              : "network.slash"
+          )
+        } description: {
+          Text(model.hyakCapacityMessage)
+        }
+        .frame(maxWidth: .infinity, minHeight: 260)
+      } else {
+        ScrollView {
+          LazyVStack(spacing: 10) {
+            ForEach(model.hyakGPUCapacity) { gpu in
+              gpuRow(gpu)
+            }
+          }
+        }
+      }
+
+      HStack {
+        VStack(alignment: .leading, spacing: 3) {
+          Text(model.hyakCapacityMessage)
+          if let checkedAt = model.hyakCapacityCheckedAt {
+            Text("检查时间：\(checkedAt.formatted(date: .abbreviated, time: .shortened))")
+          }
+        }
+        .font(.caption)
+        .foregroundStyle(theme.mutedText)
+        Spacer()
+        if model.hyakConnectionState == .loginRequired {
+          Button("重新登录 Hyak", systemImage: "network") {
+            model.openHyakLogin()
+          }
+        }
+        Button("刷新", systemImage: "arrow.clockwise") {
+          model.refreshHyakCapacity()
+        }
+        .buttonStyle(.borderedProminent)
+        .disabled(model.isCheckingHyakCapacity)
+      }
+
+      Text("“空闲节点”是当前 sinfo 快照；“预计启动”来自 Slurm 的无资源 test-only 调度结果。两者都可能随其他用户提交任务而变化，不能视为 GPU 保留。")
+        .font(.caption)
+        .foregroundStyle(theme.quietText)
+    }
+    .padding(24)
+    .frame(width: 720, height: 610)
+    .background(theme.canvasGradient)
+  }
+
+  private func summaryCard(
+    title: String,
+    value: Int,
+    color: Color
+  ) -> some View {
+    VStack(alignment: .leading, spacing: 5) {
+      Text(title)
+        .font(.caption)
+        .foregroundStyle(theme.mutedText)
+      Text("\(value)")
+        .font(.title2.bold().monospacedDigit())
+        .foregroundStyle(color)
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .padding(14)
+    .background(theme.surface)
+    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+  }
+
+  private func gpuRow(_ gpu: HyakGPUCapacity) -> some View {
+    HStack(spacing: 14) {
+      VStack(alignment: .leading, spacing: 5) {
+        HStack(spacing: 7) {
+          Text(gpu.label)
+            .font(.headline)
+          if gpu.recommended {
+            Text("当前推荐")
+              .font(.caption2.bold())
+              .padding(.horizontal, 7)
+              .padding(.vertical, 3)
+              .background(theme.accent.opacity(0.18))
+              .foregroundStyle(theme.accent)
+              .clipShape(Capsule())
+          }
+          if gpu.preemptible {
+            Text("可抢占")
+              .font(.caption2)
+              .foregroundStyle(.orange)
+          }
+        }
+        Text("\(gpu.partition) · \(nodeSummary(gpu))")
+          .font(.caption)
+          .foregroundStyle(theme.mutedText)
+      }
+      Spacer()
+      VStack(alignment: .trailing, spacing: 4) {
+        Text(waitLabel(gpu))
+          .font(.callout.weight(.semibold))
+          .foregroundStyle(gpu.schedulable ? theme.active : .orange)
+        Text(gpu.schedulable ? "调度测试可用" : "未返回启动时间")
+          .font(.caption2)
+          .foregroundStyle(theme.quietText)
+      }
+    }
+    .padding(15)
+    .background(theme.surface)
+    .overlay {
+      RoundedRectangle(cornerRadius: 11, style: .continuous)
+        .stroke(gpu.recommended ? theme.accent.opacity(0.6) : theme.border)
+    }
+    .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+  }
+
+  private func nodeSummary(_ gpu: HyakGPUCapacity) -> String {
+    var parts: [String] = []
+    if gpu.idleNodes > 0 {
+      parts.append("空闲节点 \(gpu.idleNodes)")
+    }
+    if gpu.mixedNodes > 0 {
+      parts.append("部分占用 \(gpu.mixedNodes)")
+    }
+    if gpu.allocatedNodes > 0 {
+      parts.append("已占用 \(gpu.allocatedNodes)")
+    }
+    if gpu.unavailableNodes > 0 {
+      parts.append("不可用 \(gpu.unavailableNodes)")
+    }
+    return parts.isEmpty ? "未发现对应节点快照" : parts.joined(separator: " · ")
+  }
+
+  private func waitLabel(_ gpu: HyakGPUCapacity) -> String {
+    guard let seconds = gpu.estimatedWaitSeconds else {
+      return "暂无法估算"
+    }
+    if seconds < 60 {
+      return "预计立即启动"
+    }
+    if seconds < 60 * 60 {
+      return "预计约 \((seconds + 59) / 60) 分钟"
+    }
+    return "预计约 \((seconds + 3_599) / 3_600) 小时"
   }
 }
 

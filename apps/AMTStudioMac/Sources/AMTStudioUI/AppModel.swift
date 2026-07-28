@@ -597,6 +597,14 @@ public final class AppModel: ObservableObject {
   @Published public private(set) var songQueue: [SongQueueItem] = []
   @Published public private(set) var hyakTimeConfirmation:
     HyakTimeConfirmationRequest?
+  @Published public private(set) var hyakGPUCapacity: [HyakGPUCapacity] = []
+  @Published public private(set) var hyakCapacityRunningJobs = 0
+  @Published public private(set) var hyakCapacityPendingJobs = 0
+  @Published public private(set) var hyakCapacityOtherJobs = 0
+  @Published public private(set) var hyakCapacityCheckedAt: Date?
+  @Published public private(set) var isCheckingHyakCapacity = false
+  @Published public private(set) var hyakCapacityMessage =
+    "尚未检查 Hyak 资源"
 
   public let transport = AudioTransport()
 
@@ -810,6 +818,52 @@ public final class AppModel: ObservableObject {
     }
   }
 
+  public func refreshHyakCapacity() {
+    guard !isCheckingHyakCapacity else { return }
+    isCheckingHyakCapacity = true
+    hyakCapacityMessage = "正在进行只读调度检查…"
+    Task {
+      do {
+        let backend = try PrivateBetaBackend.locate()
+        let timeLimitHours = hyakTimeLimitHours
+        let response = try await Task.detached(priority: .utility) {
+          try backend.capacity(timeLimitHours: timeLimitHours)
+        }.value
+        try validateBetaResponse(response)
+        guard response.readOnly == true, let capacity = response.gpuCapacity
+        else {
+          throw PrivateBetaBackendError.invalidResponse(
+            "Hyak 资源检查缺少只读证明或 GPU 状态"
+          )
+        }
+        hyakGPUCapacity = capacity
+        hyakCapacityRunningJobs = response.runningJobs ?? 0
+        hyakCapacityPendingJobs = response.pendingJobs ?? 0
+        hyakCapacityOtherJobs = response.otherJobs ?? 0
+        hyakCapacityCheckedAt =
+          Self.parseBackendDate(response.checkedAt) ?? Date()
+        hyakCapacityMessage =
+          capacity.isEmpty
+          ? "未发现当前账号可用的兼容 GPU 计划"
+          : "已用 \(timeLimitHours) 小时任务配置完成只读检查"
+        hyakConnectionState = .connected
+        errorMessage = nil
+      } catch {
+        if let backendError = error as? PrivateBetaBackendError,
+          case .hyakLoginRequired = backendError
+        {
+          hyakConnectionState = .loginRequired
+          hyakCapacityMessage = "Hyak 登录已过期；请重新连接后再检查"
+        } else {
+          hyakCapacityMessage =
+            (error as? LocalizedError)?.errorDescription
+            ?? error.localizedDescription
+        }
+      }
+      isCheckingHyakCapacity = false
+    }
+  }
+
   public func checkHyakConnection() {
     connectionMonitor?.cancel()
     connectionMonitor = Task { [weak self] in
@@ -959,6 +1013,16 @@ public final class AppModel: ObservableObject {
     }
     let seconds = CMTimeGetSeconds(AVURLAsset(url: url).duration)
     return seconds.isFinite && seconds >= 0 ? seconds : nil
+  }
+
+  private static func parseBackendDate(_ value: String?) -> Date? {
+    guard let value else { return nil }
+    let fractional = ISO8601DateFormatter()
+    fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    if let date = fractional.date(from: value) {
+      return date
+    }
+    return ISO8601DateFormatter().date(from: value)
   }
 
   public func retryQueuedSong(_ id: UUID) {

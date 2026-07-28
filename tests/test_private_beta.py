@@ -33,6 +33,7 @@ from amt_core.private_beta import (
     _unique_project_dir,
     _validate_state,
     build_parser,
+    hyak_capacity_status,
     local_readiness,
     main,
     resume_timeout_job,
@@ -475,6 +476,82 @@ class PrivateBetaTests(unittest.TestCase):
         self.assertEqual(stable_plan.candidate.gpu_type, "l40s")
         self.assertFalse(stable_plan.candidate.preemptible)
         self.assertEqual(stable_plan.probed_candidate_count, 2)
+
+    def test_hyak_capacity_is_read_only_and_reports_scheduler_evidence(self) -> None:
+        class FixtureConnection:
+            def __init__(self) -> None:
+                self.commands: list[str] = []
+
+            def remote(self, command: str, *, timeout: float | None = None) -> str:
+                del timeout
+                self.commands.append(command)
+                if command.startswith("sacctmgr "):
+                    return "\n".join(
+                        (
+                            "ckpt-team||ckpt,ckpt-gpu",
+                            "gpu-l40-team||normal",
+                            "gpu-l40s-team||normal",
+                        )
+                    )
+                if command == "date +%s":
+                    return "1785200000"
+                if command.startswith("sbatch "):
+                    starts = {
+                        "--gpus=a100:1": "2026-07-27T20:19:38",
+                        "--gpus=a40:1": "2026-07-27T20:40:00",
+                        "--gpus=l40s:1": "2026-07-27T20:20:18",
+                        "--gpus=l40:1": "2026-07-27T20:19:08",
+                    }
+                    start = next(
+                        value for key, value in starts.items() if key in command
+                    )
+                    return f"sbatch: Job 0 to start at {start} using node"
+                if command.startswith("date -d "):
+                    starts = {
+                        "2026-07-27T20:19:38": "1785200060",
+                        "2026-07-27T20:40:00": "1785201282",
+                        "2026-07-27T20:20:18": "1785200100",
+                        "2026-07-27T20:19:08": "1785200030",
+                    }
+                    return next(
+                        value for key, value in starts.items() if key in command
+                    )
+                if command.startswith("sinfo "):
+                    return "\n".join(
+                        (
+                            "ckpt|gpu:a100:4|idle",
+                            "ckpt|gpu:a40:4|alloc",
+                            "gpu-l40|gpu:l40:4|mix",
+                            "gpu-l40s|gpu:l40s:4|idle",
+                        )
+                    )
+                if command.startswith("squeue "):
+                    return "RUNNING\nRUNNING\nPENDING"
+                raise AssertionError(f"unexpected command: {command}")
+
+        connection = FixtureConnection()
+        with mock.patch(
+            "amt_core.private_beta.HyakConnection.discover",
+            return_value=connection,
+        ):
+            result = hyak_capacity_status("fixture", time_limit_hours=1)
+
+        self.assertTrue(result["read_only"])
+        self.assertEqual(result["running_jobs"], 2)
+        self.assertEqual(result["pending_jobs"], 1)
+        self.assertEqual(result["recommended_gpu_type"], "a100")
+        rows = {row["gpu_type"]: row for row in result["gpu_capacity"]}
+        self.assertEqual(rows["a100"]["idle_nodes"], 1)
+        self.assertEqual(rows["l40"]["mixed_nodes"], 1)
+        self.assertEqual(rows["a100"]["estimated_wait_seconds"], 60)
+        self.assertTrue(rows["a100"]["recommended"])
+        self.assertTrue(
+            all(
+                "--test-only" in command
+                for command in connection.commands
+                if command.startswith("sbatch ")
+            )
+        )
 
     def test_hyak_time_limit_defaults_to_one_hour_and_is_bounded(self) -> None:
         parser = build_parser()

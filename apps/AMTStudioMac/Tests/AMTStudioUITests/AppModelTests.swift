@@ -161,6 +161,52 @@ final class AppModelTests: XCTestCase {
     XCTAssertEqual(response.recoveredCandidateNoteCount, 0)
   }
 
+  func testPrivateBackendResponseDecodesReadOnlyHyakCapacity() throws {
+    let data = Data(
+      """
+      {
+        "ok": true,
+        "status": "capacity",
+        "read_only": true,
+        "checked_at": "2026-07-28T20:00:00+00:00",
+        "time_limit_hours": 2,
+        "running_jobs": 1,
+        "pending_jobs": 2,
+        "other_jobs": 0,
+        "recommended_gpu_type": "a100",
+        "gpu_capacity": [{
+          "gpu_type": "a100",
+          "label": "A100",
+          "partition": "ckpt",
+          "preemptible": true,
+          "idle_nodes": 1,
+          "mixed_nodes": 2,
+          "allocated_nodes": 3,
+          "unavailable_nodes": 0,
+          "estimated_start_at": "2026-07-28T20:01:00",
+          "estimated_wait_seconds": 60,
+          "schedulable": true,
+          "recommended": true
+        }]
+      }
+      """.utf8
+    )
+
+    let response = try JSONDecoder().decode(
+      PrivateBetaResponse.self,
+      from: data
+    )
+    let gpu = try XCTUnwrap(response.gpuCapacity?.first)
+    XCTAssertEqual(response.readOnly, true)
+    XCTAssertEqual(response.runningJobs, 1)
+    XCTAssertEqual(response.pendingJobs, 2)
+    XCTAssertEqual(response.recommendedGPUType, "a100")
+    XCTAssertEqual(gpu.id, "a100")
+    XCTAssertEqual(gpu.idleNodes, 1)
+    XCTAssertEqual(gpu.estimatedWaitSeconds, 60)
+    XCTAssertTrue(gpu.recommended)
+  }
+
   func testConfiguredRealProjectOpensWithoutBlockingMainActor() async throws {
     guard
       let projectPath = ProcessInfo.processInfo.environment[

@@ -1,5 +1,37 @@
 import Foundation
 
+public struct HyakGPUCapacity: Decodable, Sendable, Identifiable {
+  let gpuType: String
+  let label: String
+  let partition: String
+  let preemptible: Bool
+  let idleNodes: Int
+  let mixedNodes: Int
+  let allocatedNodes: Int
+  let unavailableNodes: Int
+  let estimatedStartAt: String?
+  let estimatedWaitSeconds: Int?
+  let schedulable: Bool
+  let recommended: Bool
+
+  public var id: String { gpuType }
+
+  enum CodingKeys: String, CodingKey {
+    case gpuType = "gpu_type"
+    case label
+    case partition
+    case preemptible
+    case idleNodes = "idle_nodes"
+    case mixedNodes = "mixed_nodes"
+    case allocatedNodes = "allocated_nodes"
+    case unavailableNodes = "unavailable_nodes"
+    case estimatedStartAt = "estimated_start_at"
+    case estimatedWaitSeconds = "estimated_wait_seconds"
+    case schedulable
+    case recommended
+  }
+}
+
 struct PrivateBetaResponse: Decodable, Sendable {
   let ok: Bool
   let error: String?
@@ -31,6 +63,14 @@ struct PrivateBetaResponse: Decodable, Sendable {
   let gpuEstimatedWaitSeconds: Int?
   let failureReason: String?
   let recoveredCandidateNoteCount: Int?
+  let checkedAt: String?
+  let readOnly: Bool?
+  let timeLimitHours: Int?
+  let runningJobs: Int?
+  let pendingJobs: Int?
+  let otherJobs: Int?
+  let recommendedGPUType: String?
+  let gpuCapacity: [HyakGPUCapacity]?
 
   enum CodingKeys: String, CodingKey {
     case ok
@@ -63,6 +103,14 @@ struct PrivateBetaResponse: Decodable, Sendable {
     case gpuEstimatedWaitSeconds = "gpu_estimated_wait_seconds"
     case failureReason = "failure_reason"
     case recoveredCandidateNoteCount = "recovered_candidate_note_count"
+    case checkedAt = "checked_at"
+    case readOnly = "read_only"
+    case timeLimitHours = "time_limit_hours"
+    case runningJobs = "running_jobs"
+    case pendingJobs = "pending_jobs"
+    case otherJobs = "other_jobs"
+    case recommendedGPUType = "recommended_gpu_type"
+    case gpuCapacity = "gpu_capacity"
   }
 }
 
@@ -222,6 +270,18 @@ struct PrivateBetaBackend: Sendable {
       "connection",
       "--repo-root",
       repositoryRoot.path,
+    ])
+  }
+
+  func capacity(timeLimitHours: Int) throws -> PrivateBetaResponse {
+    try execute([
+      "run",
+      "amt-private-beta",
+      "capacity",
+      "--repo-root",
+      repositoryRoot.path,
+      "--time-limit-hours",
+      String(timeLimitHours),
     ])
   }
 

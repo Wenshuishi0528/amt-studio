@@ -1,12 +1,27 @@
 # Project status
 
-Current product milestone: Task 009B3L provides stable active-task timing and a
-coarse processing completion estimate in AMT Studio 0.2.0
+Current product milestone: Task 009B3M adds a read-only Hyak resource-status
+panel to AMT Studio 0.2.0
 Research status: Gate 4 remains not passed for the rejected fusion routes; no
 new dataset, fusion, retuning, or training work is in the product critical path
-Current task: complete and package timer/ETA presentation
-Next task: owner visual confirmation against live tasks
+Current task: complete and package read-only scheduler visibility
+Next task: owner visual confirmation after an authenticated Hyak refresh
 Current branch: `main`
+
+Implemented for Task 009B3M:
+
+- the Compute section now opens a dedicated Hyak resource-status sheet;
+- compatible GPU rows show current idle, partially occupied, allocated, and
+  unavailable node counts, plus a Slurm estimated start time using the
+  configured task wall time;
+- the sheet separately reports the owner's running, pending, and other job
+  counts and highlights the GPU selected by the existing scheduling policy;
+- checks are strictly read-only: `sinfo`, owner-scoped `squeue`, and
+  `sbatch --test-only`. No placeholder job is created, no GPU is reserved, and
+  private username, hostname, and account identifiers are absent from the UI;
+- `make check` passes 296 Python and 60 Swift tests with three expected private
+  integration skips. The formal Xcode project and packaged release app both
+  build successfully; no Hyak job was submitted, cancelled, or modified.
 
 Implemented for Task 009B3L:
 

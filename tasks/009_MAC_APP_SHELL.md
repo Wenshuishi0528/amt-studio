@@ -34,6 +34,41 @@ persistent multi-song queue. Task 009B3H adds the selected product artwork plus
 visible, bundle-backed version and author identity. Task 009B3I adds
 non-destructive cross-song track copying and removes the client's single-active
 Hyak submission gate while retaining serialized uploads and local compute.
+Task 009B3M adds an owner-triggered, read-only view of current Hyak scheduler
+capacity without creating or changing jobs.
+
+## Task 009B3M: read-only Hyak resource status
+
+Goal:
+
+- let a beginner inspect current compatible Hyak GPU availability without
+  leaving AMT Studio;
+- preserve a truthful distinction between node state and likely scheduling
+  time;
+- keep the check observational and independent from task submission.
+
+Frozen product rule:
+
+- the check is user-triggered and uses only `sinfo`, owner-scoped `squeue`, and
+  `sbatch --test-only`;
+- it must not create a placeholder job, reserve a GPU, cancel, resubmit, or
+  otherwise alter any task;
+- node state is a momentary cluster snapshot, while estimated start is a
+  non-reserving Slurm test for the wall time currently configured in Settings;
+- only compatible GPU classes are shown, the existing scheduling policy marks
+  one recommendation, and private username, host, and account identifiers do
+  not enter the product UI.
+
+Evidence:
+
+- the backend test proves all scheduling probes contain `--test-only` and
+  validates node-state counts, owner queue counts, wait time, and
+  recommendation;
+- the Swift test validates the complete typed capacity response;
+- final `make check` passes 296 Python and 60 Swift tests with three expected
+  private-environment skips;
+- the formal Xcode project and packaged release app both build successfully;
+- no Hyak job, inference, dataset experiment, or training work ran.
 
 ## Task 009B3I: cross-song tracks and concurrent Hyak submissions
 

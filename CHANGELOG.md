@@ -4,6 +4,33 @@ This project records changes by numbered research task until formal semantic
 versions and releases begin. Dates and commit identifiers refer to the local
 Git history.
 
+## Task 009B3M — Read-only Hyak resource status — 2026-07-28
+
+### Added
+
+- Added a Hyak resource sheet reachable from the Compute section of the
+  sidebar.
+- The sheet reports compatible GPU node snapshots, the owner's running and
+  pending job counts, and a per-GPU estimated start time for the currently
+  configured wall time.
+- The currently recommended compatible GPU is highlighted without exposing
+  the private Hyak username, host, or account names.
+
+### Safety
+
+- Capacity checks use only lightweight `sinfo`, owner-scoped `squeue`, and
+  `sbatch --test-only`; they do not submit placeholder jobs, reserve a GPU, or
+  change an existing task.
+- The UI distinguishes a momentary idle-node snapshot from Slurm's
+  non-reserving scheduling estimate.
+
+### Verified
+
+- Regression tests prove every capacity probe uses `--test-only` and exercise
+  node-state, queue-count, recommendation, and Swift response decoding.
+- `make check` passes 296 Python and 60 Swift tests with three expected private
+  integration skips; the formal Xcode project and packaged app build.
+
 ## Task 009B3L — Stable task timer and completion estimate — 2026-07-28
 
 ### Fixed

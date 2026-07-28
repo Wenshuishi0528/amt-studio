@@ -366,44 +366,13 @@ def _fallback_gpu_plan(
     )
 
 
-def _plan_hyak_gpu(
+def _probe_gpu_candidates(
     connection: HyakConnection,
+    candidates: tuple[HyakGPUCandidate, ...],
     *,
     time_limit_hours: int,
-    allow_preemptible: bool = True,
-) -> HyakGPUPlan:
-    try:
-        associations = connection.remote(
-            'sacctmgr -nP show assoc user="$USER" format=Account,Partition,QOS',
-            timeout=15,
-        )
-    except PrivateBetaError:
-        return _fallback_gpu_plan(
-            (),
-            time_limit_hours=time_limit_hours,
-            reason="GPU 自动探测失败，已回退稳定 L40",
-        )
-    candidates = _gpu_candidates_from_associations(associations)
-    if not allow_preemptible:
-        candidates = tuple(
-            candidate for candidate in candidates if not candidate.preemptible
-        )
-    if not candidates:
-        return _fallback_gpu_plan(
-            candidates,
-            time_limit_hours=time_limit_hours,
-            reason="未发现已验证的 GPU 账号，已回退稳定 L40",
-        )
-
-    try:
-        now_epoch = int(connection.remote("date +%s", timeout=10))
-    except (PrivateBetaError, ValueError):
-        return _fallback_gpu_plan(
-            candidates,
-            time_limit_hours=time_limit_hours,
-            reason="无法读取 Hyak 调度时间，已回退稳定 L40",
-        )
-
+) -> tuple[int, tuple[HyakGPUProbe, ...]]:
+    now_epoch = int(connection.remote("date +%s", timeout=10))
     probes: list[HyakGPUProbe] = []
     for candidate in candidates:
         probe_arguments = (
@@ -439,6 +408,50 @@ def _plan_hyak_gpu(
                 estimated_start_at=estimated_start_at,
                 estimated_start_epoch=estimated_start_epoch,
             )
+        )
+    return now_epoch, tuple(probes)
+
+
+def _plan_hyak_gpu(
+    connection: HyakConnection,
+    *,
+    time_limit_hours: int,
+    allow_preemptible: bool = True,
+) -> HyakGPUPlan:
+    try:
+        associations = connection.remote(
+            'sacctmgr -nP show assoc user="$USER" format=Account,Partition,QOS',
+            timeout=15,
+        )
+    except PrivateBetaError:
+        return _fallback_gpu_plan(
+            (),
+            time_limit_hours=time_limit_hours,
+            reason="GPU 自动探测失败，已回退稳定 L40",
+        )
+    candidates = _gpu_candidates_from_associations(associations)
+    if not allow_preemptible:
+        candidates = tuple(
+            candidate for candidate in candidates if not candidate.preemptible
+        )
+    if not candidates:
+        return _fallback_gpu_plan(
+            candidates,
+            time_limit_hours=time_limit_hours,
+            reason="未发现已验证的 GPU 账号，已回退稳定 L40",
+        )
+
+    try:
+        now_epoch, probes = _probe_gpu_candidates(
+            connection,
+            candidates,
+            time_limit_hours=time_limit_hours,
+        )
+    except (PrivateBetaError, ValueError):
+        return _fallback_gpu_plan(
+            candidates,
+            time_limit_hours=time_limit_hours,
+            reason="无法读取 Hyak 调度时间，已回退稳定 L40",
         )
     if not probes:
         return _fallback_gpu_plan(
@@ -2676,6 +2689,124 @@ def connection_status(host: str) -> dict[str, Any]:
     }
 
 
+def hyak_capacity_status(
+    host: str,
+    *,
+    time_limit_hours: int = DEFAULT_HYAK_TIME_LIMIT_HOURS,
+) -> dict[str, Any]:
+    connection = HyakConnection.discover(host)
+    associations = connection.remote(
+        'sacctmgr -nP show assoc user="$USER" format=Account,Partition,QOS',
+        timeout=15,
+    )
+    candidates = _gpu_candidates_from_associations(associations)
+    now_epoch, probes = _probe_gpu_candidates(
+        connection,
+        candidates,
+        time_limit_hours=time_limit_hours,
+    )
+    representative_by_gpu: dict[str, HyakGPUCandidate] = {}
+    for candidate in candidates:
+        representative_by_gpu.setdefault(candidate.gpu_type, candidate)
+
+    node_output = connection.remote(
+        "sinfo -h -N -o '%P|%G|%T'",
+        timeout=15,
+    )
+    node_counts: dict[str, dict[str, int]] = {
+        candidate.gpu_type: {
+            "idle": 0,
+            "mixed": 0,
+            "allocated": 0,
+            "unavailable": 0,
+        }
+        for candidate in candidates
+    }
+    for line in node_output.splitlines():
+        fields = line.strip().split("|", 2)
+        if len(fields) != 3:
+            continue
+        partition, gres, raw_state = fields
+        partition = partition.rstrip("*")
+        state_match = re.match(r"[a-z]+", raw_state.lower())
+        state = state_match.group(0) if state_match else "unknown"
+        for candidate in representative_by_gpu.values():
+            if partition != candidate.partition or re.search(
+                rf"(?:^|,)gpu:{re.escape(candidate.gpu_type)}(?::|$)",
+                gres,
+            ) is None:
+                continue
+            if state == "idle":
+                node_counts[candidate.gpu_type]["idle"] += 1
+            elif state in {"mix", "mixed"}:
+                node_counts[candidate.gpu_type]["mixed"] += 1
+            elif state in {"alloc", "allocated"}:
+                node_counts[candidate.gpu_type]["allocated"] += 1
+            else:
+                node_counts[candidate.gpu_type]["unavailable"] += 1
+
+    job_states = connection.remote(
+        'squeue -h -u "$USER" -o "%T"',
+        timeout=15,
+    ).splitlines()
+    running_jobs = sum(state.strip().upper() == "RUNNING" for state in job_states)
+    pending_jobs = sum(state.strip().upper() == "PENDING" for state in job_states)
+    other_jobs = len(job_states) - running_jobs - pending_jobs
+
+    best_probe_by_gpu: dict[str, HyakGPUProbe] = {}
+    for probe in probes:
+        previous = best_probe_by_gpu.get(probe.candidate.gpu_type)
+        if previous is None or probe.estimated_start_epoch < previous.estimated_start_epoch:
+            best_probe_by_gpu[probe.candidate.gpu_type] = probe
+    recommended_gpu_type: str | None = None
+    if probes:
+        selected, _wait_seconds = _select_gpu_probe(probes, now_epoch=now_epoch)
+        recommended_gpu_type = selected.candidate.gpu_type
+
+    rows: list[dict[str, Any]] = []
+    for candidate in sorted(
+        representative_by_gpu.values(),
+        key=lambda item: (item.speed_rank, item.gpu_type),
+    ):
+        probe = best_probe_by_gpu.get(candidate.gpu_type)
+        counts = node_counts[candidate.gpu_type]
+        rows.append(
+            {
+                "gpu_type": candidate.gpu_type,
+                "label": candidate.label,
+                "partition": candidate.partition,
+                "preemptible": candidate.preemptible,
+                "idle_nodes": counts["idle"],
+                "mixed_nodes": counts["mixed"],
+                "allocated_nodes": counts["allocated"],
+                "unavailable_nodes": counts["unavailable"],
+                "estimated_start_at": (
+                    probe.estimated_start_at if probe is not None else None
+                ),
+                "estimated_wait_seconds": (
+                    max(0, probe.estimated_start_epoch - now_epoch)
+                    if probe is not None
+                    else None
+                ),
+                "schedulable": probe is not None,
+                "recommended": candidate.gpu_type == recommended_gpu_type,
+            }
+        )
+
+    return {
+        "schema_version": 1,
+        "status": "capacity",
+        "checked_at": _utc_now(),
+        "read_only": True,
+        "time_limit_hours": time_limit_hours,
+        "running_jobs": running_jobs,
+        "pending_jobs": pending_jobs,
+        "other_jobs": other_jobs,
+        "recommended_gpu_type": recommended_gpu_type,
+        "gpu_capacity": rows,
+    }
+
+
 def _gap_interval_argument(value: str) -> tuple[float, float]:
     try:
         start_text, end_text = value.split(":", 1)
@@ -2836,6 +2967,17 @@ def build_parser() -> argparse.ArgumentParser:
     connection.add_argument("--repo-root", type=Path, default=Path.cwd())
     connection.add_argument("--host")
     connection.add_argument("--remote-root")
+
+    capacity = subparsers.add_parser("capacity")
+    capacity.add_argument("--repo-root", type=Path, default=Path.cwd())
+    capacity.add_argument("--host")
+    capacity.add_argument("--remote-root")
+    capacity.add_argument(
+        "--time-limit-hours",
+        type=int,
+        choices=range(MIN_HYAK_TIME_LIMIT_HOURS, MAX_HYAK_TIME_LIMIT_HOURS + 1),
+        default=DEFAULT_HYAK_TIME_LIMIT_HOURS,
+    )
     return parser
 
 
@@ -2924,6 +3066,16 @@ def main(argv: list[str] | None = None) -> int:
                 remote_root=args.remote_root,
             )
             result = connection_status(host)
+        elif args.command == "capacity":
+            host, _remote_root = _load_hyak_configuration(
+                args.repo_root.expanduser().resolve(),
+                host=args.host,
+                remote_root=args.remote_root,
+            )
+            result = hyak_capacity_status(
+                host,
+                time_limit_hours=args.time_limit_hours,
+            )
         else:
             raise AssertionError(args.command)
         print(json.dumps({"ok": True, **result}, ensure_ascii=False, sort_keys=True))
