@@ -4,6 +4,36 @@ This project records changes by numbered research task until formal semantic
 versions and releases begin. Dates and commit identifiers refer to the local
 Git history.
 
+## Task 009B2Y — Raw gap recovery without a count cap — 2026-07-27
+
+Commit: this task's final commit
+
+### Changed
+
+- Switched automatic and user-selected voice-gap recovery to the raw
+  voice-constrained generation chosen by the owner after listening to all
+  three saved stages.
+- Removed the fixed `max(32, source note count / 10)` candidate admission cap.
+  Long selected gaps are no longer rejected solely because they contain more
+  notes than a song-length-blind threshold.
+- Kept accompaniment-filtered and monophonic-constrained outputs as diagnostic
+  alternatives. Historical bundles explicitly rejected by the old policy
+  retain that diagnostic status.
+- Preserved the remaining safety boundary: recovery still operates only on
+  detected or selected empty windows, uses voice-constrained decoding, clips
+  events to the canonical audio timeline, and never overwrites source bundles.
+
+### Real-project evidence
+
+- The completed recovery was rematerialized without model inference as
+  `gap-recovery-20260728T000154Z-244743c9-raw-product`.
+  `voice_auto_enhanced` contains 1,186 notes: 322 preserved source notes plus
+  all 864 raw recovery candidates.
+- The production loader opened the new bundle and its complete MIDI passed
+  validation. Full `make check` passes 282 Python and 39 Swift tests with
+  three expected environment-gated skips. The signed app was rebuilt and
+  opened; no Hyak or local inference job was submitted.
+
 ## Task 009B2X — Three-stage gap-recovery comparison — 2026-07-27
 
 Commit: this task's final commit

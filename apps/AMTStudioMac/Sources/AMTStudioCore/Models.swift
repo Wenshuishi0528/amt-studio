@@ -592,6 +592,15 @@ public enum MainMelodyDefaultPolicy {
         maximumAddedNoteCount: nil
       )
     }
+    if automaticAdmissionDecision == "accepted_owner_selected_raw_generation" {
+      return MainMelodyDefaultAssessment(
+        isEligible: true,
+        reason: nil,
+        sourceNoteCount: trackCounts["voice_raw"],
+        enhancedNoteCount: trackCounts["voice_auto_enhanced"],
+        maximumAddedNoteCount: nil
+      )
+    }
     guard let enhanced = trackCounts["voice_auto_enhanced"] else {
       return MainMelodyDefaultAssessment(
         isEligible: true,
@@ -610,23 +619,12 @@ public enum MainMelodyDefaultPolicy {
         maximumAddedNoteCount: nil
       )
     }
-    let maximumAdded = max(32, source / 10)
-    guard enhanced - source <= maximumAdded else {
-      return MainMelodyDefaultAssessment(
-        isEligible: false,
-        reason:
-          "自动增强主旋律从 \(source) 增至 \(enhanced) 个音符，超过自动准入上限，已保留为诊断版本",
-        sourceNoteCount: source,
-        enhancedNoteCount: enhanced,
-        maximumAddedNoteCount: maximumAdded
-      )
-    }
     return MainMelodyDefaultAssessment(
       isEligible: true,
       reason: nil,
       sourceNoteCount: source,
       enhancedNoteCount: enhanced,
-      maximumAddedNoteCount: maximumAdded
+      maximumAddedNoteCount: nil
     )
   }
 }

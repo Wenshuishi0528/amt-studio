@@ -541,6 +541,7 @@ def build_recovery_bundle(
                 "merged_recovered_candidate_note_count": len(
                     admitted_candidates
                 ),
+                "automatic_merge_performed": bool(admitted_candidates),
                 "automatic_candidate_admission": (
                     product_admission["decision"]
                     if product_admission is not None
@@ -549,6 +550,8 @@ def build_recovery_bundle(
                 "accuracy_claimed": False,
                 "source_bundle_overwritten": False,
                 "accompaniment_soft_mask_performed": instrument == "voice",
+                "accompaniment_soft_mask_used_for_product": False,
+                "automatic_candidate_selection": "raw_generated",
                 "automatic_trailing_sustain_cleanup_performed": any(
                     record["group_count"] for record in cleanup_records
                 ),
@@ -619,8 +622,9 @@ def build_recovery_bundle(
                     "require listening review."
                 ),
                 "An empty selected span may be intentional silence.",
-                "Main-melody candidates are soft-filtered against preserved accompaniment events.",
-                "Rejected selected-gap candidates remain available as a diagnostic track and are not merged.",
+                "Selected voice gaps use the owner-selected raw voice-constrained candidates.",
+                "No song-length-blind candidate-count limit is applied to selected empty windows.",
+                "Accompaniment-filtered and monophonic views remain diagnostic alternatives.",
                 "Automatic sustain cleanup is conservative and excludes percussion from sustain merging.",
                 "No accuracy claim or owner approval is inferred.",
             ],
@@ -768,7 +772,14 @@ def build_recovery_stage_comparison_bundle(
     request_path = run_dir / "request.json"
     report_path = run_dir / "normalized" / "recovery_report.json"
     raw_path = run_dir / "normalized" / "target_gap_candidates.raw.jsonl"
-    constrained_path = run_dir / "normalized" / "target_gap_candidates.jsonl"
+    filtered_path = (
+        run_dir / "normalized" / "target_gap_candidates.filtered.jsonl"
+    )
+    constrained_path = (
+        filtered_path
+        if filtered_path.is_file()
+        else run_dir / "normalized" / "target_gap_candidates.jsonl"
+    )
     for required in (
         run_manifest_path,
         request_path,
@@ -1165,25 +1176,29 @@ def run_selected_recovery(
         )
         fallback_candidates: list[NoteEvent] = []
         mask_report: dict[str, Any] | None = None
+        filtered_candidates: list[NoteEvent] = []
         if main_melody:
-            candidates, mask_report = soft_mask_melody_candidates(
+            filtered_candidates, mask_report = soft_mask_melody_candidates(
                 raw_candidates,
                 accompaniment_events,
                 probe_id=spec.probe_id,
             )
-        else:
-            candidates = list(raw_candidates)
         write_jsonl(
             normalized_dir / "target_gap_fallback.raw.jsonl",
             fallback_candidates,
         )
-        candidates.sort(
+        filtered_candidates.sort(
             key=lambda event: (
                 event.onset_sec,
                 event.pitch_midi,
                 event.event_id,
             )
         )
+        write_jsonl(
+            normalized_dir / "target_gap_candidates.filtered.jsonl",
+            filtered_candidates,
+        )
+        candidates = list(raw_candidates)
         write_jsonl(normalized_dir / "target_gap_candidates.jsonl", candidates)
         report = _coverage_report(spec, candidates)
         product_admission = (
@@ -1204,9 +1219,11 @@ def run_selected_recovery(
         report["residual_fallback_window_count"] = 0
         report["residual_fallback_max_passes"] = 0
         report["accompaniment_soft_mask"] = mask_report
+        report["product_candidate_selection"] = "raw_generated"
+        report["diagnostic_filtered_candidate_note_count"] = len(
+            filtered_candidates
+        )
         report["product_admission"] = product_admission
-        if not product_admission["accepted_for_automatic_merge"]:
-            report["decision"] = "candidates_preserved_but_not_merged"
         atomic_write_json(
             normalized_dir / "recovery_report.json",
             report,

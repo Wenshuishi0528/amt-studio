@@ -1,15 +1,38 @@
 # Project status
 
-Current product milestone: Task 009B2X exposes the three saved stages of one
-rejected gap-recovery run as independently playable diagnostic tracks
+Current product milestone: Task 009B2Y uses the owner-selected raw generated
+voice candidates for gap recovery and removes the song-length-blind note cap
 Research status: Gate 4 remains not passed for the rejected fusion routes; no
 new dataset, fusion, retuning, or training work is in the product critical path
-Current task: the owner can compare the raw, accompaniment-filtered, and
-monophonic-constrained candidates from recovery run
-`gap-recovery-20260728T000154Z-244743c9`
-Next task: record the owner's listening preference among the three diagnostic
-tracks; do not change automatic product admission from this evidence alone
+Current task: both automatic and user-selected gap recovery now merge the raw
+voice-constrained generation from the selected empty windows without a fixed
+candidate-count ceiling
+Next task: owner listening review of the new 1,186-note real-song product
+version; do not start another model route from this implementation task alone
 Current branch: `main`
+
+Implemented and verified for Task 009B2Y:
+
+- after hearing all three saved stages, the owner selected the 864-note raw
+  generation as the best gap-recovery result. Automatic and user-selected
+  voice-gap recovery now use that raw stage for the product while continuing
+  to save accompaniment-filtered and monophonic-constrained alternatives only
+  as diagnostic evidence;
+- the former `max(32, source / 10)` admission rule has been removed end to end.
+  Candidate admission records `raw_generated` and applies no count limit;
+  historical bundles explicitly rejected under the old rule remain diagnostic
+  and are not silently reclassified;
+- the change does not make recovery unrestricted across the song: decoding
+  remains voice-constrained, only detected or user-selected empty windows are
+  processed, canonical audio bounds are enforced, and source bundles remain
+  immutable;
+- without rerunning a model, the completed real recovery was materialized as
+  `gap-recovery-20260728T000154Z-244743c9-raw-product`. Its enhanced voice has
+  1,186 notes: the preserved 322-note source plus all 864 raw candidates.
+  The production loader opened it and its complete MIDI is valid;
+- full `make check` passes 282 Python and 39 Swift tests with three expected
+  environment-gated skips. The signed app was rebuilt and opened on the real
+  project; no Hyak or local inference ran.
 
 Implemented and verified for Task 009B2X:
 

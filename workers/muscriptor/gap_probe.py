@@ -1303,7 +1303,7 @@ def build_automatic_bundle(
             },
             {
                 "track_id": "voice_gap_candidate",
-                "label": "自动补漏候选",
+                "label": "自动补漏候选（原始生成）",
                 "role": "diagnostic_candidate",
                 "instrument": "voice",
                 "event_count": len(candidates),
@@ -1443,11 +1443,13 @@ def build_automatic_bundle(
                 "automatic_gap_recovery_performed": bool(spec.windows),
                 "automatic_merge_performed": bool(admitted_candidates),
                 "automatic_candidate_admission": product_admission["decision"],
+                "automatic_candidate_selection": "raw_generated",
                 "preferred_candidate_selected": True,
                 "accuracy_claimed": False,
                 "owner_approved_derivation_performed": False,
                 "automatic_model_promotion": False,
                 "accompaniment_soft_mask_performed": True,
+                "accompaniment_soft_mask_used_for_product": False,
                 "automatic_trailing_sustain_cleanup_performed": any(
                     record["group_count"] for record in cleanup_records
                 ),
@@ -1490,8 +1492,9 @@ def build_automatic_bundle(
             "limitations": [
                 "Automatic long-gap detection cannot prove that singing is present.",
                 "voice_gap_candidate is a same-model recovery candidate, not a verified correction.",
-                "voice_auto_enhanced includes recovery candidates only when conservative growth admission passes.",
-                "Recovered melody candidates are soft-filtered against preserved accompaniment events.",
+                "voice_auto_enhanced uses the raw voice-constrained candidates selected by the owner.",
+                "No song-length-blind candidate-count limit is applied to selected empty windows.",
+                "Accompaniment-filtered and monophonic views remain diagnostic alternatives.",
                 "The original voice and every MuScriptor accompaniment track remain preserved.",
                 "Automatic sustain cleanup is conservative and excludes percussion from sustain merging.",
             ],
@@ -1832,7 +1835,7 @@ def run_probe(
             normalized_dir / "voice_gap_candidate.raw.jsonl",
             raw_candidates,
         )
-        candidates, mask_report = soft_mask_melody_candidates(
+        filtered_candidates, mask_report = soft_mask_melody_candidates(
             raw_candidates,
             accompaniment_events,
             probe_id=spec.probe_id,
@@ -1842,9 +1845,14 @@ def run_probe(
             normalized_dir / "voice_gap_fallback.raw.jsonl",
             fallback_candidates,
         )
-        candidates.sort(
+        filtered_candidates.sort(
             key=lambda event: (event.onset_sec, event.pitch_midi, event.event_id)
         )
+        write_jsonl(
+            normalized_dir / "voice_gap_candidate.filtered.jsonl",
+            filtered_candidates,
+        )
+        candidates = list(raw_candidates)
         candidate_path = normalized_dir / "voice_gap_candidate.jsonl"
         write_jsonl(candidate_path, candidates)
         report = build_coverage_report(spec, candidates)
@@ -1857,9 +1865,11 @@ def run_probe(
         report["residual_fallback_window_count"] = 0
         report["residual_fallback_max_passes"] = 0
         report["accompaniment_soft_mask"] = mask_report
+        report["product_candidate_selection"] = "raw_generated"
+        report["diagnostic_filtered_candidate_note_count"] = len(
+            filtered_candidates
+        )
         report["product_admission"] = product_admission
-        if not product_admission["accepted_for_automatic_merge"]:
-            report["decision"] = "candidates_preserved_but_not_merged"
         manifest["product_admission"] = product_admission
         atomic_write_json(normalized_dir / "gap_report.json", report)
         manifest["status"] = "succeeded"

@@ -321,7 +321,7 @@ class TargetedGapRecoveryTests(unittest.TestCase):
             )
             self.assertEqual(manifest["status"], "succeeded")
 
-    def test_rejected_voice_candidates_remain_a_diagnostic_track(self) -> None:
+    def test_large_raw_voice_recovery_is_merged_without_count_cap(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             project, canonical = _fixture_project(Path(temporary))
             spec = plan_selected_gaps(
@@ -365,7 +365,7 @@ class TargetedGapRecoveryTests(unittest.TestCase):
                 source_canonical=canonical,
                 source_events=read_jsonl(source_path),
                 candidates=candidates,
-                product_candidates=[],
+                product_candidates=candidates,
                 product_admission=admission,
                 run_manifest_path=run_manifest,
                 output_dir=output,
@@ -379,19 +379,22 @@ class TargetedGapRecoveryTests(unittest.TestCase):
                 track["track_id"]: track["event_count"]
                 for track in output_canonical["tracks"]
             }
-            self.assertEqual(counts["voice"], 2)
-            self.assertEqual(counts["target_gap_candidate"], 33)
+            self.assertEqual(counts["voice"], 35)
+            self.assertNotIn("target_gap_candidate", counts)
             self.assertEqual(
                 output_canonical["claims"][
                     "automatic_candidate_admission"
                 ],
-                "rejected_excessive_voice_growth",
+                "accepted_owner_selected_raw_generation",
             )
             self.assertEqual(
                 output_canonical["claims"][
                     "merged_recovered_candidate_note_count"
                 ],
-                0,
+                33,
+            )
+            self.assertTrue(
+                output_canonical["claims"]["automatic_merge_performed"]
             )
 
     def test_completed_recovery_builds_three_exact_comparison_tracks(self) -> None:

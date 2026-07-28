@@ -39,24 +39,26 @@ def _event(
 
 
 class ProductPostprocessTests(unittest.TestCase):
-    def test_automatic_voice_growth_rejects_note_explosion(self) -> None:
-        accepted = automatic_voice_candidate_admission(
+    def test_voice_candidate_admission_has_no_song_length_blind_cap(self) -> None:
+        short_gap = automatic_voice_candidate_admission(
             source_note_count=322,
             candidate_note_count=16,
         )
-        rejected = automatic_voice_candidate_admission(
+        long_gap = automatic_voice_candidate_admission(
             source_note_count=338,
             candidate_note_count=841,
         )
 
-        self.assertTrue(accepted["accepted_for_automatic_merge"])
-        self.assertEqual(accepted["maximum_candidate_note_count"], 32)
-        self.assertFalse(rejected["accepted_for_automatic_merge"])
+        self.assertTrue(short_gap["accepted_for_automatic_merge"])
+        self.assertTrue(long_gap["accepted_for_automatic_merge"])
         self.assertEqual(
-            rejected["decision"],
-            "rejected_excessive_voice_growth",
+            long_gap["decision"],
+            "accepted_owner_selected_raw_generation",
         )
-        self.assertTrue(rejected["candidate_preserved_for_diagnosis"])
+        self.assertEqual(long_gap["candidate_selection"], "raw_generated")
+        self.assertFalse(long_gap["count_limit_applied"])
+        self.assertNotIn("maximum_candidate_note_count", long_gap)
+        self.assertTrue(long_gap["candidate_preserved_for_diagnosis"])
 
     def test_trailing_sustain_cleanup_is_derived_and_keeps_source_provenance(
         self,

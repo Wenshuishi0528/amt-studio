@@ -1097,3 +1097,45 @@ Evidence:
   environment-gated skips. The signed release app was rebuilt and opened on
   the real project. No Hyak job, local model, dataset experiment, or training
   work ran.
+
+## Task 009B2Y: raw gap recovery without a count cap
+
+Objective:
+
+- apply the owner's listening decision that the raw generated recovery stage
+  is better than the accompaniment-filtered and monophonic alternatives;
+- remove the fixed 32-note-derived admission ceiling that rejects long empty
+  spans independently of their duration;
+- keep recovery bounded, reproducible, non-destructive, and auditable.
+
+Frozen product rule:
+
+- automatic and user-selected voice-gap runs use every raw voice-constrained
+  candidate inside the planned windows as the product candidate set;
+- no candidate-count cap is applied;
+- accompaniment-filtered and monophonic-constrained stages remain saved
+  diagnostic alternatives and do not control the product merge;
+- historical bundles carrying `rejected_excessive_voice_growth` remain
+  diagnostic, while new bundles record
+  `accepted_owner_selected_raw_generation`;
+- the source bundle is immutable, canonical audio bounds remain authoritative,
+  and no result is represented as an accuracy claim.
+
+Evidence:
+
+- the owner listened to the exact 864 / 234 / 161-note comparison tracks and
+  selected the 864-note raw generation as best;
+- Python regressions accept 841 new notes without a maximum field and merge
+  33 candidates into a two-note source. Swift regression accepts a 1,179-note
+  uncapped new bundle while continuing to reject an explicitly historical
+  old-policy bundle;
+- the completed real recovery was rematerialized without inference as
+  `gap-recovery-20260728T000154Z-244743c9-raw-product`.
+  Its `voice_auto_enhanced` contains 1,186 notes, exactly 322 source notes plus
+  864 raw candidates. Its claims record raw selection, no soft-mask use for
+  the product, an automatic merge, and no source overwrite;
+- the production project loader opened the real product track and the complete
+  MIDI passed validation. The signed app was rebuilt and opened on the project;
+- full `make check` passes 282 Python and 39 Swift tests with three expected
+  environment-gated skips. No Hyak job, local inference, dataset experiment,
+  or model training ran.

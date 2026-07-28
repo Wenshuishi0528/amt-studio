@@ -541,18 +541,25 @@ final class AppModelTests: XCTestCase {
     )
   }
 
-  func testExcessiveAutomaticVoiceGrowthIsDiagnosticOnly() {
-    let accepted = MainMelodyDefaultPolicy.assess(
+  func testRawRecoveryHasNoCountCapButLegacyRejectionStaysDiagnostic() {
+    let small = MainMelodyDefaultPolicy.assess(
       trackCounts: [
         "voice_raw": 322,
         "voice_auto_enhanced": 338,
       ]
     )
-    let rejected = MainMelodyDefaultPolicy.assess(
+    let uncapped = MainMelodyDefaultPolicy.assess(
       trackCounts: [
         "voice_raw": 322,
         "voice_auto_enhanced": 1_179,
       ]
+    )
+    let ownerSelectedRaw = MainMelodyDefaultPolicy.assess(
+      trackCounts: [
+        "voice_raw": 322,
+        "voice_auto_enhanced": 1_186,
+      ],
+      automaticAdmissionDecision: "accepted_owner_selected_raw_generation"
     )
     let ownerApproved = MainMelodyDefaultPolicy.assess(
       trackCounts: [
@@ -573,10 +580,10 @@ final class AppModelTests: XCTestCase {
       automaticAdmissionDecision: "rejected_excessive_voice_growth"
     )
 
-    XCTAssertTrue(accepted.isEligible)
-    XCTAssertFalse(rejected.isEligible)
-    XCTAssertEqual(rejected.maximumAddedNoteCount, 32)
-    XCTAssertNotNil(rejected.reason)
+    XCTAssertTrue(small.isEligible)
+    XCTAssertTrue(uncapped.isEligible)
+    XCTAssertNil(uncapped.maximumAddedNoteCount)
+    XCTAssertTrue(ownerSelectedRaw.isEligible)
     XCTAssertTrue(ownerApproved.isEligible)
     XCTAssertTrue(cumulativeAccepted.isEligible)
     XCTAssertFalse(explicitRejected.isEligible)

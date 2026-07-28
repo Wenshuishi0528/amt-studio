@@ -490,21 +490,16 @@ def automatic_voice_candidate_admission(
     source_note_count: int,
     candidate_note_count: int,
 ) -> dict[str, int | bool | str]:
-    """Reject automatic melody growth that is too large to trust by default."""
+    """Admit bounded-window voice candidates without a song-length-blind cap."""
     if source_note_count < 0 or candidate_note_count < 0:
         raise ValueError("voice note counts must be non-negative")
-    maximum_candidate_note_count = max(32, source_note_count // 10)
-    accepted = candidate_note_count <= maximum_candidate_note_count
     return {
-        "decision": (
-            "accepted_conservative_voice_growth"
-            if accepted
-            else "rejected_excessive_voice_growth"
-        ),
-        "accepted_for_automatic_merge": accepted,
+        "decision": "accepted_owner_selected_raw_generation",
+        "accepted_for_automatic_merge": True,
         "source_note_count": source_note_count,
         "candidate_note_count": candidate_note_count,
-        "maximum_candidate_note_count": maximum_candidate_note_count,
+        "candidate_selection": "raw_generated",
+        "count_limit_applied": False,
         "candidate_preserved_for_diagnosis": True,
         "accuracy_claimed": False,
     }
