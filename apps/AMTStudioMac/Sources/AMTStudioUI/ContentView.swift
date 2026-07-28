@@ -29,6 +29,30 @@ public struct ContentView: View {
     .frame(minWidth: 1_150, minHeight: 720)
     .toolbar {
       ToolbarItemGroup {
+        Menu(
+          model.recognitionMode.label,
+          systemImage: model.recognitionMode == .multitrack
+            ? "square.stack.3d.up"
+            : "music.microphone"
+        ) {
+          ForEach(RecognitionMode.allCases) { mode in
+            Button {
+              model.setRecognitionMode(mode)
+            } label: {
+              Label(
+                mode.label,
+                systemImage: model.recognitionMode == mode
+                  ? "checkmark.circle.fill"
+                  : mode == .multitrack
+                    ? "square.stack.3d.up"
+                    : "music.microphone"
+              )
+            }
+          }
+        }
+        .disabled(model.isBetaBusy || model.hasActiveBetaJob)
+        .help("选择下一首歌生成完整多轨或 GAME 主唱旋律单轨")
+        .accessibilityIdentifier("recognition-mode-menu")
         Menu(model.computeMode.label, systemImage: model.computeMode.icon) {
           ForEach(ComputeMode.allCases) { mode in
             Button {
@@ -319,6 +343,23 @@ public struct ContentView: View {
 
       Section("计算") {
         Picker(
+          "识别内容",
+          selection: Binding(
+            get: { model.recognitionMode },
+            set: { model.setRecognitionMode($0) }
+          )
+        ) {
+          ForEach(RecognitionMode.allCases) { mode in
+            Text(mode.label).tag(mode)
+          }
+        }
+        .disabled(model.isBetaBusy || model.hasActiveBetaJob)
+        .accessibilityIdentifier("recognition-mode-picker")
+        Text(model.recognitionMode.detail)
+          .font(.caption)
+          .foregroundStyle(.secondary)
+
+        Picker(
           "下一首歌",
           selection: Binding(
             get: { model.computeMode },
@@ -439,6 +480,12 @@ public struct ContentView: View {
             .help("打开这个产品版本")
             .accessibilityIdentifier("bundle-\(bundle.id)")
           }
+          Button("用 GAME 新建主唱旋律单轨", systemImage: "music.microphone") {
+            model.addGameVocalVersion()
+          }
+          .disabled(model.isBetaBusy || model.hasActiveBetaJob)
+          .help("在 Hyak 上分离人声并创建一个新的 GAME 单轨版本；当前版本不变")
+          .accessibilityIdentifier("add-game-vocal-version")
         }
       }
 
@@ -1216,6 +1263,38 @@ private struct SettingsView: View {
           }
           .buttonStyle(.plain)
           .accessibilityIdentifier("appearance-\(mode.rawValue)")
+        }
+      }
+
+      Divider()
+        .overlay(theme.border)
+
+      VStack(alignment: .leading, spacing: 10) {
+        Text("下一首歌的识别内容")
+          .font(.headline)
+        Picker(
+          "识别内容",
+          selection: Binding(
+            get: { model.recognitionMode },
+            set: { model.setRecognitionMode($0) }
+          )
+        ) {
+          ForEach(RecognitionMode.allCases) { mode in
+            Text(mode.label).tag(mode)
+          }
+        }
+        .pickerStyle(.radioGroup)
+        .accessibilityIdentifier("settings-recognition-mode")
+        Text(model.recognitionMode.detail)
+          .font(.caption)
+          .foregroundStyle(theme.mutedText)
+        if model.recognitionMode == .gameVocal {
+          Label(
+            "GAME 仅在 Hyak 运行，官方权重许可为 CC-BY-NC-SA-4.0；应用和公开仓库不包含权重。",
+            systemImage: "lock.shield"
+          )
+          .font(.caption)
+          .foregroundStyle(theme.mutedText)
         }
       }
 

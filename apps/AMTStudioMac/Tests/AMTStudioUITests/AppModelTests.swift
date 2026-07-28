@@ -156,6 +156,7 @@ final class AppModelTests: XCTestCase {
     defer { defaults.removePersistentDomain(forName: suiteName) }
     let model = AppModel(defaults: defaults, restoreRecent: false)
     XCTAssertEqual(model.computeMode, .hyak)
+    XCTAssertEqual(model.recognitionMode, .multitrack)
     XCTAssertEqual(model.hyakTimeLimitHours, 1)
 
     model.setComputeMode(.localGPU)
@@ -174,6 +175,7 @@ final class AppModelTests: XCTestCase {
       audioURL: URL(fileURLWithPath: "/tmp/song.mp3"),
       computeMode: .localGPU,
       hyakTimeLimitHours: 6,
+      recognitionMode: .multitrack,
       repositoryRoot: URL(fileURLWithPath: "/tmp/repository"),
       localProjectsRoot: URL(fileURLWithPath: "/tmp/projects")
     )
@@ -181,6 +183,38 @@ final class AppModelTests: XCTestCase {
     XCTAssertTrue(arguments.contains("mps"))
     XCTAssertFalse(arguments.contains("start"))
     XCTAssertFalse(arguments.contains("--time-limit-hours"))
+
+    model.setRecognitionMode(.gameVocal)
+    XCTAssertEqual(model.recognitionMode, .gameVocal)
+    XCTAssertEqual(model.computeMode, .hyak)
+    model.setComputeMode(.localCPU)
+    XCTAssertEqual(model.computeMode, .hyak)
+    let reopenedWithGame = AppModel(
+      defaults: defaults,
+      restoreRecent: false
+    )
+    XCTAssertEqual(reopenedWithGame.recognitionMode, .gameVocal)
+    XCTAssertEqual(reopenedWithGame.computeMode, .hyak)
+
+    let gameArguments = PrivateBetaBackend.startArguments(
+      audioURL: URL(fileURLWithPath: "/tmp/song.mp3"),
+      computeMode: .hyak,
+      hyakTimeLimitHours: 6,
+      recognitionMode: .gameVocal,
+      repositoryRoot: URL(fileURLWithPath: "/tmp/repository"),
+      localProjectsRoot: URL(fileURLWithPath: "/tmp/projects")
+    )
+    XCTAssertTrue(gameArguments.contains("--recognition-mode"))
+    XCTAssertTrue(gameArguments.contains("game_vocal"))
+    XCTAssertTrue(gameArguments.contains("6"))
+
+    let existingGameArguments = PrivateBetaBackend.gameVocalArguments(
+      projectURL: URL(fileURLWithPath: "/tmp/projects/song"),
+      hyakTimeLimitHours: 6,
+      repositoryRoot: URL(fileURLWithPath: "/tmp/repository")
+    )
+    XCTAssertTrue(existingGameArguments.contains("start-game-vocal"))
+    XCTAssertTrue(existingGameArguments.contains("/tmp/projects/song"))
 
     let recoveryArguments = PrivateBetaBackend.gapRecoveryArguments(
       projectURL: URL(fileURLWithPath: "/tmp/projects/song"),

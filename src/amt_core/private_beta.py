@@ -31,7 +31,12 @@ TERMINAL_STATUSES = {"succeeded", "failed", "cancelled"}
 JOB_STATUSES = TERMINAL_STATUSES | {"submitted", "running"}
 COMPUTE_BACKENDS = {"hyak", "local"}
 LOCAL_DEVICES = {"mps", "cpu"}
-TASK_KINDS = {"full_transcription", "targeted_gap_recovery"}
+TASK_KINDS = {
+    "full_transcription",
+    "game_vocal_transcription",
+    "targeted_gap_recovery",
+}
+RECOGNITION_MODES = {"multitrack", "game_vocal"}
 DEFAULT_HYAK_TIME_LIMIT_HOURS = 1
 MIN_HYAK_TIME_LIMIT_HOURS = 1
 MAX_HYAK_TIME_LIMIT_HOURS = 24
@@ -342,6 +347,7 @@ def _plan_hyak_gpu(
     connection: HyakConnection,
     *,
     time_limit_hours: int,
+    allow_preemptible: bool = True,
 ) -> HyakGPUPlan:
     try:
         associations = connection.remote(
@@ -355,6 +361,10 @@ def _plan_hyak_gpu(
             reason="GPU 自动探测失败，已回退稳定 L40",
         )
     candidates = _gpu_candidates_from_associations(associations)
+    if not allow_preemptible:
+        candidates = tuple(
+            candidate for candidate in candidates if not candidate.preemptible
+        )
     if not candidates:
         return _fallback_gpu_plan(
             candidates,
@@ -552,6 +562,10 @@ def _validate_state(project_dir: Path, state: dict[str, Any]) -> dict[str, Any]:
         "source_track_id",
         "recovery_request_path",
         "selected_gap_count",
+        "recognition_mode",
+        "separator_run_id",
+        "separator_model_dir",
+        "game_model_provenance_path",
         "gpu_selection_policy",
         "slurm_gpu_type",
         "slurm_account",
@@ -592,6 +606,19 @@ def _validate_state(project_dir: Path, state: dict[str, Any]) -> dict[str, Any]:
     if task_kind not in TASK_KINDS:
         raise PrivateBetaError("任务状态 task_kind 无效")
     state["task_kind"] = task_kind
+    recognition_mode = state.get("recognition_mode", "multitrack")
+    if recognition_mode not in RECOGNITION_MODES:
+        raise PrivateBetaError("任务状态 recognition_mode 无效")
+    if (
+        task_kind == "game_vocal_transcription"
+        and recognition_mode != "game_vocal"
+    ):
+        raise PrivateBetaError("GAME 任务状态与识别模式不匹配")
+    if recognition_mode == "game_vocal" and (
+        task_kind != "game_vocal_transcription" or backend != "hyak"
+    ):
+        raise PrivateBetaError("GAME 识别模式只允许 Hyak GAME 单轨任务")
+    state["recognition_mode"] = recognition_mode
     job_id = _require_state_string(state, "job_id")
     if backend == "hyak":
         host = _safe_host(_require_state_string(state, "host"))
@@ -667,6 +694,24 @@ def _validate_state(project_dir: Path, state: dict[str, Any]) -> dict[str, Any]:
             or not 1 <= selected_gap_count <= 16
         ):
             raise PrivateBetaError("任务状态 selected_gap_count 无效")
+    if recognition_mode == "game_vocal":
+        _require_state_string(
+            state,
+            "separator_run_id",
+            pattern=STATE_IDENTIFIER,
+        )
+        separator_model_dir = PurePosixPath(
+            _require_state_string(state, "separator_model_dir")
+        )
+        game_provenance = PurePosixPath(
+            _require_state_string(state, "game_model_provenance_path")
+        )
+        for path, label in (
+            (separator_model_dir, "separator_model_dir"),
+            (game_provenance, "game_model_provenance_path"),
+        ):
+            if not path.is_absolute() or ".." in path.parts:
+                raise PrivateBetaError(f"任务状态 {label} 无效")
 
     status = _require_state_string(state, "status")
     if status not in JOB_STATUSES:
@@ -695,6 +740,8 @@ def _validate_state(project_dir: Path, state: dict[str, Any]) -> dict[str, Any]:
         "gap_planning",
         "automatic_gap_recovery",
         "targeted_gap_recovery",
+        "source_separation",
+        "game_vocal_transcription",
         "packaging",
         "complete",
         "failed",
@@ -760,7 +807,7 @@ def _archive_previous_state(project_dir: Path) -> None:
         return
     state = _load_state(project_dir)
     if state["status"] not in TERMINAL_STATUSES:
-        raise PrivateBetaError("当前项目已有计算任务，不能重复提交空缺重算")
+        raise PrivateBetaError("当前项目已有计算任务，不能重复提交")
     history = project_dir / "app/job_history"
     history.mkdir(parents=True, exist_ok=True)
     destination = history / f"{state['job_id']}.json"
@@ -1152,6 +1199,91 @@ def _discover_weight_provenance(
     return matches[0]
 
 
+def _discover_game_model_provenance(
+    connection: HyakConnection,
+    remote_root: str,
+    explicit: str | None,
+) -> str:
+    if explicit:
+        safe_explicit = _safe_remote_root(explicit)
+        connection.remote(f"test -f {shlex.quote(safe_explicit)}")
+        candidates = [safe_explicit]
+    else:
+        command = (
+            "find "
+            f"{shlex.quote(remote_root + '/model-cache')} "
+            f"{shlex.quote(remote_root + '/weights')} "
+            f"{shlex.quote(remote_root + '/repo/weights')} "
+            "-maxdepth 8 -type f "
+            "\\( -name 'model-provenance.json' -o -name '*provenance*.json' \\) "
+            "2>/dev/null | head -100"
+        )
+        candidates = [
+            line for line in connection.remote(command).splitlines() if line
+        ]
+    matches: list[str] = []
+    for candidate in candidates:
+        try:
+            payload = json.loads(
+                connection.remote(f"cat {shlex.quote(candidate)}", timeout=10)
+            )
+        except (PrivateBetaError, json.JSONDecodeError):
+            continue
+        model = payload.get("model") if isinstance(payload, dict) else None
+        source = payload.get("source") if isinstance(payload, dict) else None
+        if (
+            isinstance(model, dict)
+            and model.get("name") == "GAME-1.0-medium"
+            and isinstance(source, dict)
+            and source.get("commit")
+            == "475a8ee781fe8cca980b3b12fbe6c80c768a813a"
+        ):
+            matches.append(candidate)
+    if len(matches) != 1:
+        raise PrivateBetaError(
+            "无法唯一定位 Hyak 上的 GAME-1.0-medium 权重来源文件；"
+            "请设置 GAME_MODEL_PROVENANCE 后重试。"
+        )
+    return matches[0]
+
+
+def _discover_separator_model_dir(
+    connection: HyakConnection,
+    remote_root: str,
+    explicit: str | None,
+) -> str:
+    if explicit:
+        safe_explicit = _safe_remote_root(explicit)
+        connection.remote(
+            "test -f "
+            + shlex.quote(
+                f"{safe_explicit}/model_bs_roformer_ep_317_sdr_12.9755.ckpt"
+            )
+        )
+        return safe_explicit
+    command = (
+        "find "
+        f"{shlex.quote(remote_root + '/model-cache')} "
+        f"{shlex.quote(remote_root + '/weights')} "
+        f"{shlex.quote(remote_root + '/repo/weights')} "
+        "-maxdepth 8 -type f "
+        "-name 'model_bs_roformer_ep_317_sdr_12.9755.ckpt' "
+        "2>/dev/null | head -20"
+    )
+    matches = [
+        str(PurePosixPath(line).parent)
+        for line in connection.remote(command).splitlines()
+        if line
+    ]
+    unique_matches = sorted(set(matches))
+    if len(unique_matches) != 1:
+        raise PrivateBetaError(
+            "无法唯一定位 Hyak 上的 BS-Roformer 分离模型目录；"
+            "请设置 SEPARATOR_MODEL_DIR 后重试。"
+        )
+    return unique_matches[0]
+
+
 def start_job(
     audio: Path,
     *,
@@ -1160,6 +1292,9 @@ def start_job(
     host: str | None,
     remote_root: str | None,
     weight_provenance: str | None,
+    recognition_mode: str = "multitrack",
+    game_model_provenance: str | None = None,
+    separator_model_dir: str | None = None,
     time_limit_hours: int = DEFAULT_HYAK_TIME_LIMIT_HOURS,
 ) -> dict[str, Any]:
     audio = audio.expanduser().resolve()
@@ -1167,23 +1302,47 @@ def start_job(
     local_root = local_root.expanduser().resolve()
     if not audio.is_file():
         raise PrivateBetaError(f"找不到音频文件：{audio}")
+    if recognition_mode not in RECOGNITION_MODES:
+        raise PrivateBetaError("识别模式必须是 multitrack 或 game_vocal")
     host, remote_root = _load_hyak_configuration(
         repo_root,
         host=host,
         remote_root=remote_root,
     )
     connection = HyakConnection.discover(host)
-    provenance = _discover_weight_provenance(
-        connection,
-        remote_root,
-        weight_provenance,
-    )
+    if recognition_mode == "game_vocal":
+        provenance = _discover_game_model_provenance(
+            connection,
+            remote_root,
+            game_model_provenance,
+        )
+        resolved_separator_model_dir = _discover_separator_model_dir(
+            connection,
+            remote_root,
+            separator_model_dir,
+        )
+    else:
+        provenance = _discover_weight_provenance(
+            connection,
+            remote_root,
+            weight_provenance,
+        )
+        resolved_separator_model_dir = None
     project_dir = _unique_project_dir(local_root, audio.stem)
     manifest = initialize_project(audio, project_dir, title=audio.stem, copy_original=True)
     project_id = manifest["project_id"]
     remote_project = f"{remote_root}/projects/private/{project_id}"
-    run_id = f"muscriptor-beta-{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}-{uuid4().hex[:8]}"
+    run_prefix = (
+        "game-vocal-beta"
+        if recognition_mode == "game_vocal"
+        else "muscriptor-beta"
+    )
+    run_id = (
+        f"{run_prefix}-{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}-"
+        f"{uuid4().hex[:8]}"
+    )
     bundle_id = f"{run_id}-multitrack"
+    separator_run_id = f"{run_id}-separator-vocal"
 
     code_commit = _sync_code(connection, repo_root, remote_root)
     _sync_project_to_hyak(connection, project_dir, remote_project)
@@ -1193,14 +1352,28 @@ def start_job(
     gpu_plan = _plan_hyak_gpu(
         connection,
         time_limit_hours=time_limit_hours,
+        allow_preemptible=recognition_mode != "game_vocal",
     )
-    exports = {
-        "AMT_REPO_ROOT": remote_repo,
-        "PROJECT_DIR": remote_project,
-        "MUSCRIPTOR_WEIGHT_PROVENANCE": provenance,
-        "MUSCRIPTOR_RUN_ID": run_id,
-        "AMT_BUNDLE_ID": bundle_id,
-    }
+    if recognition_mode == "game_vocal":
+        exports = {
+            "AMT_REPO_ROOT": remote_repo,
+            "PROJECT_DIR": remote_project,
+            "SEPARATOR_MODEL_DIR": str(resolved_separator_model_dir),
+            "GAME_MODEL_PROVENANCE": provenance,
+            "SEPARATOR_VOCAL_RUN_ID": separator_run_id,
+            "GAME_RUN_ID": run_id,
+            "AMT_BUNDLE_ID": bundle_id,
+        }
+        slurm_script = "slurm/43_private_beta_game_vocal.slurm"
+    else:
+        exports = {
+            "AMT_REPO_ROOT": remote_repo,
+            "PROJECT_DIR": remote_project,
+            "MUSCRIPTOR_WEIGHT_PROVENANCE": provenance,
+            "MUSCRIPTOR_RUN_ID": run_id,
+            "AMT_BUNDLE_ID": bundle_id,
+        }
+        slurm_script = "slurm/40_private_beta_muscriptor.slurm"
     env_prefix = " ".join(
         f"{key}={shlex.quote(value)}" for key, value in exports.items()
     )
@@ -1213,7 +1386,7 @@ def start_job(
         f"{resource_arguments} "
         f"--output={shlex.quote(remote_logs + '/slurm-%j.out')} "
         f"--error={shlex.quote(remote_logs + '/slurm-%j.err')} "
-        "slurm/40_private_beta_muscriptor.slurm"
+        f"{slurm_script}"
     )
     job_id = connection.remote(submit).split(";", 1)[0].strip()
     if not job_id.isdigit():
@@ -1232,6 +1405,122 @@ def start_job(
         "job_id": job_id,
         "run_id": run_id,
         "bundle_id": bundle_id,
+        "weight_provenance_path": provenance,
+        "recognition_mode": recognition_mode,
+        "code_commit": code_commit,
+        "slurm_state": "PENDING",
+        "pipeline_stage": "queued",
+        **gpu_plan.state_fields(),
+    }
+    if recognition_mode == "game_vocal":
+        state.update(
+            {
+                "task_kind": "game_vocal_transcription",
+                "separator_run_id": separator_run_id,
+                "separator_model_dir": str(resolved_separator_model_dir),
+                "game_model_provenance_path": provenance,
+            }
+        )
+    _write_state(project_dir, state)
+    return state
+
+
+def start_game_vocal_job(
+    project_dir: Path,
+    *,
+    repo_root: Path,
+    host: str | None,
+    remote_root: str | None,
+    game_model_provenance: str | None,
+    separator_model_dir: str | None,
+    time_limit_hours: int = DEFAULT_HYAK_TIME_LIMIT_HOURS,
+) -> dict[str, Any]:
+    project_dir = project_dir.expanduser().resolve()
+    repo_root = repo_root.expanduser().resolve()
+    project = load_project(project_dir)
+    project_id = project["project_id"]
+    if _canonical_filesystem_text(project_dir.name) != _canonical_filesystem_text(
+        project_id
+    ):
+        raise PrivateBetaError("项目目录与项目身份不匹配")
+    _archive_previous_state(project_dir)
+    host, remote_root = _load_hyak_configuration(
+        repo_root,
+        host=host,
+        remote_root=remote_root,
+    )
+    connection = HyakConnection.discover(host)
+    provenance = _discover_game_model_provenance(
+        connection,
+        remote_root,
+        game_model_provenance,
+    )
+    resolved_separator_model_dir = _discover_separator_model_dir(
+        connection,
+        remote_root,
+        separator_model_dir,
+    )
+    run_id = (
+        f"game-vocal-beta-{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}-"
+        f"{uuid4().hex[:8]}"
+    )
+    separator_run_id = f"{run_id}-separator-vocal"
+    bundle_id = f"{run_id}-multitrack"
+    remote_project = f"{remote_root}/projects/private/{project_id}"
+    code_commit = _sync_code(connection, repo_root, remote_root)
+    _sync_project_to_hyak(connection, project_dir, remote_project)
+    remote_repo = f"{remote_root}/repo"
+    remote_logs = f"{remote_project}/logs"
+    connection.remote(f"mkdir -p {shlex.quote(remote_logs)}")
+    gpu_plan = _plan_hyak_gpu(
+        connection,
+        time_limit_hours=time_limit_hours,
+        allow_preemptible=False,
+    )
+    exports = {
+        "AMT_REPO_ROOT": remote_repo,
+        "PROJECT_DIR": remote_project,
+        "SEPARATOR_MODEL_DIR": resolved_separator_model_dir,
+        "GAME_MODEL_PROVENANCE": provenance,
+        "SEPARATOR_VOCAL_RUN_ID": separator_run_id,
+        "GAME_RUN_ID": run_id,
+        "AMT_BUNDLE_ID": bundle_id,
+    }
+    env_prefix = " ".join(
+        f"{key}={shlex.quote(value)}" for key, value in exports.items()
+    )
+    resource_arguments = " ".join(
+        shlex.quote(value) for value in gpu_plan.submission_arguments
+    )
+    submit = (
+        f"cd {shlex.quote(remote_repo)} && {env_prefix} "
+        "sbatch --parsable "
+        f"{resource_arguments} "
+        f"--output={shlex.quote(remote_logs + '/slurm-%j.out')} "
+        f"--error={shlex.quote(remote_logs + '/slurm-%j.err')} "
+        "slurm/43_private_beta_game_vocal.slurm"
+    )
+    job_id = connection.remote(submit).split(";", 1)[0].strip()
+    if not job_id.isdigit():
+        raise PrivateBetaError(f"Hyak 返回了无效 job id：{job_id!r}")
+    state: dict[str, Any] = {
+        "schema_version": 1,
+        "task_kind": "game_vocal_transcription",
+        "recognition_mode": "game_vocal",
+        "backend": "hyak",
+        "status": "submitted",
+        "submitted_at": _utc_now(),
+        "project_id": project_id,
+        "local_project_dir": str(project_dir),
+        "remote_project_dir": remote_project,
+        "host": host,
+        "remote_root": remote_root,
+        "job_id": job_id,
+        "run_id": run_id,
+        "bundle_id": bundle_id,
+        "separator_run_id": separator_run_id,
+        "separator_model_dir": resolved_separator_model_dir,
+        "game_model_provenance_path": provenance,
         "weight_provenance_path": provenance,
         "code_commit": code_commit,
         "slurm_state": "PENDING",
@@ -1775,6 +2064,32 @@ def _fetch_results(
             ],
             timeout=1800,
         )
+    if state.get("recognition_mode", "multitrack") == "game_vocal":
+        for run_id in (
+            state["separator_run_id"],
+            f"{state['run_id']}-rhythm",
+        ):
+            remote_path = f"{remote_project}/runs/{run_id}"
+            if connection.remote(
+                f"test -d {shlex.quote(remote_path)} && printf yes || true",
+                timeout=10,
+            ) != "yes":
+                continue
+            local_path = project_dir / "runs" / run_id
+            local_path.parent.mkdir(parents=True, exist_ok=True)
+            _run(
+                [
+                    "rsync",
+                    "-az",
+                    "--partial",
+                    "-e",
+                    connection.rsync_shell(),
+                    f"{connection.host}:{remote_path}/",
+                    f"{local_path}/",
+                ],
+                timeout=1800,
+            )
+        return
     if state.get("task_kind", "full_transcription") == "targeted_gap_recovery":
         manifest_path = (
             project_dir / "runs" / state["run_id"] / "run_manifest.json"
@@ -1845,6 +2160,29 @@ def _pipeline_stage(
     remote_project = state["remote_project_dir"]
     run_id = state["run_id"]
     bundle_id = state["bundle_id"]
+    if state.get("recognition_mode", "multitrack") == "game_vocal":
+        checks = (
+            (
+                f"{remote_project}/exports/{bundle_id}/bundle_manifest.json",
+                "packaging",
+            ),
+            (
+                f"{remote_project}/runs/{run_id}/run_manifest.json",
+                "game_vocal_transcription",
+            ),
+            (
+                f"{remote_project}/runs/{state['separator_run_id']}/run_manifest.json",
+                "source_separation",
+            ),
+        )
+        command = " ".join(
+            ("if " if index == 0 else "elif ")
+            + f"test -f {shlex.quote(path)}; then printf {shlex.quote(stage)};"
+            for index, (path, stage) in enumerate(checks)
+        )
+        command += " else printf starting; fi"
+        stage = connection.remote(command, timeout=15)
+        return stage if stage else "starting"
     if state.get("task_kind", "full_transcription") == "targeted_gap_recovery":
         bundle_manifest = (
             f"{remote_project}/exports/{bundle_id}/bundle_manifest.json"
@@ -2009,6 +2347,19 @@ def build_parser() -> argparse.ArgumentParser:
         "--weight-provenance",
         default=os.environ.get("MUSCRIPTOR_WEIGHT_PROVENANCE"),
     )
+    start.add_argument(
+        "--recognition-mode",
+        choices=sorted(RECOGNITION_MODES),
+        default="multitrack",
+    )
+    start.add_argument(
+        "--game-model-provenance",
+        default=os.environ.get("GAME_MODEL_PROVENANCE"),
+    )
+    start.add_argument(
+        "--separator-model-dir",
+        default=os.environ.get("SEPARATOR_MODEL_DIR"),
+    )
 
     start_local = subparsers.add_parser("start-local")
     start_local.add_argument("audio", type=Path)
@@ -2065,6 +2416,26 @@ def build_parser() -> argparse.ArgumentParser:
         default=os.environ.get("MUSCRIPTOR_WEIGHT_PROVENANCE"),
     )
 
+    game_vocal = subparsers.add_parser("start-game-vocal")
+    game_vocal.add_argument("project", type=Path)
+    game_vocal.add_argument("--repo-root", type=Path, required=True)
+    game_vocal.add_argument("--host")
+    game_vocal.add_argument("--remote-root")
+    game_vocal.add_argument(
+        "--time-limit-hours",
+        type=int,
+        choices=range(MIN_HYAK_TIME_LIMIT_HOURS, MAX_HYAK_TIME_LIMIT_HOURS + 1),
+        default=DEFAULT_HYAK_TIME_LIMIT_HOURS,
+    )
+    game_vocal.add_argument(
+        "--game-model-provenance",
+        default=os.environ.get("GAME_MODEL_PROVENANCE"),
+    )
+    game_vocal.add_argument(
+        "--separator-model-dir",
+        default=os.environ.get("SEPARATOR_MODEL_DIR"),
+    )
+
     status = subparsers.add_parser("status")
     status.add_argument("project", type=Path)
 
@@ -2101,6 +2472,9 @@ def main(argv: list[str] | None = None) -> int:
                 host=args.host,
                 remote_root=args.remote_root,
                 weight_provenance=args.weight_provenance,
+                recognition_mode=args.recognition_mode,
+                game_model_provenance=args.game_model_provenance,
+                separator_model_dir=args.separator_model_dir,
                 time_limit_hours=args.time_limit_hours,
             )
         elif args.command == "start-local":
@@ -2132,6 +2506,16 @@ def main(argv: list[str] | None = None) -> int:
                 intervals=args.gap,
                 device=args.device,
                 weight_provenance=args.weight_provenance,
+            )
+        elif args.command == "start-game-vocal":
+            result = start_game_vocal_job(
+                args.project,
+                repo_root=args.repo_root,
+                host=args.host,
+                remote_root=args.remote_root,
+                game_model_provenance=args.game_model_provenance,
+                separator_model_dir=args.separator_model_dir,
+                time_limit_hours=args.time_limit_hours,
             )
         elif args.command == "status":
             result = refresh_job(args.project)

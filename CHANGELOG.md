@@ -4,6 +4,45 @@ This project records changes by numbered research task until formal semantic
 versions and releases begin. Dates and commit identifiers refer to the local
 Git history.
 
+## Task 009B3A — Optional GAME singing-voice track — 2026-07-27
+
+Commit: this task's final commit
+
+### Added
+
+- Added a persisted recognition-mode choice: MuScriptor full multitrack remains
+  the default, while GAME creates one singing-voice melody track on Hyak.
+- Added a product Slurm chain that runs the pinned BS-Roformer vocal separator,
+  isolated GAME inference, optional Beat This rhythm analysis, and canonical
+  one-track MIDI packaging sequentially on a compute node.
+- Added an existing-project action that creates a separate GAME version. The
+  existing track manager can copy that voice track into a multitrack version
+  without changing either source.
+
+### Safety and product boundaries
+
+- GAME never receives the full mix directly, never runs through the local
+  MPS/CPU worker, and is not described as an instrumental-melody model. Its
+  sequential product chain uses only non-preemptible GPU plans.
+- GAME and separator assets are discovered only in the user's private Hyak
+  storage. No weights, personal cluster identity, credentials, or Duo data
+  enter the repository or application bundle.
+- GAME confidence and velocity remain absent rather than invented. The
+  official model-weight license is shown as CC-BY-NC-SA-4.0 and the route
+  remains private non-commercial research; no automatic fusion or promotion
+  over MuScriptor voice occurs.
+
+### Verified
+
+- `make check` passes 278 Python and 44 Swift tests with three expected private
+  integration skips. Slurm shell parsing, Python compilation, and
+  `git diff --check` pass.
+- One isolated `/review` completed; its active-job, checkpoint-plan, bundle
+  label, private-path, and evidence findings were resolved without expanding
+  into another task.
+- No Hyak or local model job was submitted. A real GAME product output and
+  listening comparison require an explicit owner-triggered run.
+
 ## Task 009B2Z — Cross-version track management — 2026-07-27
 
 Commit: this task's final commit

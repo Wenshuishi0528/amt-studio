@@ -1,15 +1,42 @@
 # Project status
 
-Current product milestone: Task 009B2Z adds non-destructive cross-version track
-management and per-track sustain-fragment repair to the native editor
+Current product milestone: Task 009B3A adds an optional GAME singing-voice
+single-track route while keeping MuScriptor full multitrack as the default
 Research status: Gate 4 remains not passed for the rejected fusion routes; no
 new dataset, fusion, retuning, or training work is in the product critical path
-Current task: ordinary users see product versions only and can copy a track
-from another version, merge or remove tracks in a derived custom version, and
-repair detected per-track fragmentation without overwriting model outputs
-Next task: owner interaction check of the rebuilt app; do not start another
-model route from this editor task alone
+Current task: a new song or an existing project can request one isolated GAME
+lead-vocal version on Hyak; source multitrack bundles remain unchanged
+Next task: owner-triggered real-song GAME run and listening comparison; do not
+auto-promote or merge GAME over MuScriptor voice without that evidence
 Current branch: `main`
+
+Implemented and verified for Task 009B3A:
+
+- the next-song recognition setting now offers `完整多轨（MuScriptor）` and
+  `主唱旋律单轨（GAME）`. MuScriptor remains the persisted default. Choosing
+  GAME automatically selects Hyak because this route is not supported by the
+  Mac MPS/CPU worker;
+- one product Slurm job runs the pinned BS-Roformer `vocal_quality_a`
+  separator, then the isolated GAME worker with seed 3407, then optional Beat
+  This rhythm analysis and one-track canonical MIDI packaging. No model runs
+  on the Mac or a Hyak login node;
+- an existing project can create a new GAME-only recognition version without
+  modifying any current bundle. The existing cross-version track manager can
+  then copy its `voice` track into a chosen multitrack version; no automatic
+  fusion or double-voice playback is introduced;
+- GAME output is labeled singing-voice-only, carries no invented confidence or
+  velocity, and remains bounded to private non-commercial research. Public
+  source code contains neither GAME/BS-Roformer weights nor personal Hyak
+  identity, paths, passwords, or Duo data;
+- GAME submission refuses to replace an active project job and excludes
+  preemptible checkpoint GPU plans because this sequential chain is not
+  checkpoint-resumable;
+- `make check` passes 278 Python and 44 Swift tests with three expected
+  private-environment skips. Slurm shell syntax, Python compilation, and
+  `git diff --check` pass. One isolated `/review` completed and its two P1 plus
+  three directly related P2 findings were fixed. No Hyak or local model job
+  was submitted, so real source-separation/GAME output quality remains for an
+  owner-triggered run.
 
 Implemented and verified for Task 009B2Z:
 

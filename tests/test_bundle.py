@@ -10,6 +10,7 @@ import mido
 from amt_core.bundle import (
     BundleBuildError,
     build_canonical_bundle,
+    build_game_vocal_bundle,
     build_muscriptor_multitrack_bundle,
 )
 from amt_core.canonical import MeterPoint, RhythmEvent, RhythmMap, TempoPoint
@@ -151,6 +152,41 @@ def _beat_run(project: Path, canonical_hash: str) -> Path:
 
 
 class BundleTests(unittest.TestCase):
+    def test_game_vocal_bundle_is_one_voice_track_without_accuracy_claim(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            project, canonical_hash = _project(Path(temporary))
+            run_dir = _note_run(
+                project,
+                canonical_hash,
+                worker="game",
+                run_id="game-vocal-run",
+                pitch=69.25,
+            )
+            output = project / "exports" / "game-vocal-product"
+
+            manifest = build_game_vocal_bundle(
+                project,
+                run_dir,
+                output,
+            )
+            canonical = json.loads(
+                (output / "canonical_project.json").read_text(encoding="utf-8")
+            )
+            midi = mido.MidiFile(output / "performance.mid")
+
+        self.assertEqual(manifest["status"], "succeeded")
+        self.assertTrue(manifest["claims"]["game_singing_voice_only"])
+        self.assertEqual(len(canonical["tracks"]), 1)
+        self.assertEqual(canonical["tracks"][0]["track_id"], "voice")
+        self.assertEqual(canonical["main_melody_track_id"], "voice")
+        self.assertTrue(canonical["claims"]["game_singing_voice_only"])
+        self.assertFalse(canonical["claims"]["all_muscriptor_instruments_preserved"])
+        self.assertFalse(canonical["claims"]["accuracy_claimed"])
+        self.assertEqual(len(midi.tracks), 2)
+        self.assertTrue(
+            any("not a universal" in item for item in manifest["limitations"])
+        )
+
     def test_multitrack_bundle_derives_tail_sustain_and_preserves_raw_events(
         self,
     ) -> None:

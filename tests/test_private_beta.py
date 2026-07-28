@@ -8,6 +8,7 @@ import tempfile
 import unittest
 import unicodedata
 from pathlib import Path
+from unittest import mock
 
 from amt_core.private_beta import (
     GPU_TEST_START_PATTERN,
@@ -26,6 +27,7 @@ from amt_core.private_beta import (
     _validate_state,
     build_parser,
     local_readiness,
+    start_game_vocal_job,
 )
 from amt_core.utils import atomic_write_json, slugify
 from workers.muscriptor import run_baseline
@@ -146,6 +148,15 @@ class PrivateBetaTests(unittest.TestCase):
         self.assertEqual(plan.candidate.gpu_type, "a100")
         self.assertEqual(plan.probed_candidate_count, 4)
 
+        stable_plan = _plan_hyak_gpu(
+            FixtureConnection(),
+            time_limit_hours=1,
+            allow_preemptible=False,
+        )
+        self.assertEqual(stable_plan.candidate.gpu_type, "l40s")
+        self.assertFalse(stable_plan.candidate.preemptible)
+        self.assertEqual(stable_plan.probed_candidate_count, 2)
+
     def test_hyak_time_limit_defaults_to_one_hour_and_is_bounded(self) -> None:
         parser = build_parser()
         default = parser.parse_args(
@@ -174,8 +185,31 @@ class PrivateBetaTests(unittest.TestCase):
                 "6",
             ]
         )
+        game = parser.parse_args(
+            [
+                "start",
+                "song.mp3",
+                "--repo-root",
+                "repo",
+                "--local-root",
+                "projects",
+                "--recognition-mode",
+                "game_vocal",
+            ]
+        )
+        existing_game = parser.parse_args(
+            [
+                "start-game-vocal",
+                "project",
+                "--repo-root",
+                "repo",
+            ]
+        )
 
         self.assertEqual(default.time_limit_hours, 1)
+        self.assertEqual(default.recognition_mode, "multitrack")
+        self.assertEqual(game.recognition_mode, "game_vocal")
+        self.assertEqual(existing_game.command, "start-game-vocal")
         self.assertEqual(selected.time_limit_hours, 6)
         self.assertEqual(_slurm_time_limit(1), "01:00:00")
         self.assertEqual(_slurm_time_limit(24), "24:00:00")
@@ -512,6 +546,140 @@ print("worker import ok")
                 _pipeline_stage(connection, targeted),
                 "targeted_gap_recovery",
             )
+
+            game_project = project / "game"
+            game = {
+                "recognition_mode": "game_vocal",
+                "task_kind": "game_vocal_transcription",
+                "remote_project_dir": str(game_project),
+                "run_id": "game-run",
+                "separator_run_id": "game-run-separator-vocal",
+                "bundle_id": "game-run-multitrack",
+            }
+            self.assertEqual(_pipeline_stage(connection, game), "starting")
+            separator_manifest = (
+                game_project
+                / "runs/game-run-separator-vocal/run_manifest.json"
+            )
+            separator_manifest.parent.mkdir(parents=True)
+            separator_manifest.write_text("{}", encoding="utf-8")
+            self.assertEqual(
+                _pipeline_stage(connection, game),
+                "source_separation",
+            )
+            game_manifest = game_project / "runs/game-run/run_manifest.json"
+            game_manifest.parent.mkdir(parents=True)
+            game_manifest.write_text("{}", encoding="utf-8")
+            self.assertEqual(
+                _pipeline_stage(connection, game),
+                "game_vocal_transcription",
+            )
+
+    def test_game_state_requires_private_assets_and_hyak_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            project = Path(temporary) / "song"
+            project.mkdir()
+            atomic_write_json(
+                project / "manifest.json",
+                {"schema_version": 1, "project_id": "song"},
+            )
+            state = {
+                "schema_version": 1,
+                "task_kind": "game_vocal_transcription",
+                "recognition_mode": "game_vocal",
+                "backend": "hyak",
+                "status": "submitted",
+                "submitted_at": "2026-07-27T00:00:00+00:00",
+                "project_id": "song",
+                "local_project_dir": str(project),
+                "remote_project_dir": "/remote/projects/private/song",
+                "host": "netid@klone.hyak.uw.edu",
+                "remote_root": "/remote",
+                "job_id": "12345",
+                "run_id": "game-run",
+                "separator_run_id": "game-run-separator-vocal",
+                "bundle_id": "game-run-multitrack",
+                "separator_model_dir": "/remote/weights/separator",
+                "game_model_provenance_path": (
+                    "/remote/weights/game/model-provenance.json"
+                ),
+                "weight_provenance_path": (
+                    "/remote/weights/game/model-provenance.json"
+                ),
+                "slurm_state": "PENDING",
+            }
+
+            loaded = _validate_state(project.resolve(), state)
+            self.assertEqual(loaded["recognition_mode"], "game_vocal")
+            self.assertEqual(loaded["task_kind"], "game_vocal_transcription")
+
+            invalid = dict(state)
+            invalid["separator_model_dir"] = "../escaped"
+            with self.assertRaisesRegex(
+                PrivateBetaError,
+                "separator_model_dir",
+            ):
+                _validate_state(project.resolve(), invalid)
+
+            invalid_backend = dict(state)
+            invalid_backend["backend"] = "local"
+            with self.assertRaisesRegex(PrivateBetaError, "只允许 Hyak"):
+                _validate_state(project.resolve(), invalid_backend)
+
+    def test_game_job_rejects_active_state_before_hyak_access(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            project = root / "song"
+            project.mkdir()
+            atomic_write_json(
+                project / "manifest.json",
+                {"schema_version": 1, "project_id": "song"},
+            )
+            atomic_write_json(
+                project / "app" / "private_beta_job.json",
+                {
+                    "schema_version": 1,
+                    "task_kind": "game_vocal_transcription",
+                    "recognition_mode": "game_vocal",
+                    "backend": "hyak",
+                    "status": "submitted",
+                    "submitted_at": "2026-07-27T00:00:00+00:00",
+                    "project_id": "song",
+                    "local_project_dir": str(project),
+                    "remote_project_dir": "/remote/projects/private/song",
+                    "host": "netid@klone.hyak.uw.edu",
+                    "remote_root": "/remote",
+                    "job_id": "12345",
+                    "run_id": "game-run",
+                    "separator_run_id": "game-run-separator-vocal",
+                    "bundle_id": "game-run-multitrack",
+                    "separator_model_dir": "/remote/weights/separator",
+                    "game_model_provenance_path": (
+                        "/remote/weights/game/model-provenance.json"
+                    ),
+                    "weight_provenance_path": (
+                        "/remote/weights/game/model-provenance.json"
+                    ),
+                    "slurm_state": "PENDING",
+                },
+            )
+
+            with mock.patch(
+                "amt_core.private_beta._load_hyak_configuration"
+            ) as load_hyak:
+                with self.assertRaisesRegex(
+                    PrivateBetaError,
+                    "已有计算任务",
+                ):
+                    start_game_vocal_job(
+                        project,
+                        repo_root=root,
+                        host=None,
+                        remote_root=None,
+                        game_model_provenance=None,
+                        separator_model_dir=None,
+                    )
+                load_hyak.assert_not_called()
 
 
 if __name__ == "__main__":

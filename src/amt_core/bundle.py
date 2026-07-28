@@ -332,8 +332,9 @@ def build_muscriptor_multitrack_bundle(
     *,
     default_bpm: float = 120.0,
     beat_run_dir: Path | None = None,
+    expected_worker: str = "muscriptor",
 ) -> dict[str, Any]:
-    """Build an editable multitrack bundle from one immutable MuScriptor run."""
+    """Build an editable product bundle from one immutable note-worker run."""
 
     project_dir = project_dir.expanduser().resolve()
     output_dir = output_dir.expanduser().resolve()
@@ -358,19 +359,30 @@ def build_muscriptor_multitrack_bundle(
         else None
     )
     result = load_worker_result(run_dir)
-    if result.worker != "muscriptor" or result.project_id != project_id:
-        raise BundleBuildError("result is not a MuScriptor run for this project")
+    if result.worker != expected_worker or result.project_id != project_id:
+        raise BundleBuildError(
+            f"result is not a {expected_worker} run for this project"
+        )
     if _manifest_canonical_hash(result) != canonical_sha256:
-        raise BundleBuildError("MuScriptor result is not bound to the canonical mix")
+        raise BundleBuildError(
+            f"{expected_worker} result is not bound to the canonical mix"
+        )
 
     events = result.read_note_events()
     if not events:
-        raise BundleBuildError("MuScriptor result has no note events")
+        if result.worker != "game":
+            raise BundleBuildError("MuScriptor result has no note events")
+        source_model = str(result.manifest.get("model") or "GAME-1.0-medium")
+    else:
+        source_model = events[0].source_model
     if any(event.source_run_id != result.run_id for event in events):
-        raise BundleBuildError("MuScriptor event provenance does not match its run")
-    source_model = events[0].source_model
+        raise BundleBuildError(
+            f"{expected_worker} event provenance does not match its run"
+        )
     if any(event.source_model != source_model for event in events):
-        raise BundleBuildError("MuScriptor result has ambiguous source models")
+        raise BundleBuildError(
+            f"{expected_worker} result has ambiguous source models"
+        )
 
     rhythm: RhythmMap | None = None
     beat_result: WorkerResultV1 | None = None
@@ -388,6 +400,8 @@ def build_muscriptor_multitrack_bundle(
     for event in events:
         instrument = event.instrument.strip() if isinstance(event.instrument, str) else ""
         grouped[instrument or "unknown"].append(event)
+    if result.worker == "game" and not grouped:
+        grouped["voice"] = []
 
     output_dir.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(
@@ -510,7 +524,11 @@ def build_muscriptor_multitrack_bundle(
                 "track_count": len(loaded),
                 "note_count": sum(len(track_events) for track_events in loaded.values()),
             }
-        native_midi = result.outputs.get("raw/full.native.mid")
+        native_midi = (
+            result.outputs.get("raw/full.native.mid")
+            if result.worker == "muscriptor"
+            else None
+        )
         if native_midi is not None:
             shutil.copy2(
                 result.output_path(native_midi.path),
@@ -621,7 +639,10 @@ def build_muscriptor_multitrack_bundle(
                 ),
             },
             "claims": {
-                "all_muscriptor_instruments_preserved": True,
+                "all_muscriptor_instruments_preserved": (
+                    result.worker == "muscriptor"
+                ),
+                "game_singing_voice_only": result.worker == "game",
                 "voice_used_as_default_main_melody": "voice" in grouped,
                 "instrument_labels_verified": False,
                 "accuracy_claimed": False,
@@ -654,9 +675,33 @@ def build_muscriptor_multitrack_bundle(
             "canonical_audio_sha256": canonical_sha256,
             "status": "succeeded",
             "outputs": _bundle_output_records(temporary_dir),
+            "claims": {
+                "game_singing_voice_only": result.worker == "game",
+            },
             "limitations": [
-                "Instrument names are MuScriptor predictions and may be incomplete or wrong.",
-                "The voice track is the default main-melody view, not a formal accuracy claim.",
+                *(
+                    [
+                        (
+                            "GAME receives a separated vocal stem and recognizes "
+                            "singing voice; it is not a universal instrumental-melody model."
+                        ),
+                        (
+                            "The GAME model does not provide calibrated per-note "
+                            "confidence or velocity."
+                        ),
+                    ]
+                    if result.worker == "game"
+                    else [
+                        (
+                            "Instrument names are MuScriptor predictions and may "
+                            "be incomplete or wrong."
+                        ),
+                        (
+                            "The voice track is the default main-melody view, "
+                            "not a formal accuracy claim."
+                        ),
+                    ]
+                ),
                 *(
                     [
                         "Beat and meter are model estimates and may require correction."
@@ -681,6 +726,26 @@ def build_muscriptor_multitrack_bundle(
     return bundle_manifest
 
 
+def build_game_vocal_bundle(
+    project_dir: Path,
+    run_dir: Path,
+    output_dir: Path,
+    *,
+    default_bpm: float = 120.0,
+    beat_run_dir: Path | None = None,
+) -> dict[str, Any]:
+    """Build a one-track product bundle from a verified GAME singing-voice run."""
+
+    return build_muscriptor_multitrack_bundle(
+        project_dir,
+        run_dir,
+        output_dir,
+        default_bpm=default_bpm,
+        beat_run_dir=beat_run_dir,
+        expected_worker="game",
+    )
+
+
 def parse_candidate(value: str) -> tuple[str, Path]:
     if "=" not in value:
         raise BundleBuildError("--candidate must use LABEL=RUN_DIR")
@@ -695,6 +760,7 @@ __all__ = [
     "CanonicalValidationError",
     "ContractValidationError",
     "build_canonical_bundle",
+    "build_game_vocal_bundle",
     "build_muscriptor_multitrack_bundle",
     "parse_candidate",
 ]

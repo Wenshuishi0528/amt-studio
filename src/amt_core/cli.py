@@ -8,6 +8,7 @@ from pathlib import Path
 from .bundle import (
     BundleBuildError,
     build_canonical_bundle,
+    build_game_vocal_bundle,
     build_muscriptor_multitrack_bundle,
     parse_candidate,
 )
@@ -79,6 +80,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional verified Beat This run used for BPM, meter, and beat positions",
     )
 
+    game_bundle = subparsers.add_parser(
+        "build-game-vocal",
+        help="Build a one-track singing-voice bundle from a verified GAME run",
+    )
+    game_bundle.add_argument("project", type=Path)
+    game_bundle.add_argument("--run", type=Path, required=True)
+    game_bundle.add_argument("--output", type=Path, required=True)
+    game_bundle.add_argument("--default-bpm", type=float, default=120.0)
+    game_bundle.add_argument(
+        "--beat-run",
+        type=Path,
+        help="Optional verified Beat This run used for BPM, meter, and beat positions",
+    )
+
     return parser
 
 
@@ -144,6 +159,17 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.command == "build-muscriptor-multitrack":
             manifest = build_muscriptor_multitrack_bundle(
+                args.project,
+                args.run,
+                args.output,
+                default_bpm=args.default_bpm,
+                beat_run_dir=args.beat_run,
+            )
+            print(json.dumps(manifest, ensure_ascii=False, indent=2))
+            return 0
+
+        if args.command == "build-game-vocal":
+            manifest = build_game_vocal_bundle(
                 args.project,
                 args.run,
                 args.output,

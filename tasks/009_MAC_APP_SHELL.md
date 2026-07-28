@@ -23,6 +23,8 @@ preserving raw events. Task 009B2T organizes the local music library, adds
 recoverable project deletion, and keeps tail-repair status visible. Task
 009B2U removes unrestricted main-melody fallback, rejects excessive automatic
 voice growth, and restores the latest eligible source version by default.
+Task 009B3A adds an optional Hyak-only GAME singing-voice single-track route
+while retaining MuScriptor full multitrack as the persisted default.
 
 ## Task 009B2U: conservative automatic main-melody admission
 
@@ -1187,3 +1189,68 @@ Evidence:
   Task 007D. Its two relevant P1 findings were fixed with targeted regressions;
   no second or expanded review was run;
 - no Hyak job, local inference, dataset experiment, or training work ran.
+
+## Task 009B3A: optional GAME singing-voice product route
+
+Objective:
+
+- expose the already pinned and evaluated GAME worker as an optional
+  singing-voice product path without changing the default MuScriptor
+  multitrack workflow;
+- let an existing project add one GAME voice version non-destructively;
+- keep heavy compute, private model assets, licensing, and model-specific
+  limitations explicit.
+
+Frozen product rule:
+
+- `multitrack` remains the default next-song recognition mode;
+- `game_vocal` runs only on a Hyak Slurm compute node and produces one `voice`
+  product track;
+- GAME always receives the pinned BS-Roformer `vocal_quality_a` stem, never the
+  canonical full mix;
+- GAME output is an alternative singing-voice candidate. It is not
+  automatically fused with, stacked over, or promoted above MuScriptor voice;
+- an existing project's GAME version can be combined only through the
+  explicit cross-version copy workflow;
+- confidence and velocity stay unavailable, and no transcription accuracy is
+  claimed from model output alone;
+- submission rejects an existing active project job before remote mutation and
+  excludes preemptible checkpoint GPUs because the sequential chain is not
+  checkpoint-resumable;
+- source and app code may remain public, but GAME weights remain private
+  non-commercial research assets under CC-BY-NC-SA-4.0.
+
+Implemented:
+
+- `RecognitionMode` is persisted in the Mac app and exposed in the toolbar,
+  sidebar, and settings. Selecting GAME automatically chooses Hyak and blocks
+  later MPS/CPU selection while that mode is active;
+- `amt-private-beta start --recognition-mode game_vocal` creates a new project,
+  while `start-game-vocal` adds a new version to an existing project;
+- submission discovers exactly one pinned GAME provenance file and exactly one
+  BS-Roformer model directory in the user's private Hyak storage. Ambiguous or
+  missing assets fail before submission;
+- `slurm/43_private_beta_game_vocal.slurm` sequentially runs source separation,
+  GAME seed 3407, optional Beat This analysis, and canonical single-track
+  packaging. It refuses login-node execution;
+- job state, progress polling, result fetch, automatic project reopening, and
+  product labeling understand source-separation and GAME phases.
+
+Evidence:
+
+- focused Python tests cover the GAME bundle, one-track claims, CLI modes,
+  Hyak-only state validation, private asset fields, and pipeline phase
+  reporting;
+- Swift tests cover default/persisted recognition mode, automatic Hyak
+  selection, local-compute refusal, new-song CLI arguments, and the
+  existing-project GAME command;
+- `make check` passes 278 Python and 44 Swift tests with three expected private
+  environment skips. Slurm shell parsing, Python compilation, and
+  `git diff --check` pass;
+- one isolated `/review` found two P1 submission-safety issues and three
+  directly related P2 contract/evidence issues. Active-job preflight,
+  non-preemptible GAME planning, bundle labeling, absolute private-asset
+  validation, and the isolated test count were corrected; no second or
+  expanded review ran;
+- no Hyak or local inference job was submitted. Real source-separation/GAME
+  quality remains an explicit owner-triggered listening check.

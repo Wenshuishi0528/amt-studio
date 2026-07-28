@@ -20,6 +20,7 @@ struct PrivateBetaResponse: Decodable, Sendable {
   let user: String?
   let controlPath: String?
   let taskKind: String?
+  let recognitionMode: String?
   let sourceBundleID: String?
   let sourceTrackID: String?
   let selectedGapCount: Int?
@@ -49,6 +50,7 @@ struct PrivateBetaResponse: Decodable, Sendable {
     case user
     case controlPath = "control_path"
     case taskKind = "task_kind"
+    case recognitionMode = "recognition_mode"
     case sourceBundleID = "source_bundle_id"
     case sourceTrackID = "source_track_id"
     case selectedGapCount = "selected_gap_count"
@@ -138,15 +140,29 @@ struct PrivateBetaBackend: Sendable {
   func start(
     audioURL: URL,
     computeMode: ComputeMode,
-    hyakTimeLimitHours: Int
+    hyakTimeLimitHours: Int,
+    recognitionMode: RecognitionMode
   ) throws -> PrivateBetaResponse {
     try execute(
       Self.startArguments(
         audioURL: audioURL,
         computeMode: computeMode,
         hyakTimeLimitHours: hyakTimeLimitHours,
+        recognitionMode: recognitionMode,
         repositoryRoot: repositoryRoot,
         localProjectsRoot: localProjectsRoot
+      ))
+  }
+
+  func startGameVocal(
+    projectURL: URL,
+    hyakTimeLimitHours: Int
+  ) throws -> PrivateBetaResponse {
+    try execute(
+      Self.gameVocalArguments(
+        projectURL: projectURL,
+        hyakTimeLimitHours: hyakTimeLimitHours,
+        repositoryRoot: repositoryRoot
       ))
   }
 
@@ -221,6 +237,7 @@ struct PrivateBetaBackend: Sendable {
     audioURL: URL,
     computeMode: ComputeMode,
     hyakTimeLimitHours: Int,
+    recognitionMode: RecognitionMode,
     repositoryRoot: URL,
     localProjectsRoot: URL
   ) -> [String] {
@@ -239,8 +256,27 @@ struct PrivateBetaBackend: Sendable {
     } else {
       arguments.append(
         contentsOf: ["--time-limit-hours", String(hyakTimeLimitHours)])
+      arguments.append(
+        contentsOf: ["--recognition-mode", recognitionMode.rawValue])
     }
     return arguments
+  }
+
+  static func gameVocalArguments(
+    projectURL: URL,
+    hyakTimeLimitHours: Int,
+    repositoryRoot: URL
+  ) -> [String] {
+    [
+      "run",
+      "amt-private-beta",
+      "start-game-vocal",
+      projectURL.path,
+      "--repo-root",
+      repositoryRoot.path,
+      "--time-limit-hours",
+      String(hyakTimeLimitHours),
+    ]
   }
 
   static func gapRecoveryArguments(

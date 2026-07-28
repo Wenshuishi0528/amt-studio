@@ -74,6 +74,33 @@ public enum ComputeMode: String, CaseIterable, Identifiable, Sendable {
   }
 }
 
+public enum RecognitionMode: String, CaseIterable, Identifiable, Sendable {
+  case multitrack
+  case gameVocal = "game_vocal"
+
+  public var id: String { rawValue }
+
+  public var label: String {
+    switch self {
+    case .multitrack: "完整多轨（MuScriptor）"
+    case .gameVocal: "主唱旋律单轨（GAME）"
+    }
+  }
+
+  public var detail: String {
+    switch self {
+    case .multitrack:
+      "默认。识别 voice、伴奏、贝斯和鼓等多条音轨，并自动检查 voice 长空缺。"
+    case .gameVocal:
+      "Hyak 先分离人声，再由 GAME 生成一条主唱旋律；不识别完整伴奏，也不保证纯音乐段有旋律。"
+    }
+  }
+
+  public var requiresHyak: Bool {
+    self == .gameVocal
+  }
+}
+
 public struct MelodyGap: Sendable, Equatable, Identifiable {
   public let startSec: Double
   public let endSec: Double
@@ -293,6 +320,8 @@ public final class AppModel: ObservableObject {
   @Published public private(set) var appearanceMode: AMTAppearanceMode =
     .precision
   @Published public private(set) var computeMode: ComputeMode = .hyak
+  @Published public private(set) var recognitionMode: RecognitionMode =
+    .multitrack
   @Published public private(set) var hyakTimeLimitHours = 1
   @Published public private(set) var activeComputeMode: ComputeMode?
   @Published public private(set) var localReadinessMessage = "尚未检查本机环境"
@@ -313,6 +342,7 @@ public final class AppModel: ObservableObject {
   private let projectBookmarksKey = "AMTStudio.projectBookmarks"
   private let appearanceModeKey = "AMTStudio.appearanceMode"
   private let computeModeKey = "AMTStudio.computeMode"
+  private let recognitionModeKey = "AMTStudio.recognitionMode"
   private let hyakTimeLimitHoursKey = "AMTStudio.hyakTimeLimitHours"
   private var pendingInitialProjectURL: URL?
   private var betaMonitor: Task<Void, Never>?
@@ -354,6 +384,9 @@ public final class AppModel: ObservableObject {
     computeMode =
       defaults.string(forKey: computeModeKey)
       .flatMap(ComputeMode.init(rawValue:)) ?? .hyak
+    recognitionMode =
+      defaults.string(forKey: recognitionModeKey)
+      .flatMap(RecognitionMode.init(rawValue:)) ?? .multitrack
     let savedTimeLimit = defaults.integer(forKey: hyakTimeLimitHoursKey)
     hyakTimeLimitHours =
       (1...24).contains(savedTimeLimit) ? savedTimeLimit : 1
@@ -496,9 +529,16 @@ public final class AppModel: ObservableObject {
 
   public func transcribeSong(_ audioURL: URL) {
     guard !isBetaBusy else { return }
+    guard !(recognitionMode.requiresHyak && computeMode != .hyak) else {
+      errorMessage =
+        "GAME 依赖 Hyak 上隔离的 BS-Roformer 与 CUDA 环境；请把计算位置切换为 Hyak GPU。"
+      statusMessage = "GAME 主唱旋律目前仅支持 Hyak"
+      return
+    }
     let accessing = audioURL.startAccessingSecurityScopedResource()
     let requestedMode = computeMode
     let requestedTimeLimit = hyakTimeLimitHours
+    let requestedRecognitionMode = recognitionMode
     isBetaBusy = true
     statusMessage =
       requestedMode == .hyak
@@ -512,7 +552,8 @@ public final class AppModel: ObservableObject {
           try backend.start(
             audioURL: audioURL,
             computeMode: requestedMode,
-            hyakTimeLimitHours: requestedTimeLimit
+            hyakTimeLimitHours: requestedTimeLimit,
+            recognitionMode: requestedRecognitionMode
           )
         }.value
         try handleBetaResponse(response)
@@ -527,6 +568,35 @@ public final class AppModel: ObservableObject {
       }
       if accessing {
         audioURL.stopAccessingSecurityScopedResource()
+      }
+      isBetaBusy = false
+    }
+  }
+
+  public func addGameVocalVersion() {
+    guard !isBetaBusy, !hasActiveBetaJob, let catalog else { return }
+    let projectURL = catalog.rootURL
+    let requestedTimeLimit = hyakTimeLimitHours
+    isBetaBusy = true
+    statusMessage =
+      "正在准备人声分离与 GAME 主唱旋律任务；原识别版本不会被修改…"
+    errorMessage = nil
+    Task {
+      do {
+        let backend = try PrivateBetaBackend.locate()
+        let response = try await Task.detached(priority: .userInitiated) {
+          try backend.startGameVocal(
+            projectURL: projectURL,
+            hyakTimeLimitHours: requestedTimeLimit
+          )
+        }.value
+        try handleBetaResponse(response)
+        hyakConnectionState = .connected
+        if let betaProjectURL {
+          startMonitoring(projectURL: betaProjectURL)
+        }
+      } catch {
+        presentBetaError(error)
       }
       isBetaBusy = false
     }
@@ -653,8 +723,13 @@ public final class AppModel: ObservableObject {
     let isCustom =
       ordered[index].manifest.claims?["app_derived_arrangement"]
       == .bool(true)
+    let isGameVocal =
+      ordered[index].manifest.claims?["game_singing_voice_only"]
+      == .bool(true)
     return isCustom
       ? "自定义版本 \(index + 1)"
+      : isGameVocal
+        ? "GAME 主唱旋律 \(index + 1)"
       : "识别版本 \(index + 1)"
   }
 
@@ -743,12 +818,29 @@ public final class AppModel: ObservableObject {
 
   public func setComputeMode(_ mode: ComputeMode) {
     guard !isBetaBusy, !hasActiveBetaJob, computeMode != mode else { return }
+    guard !(recognitionMode.requiresHyak && mode != .hyak) else {
+      statusMessage = "GAME 主唱旋律使用 Hyak 上隔离的 CUDA 模型环境"
+      return
+    }
     computeMode = mode
     defaults.set(mode.rawValue, forKey: computeModeKey)
     localReadinessMessage =
       mode == .hyak
       ? "Hyak 是默认计算方式"
       : "尚未检查本机环境"
+  }
+
+  public func setRecognitionMode(_ mode: RecognitionMode) {
+    guard !isBetaBusy, !hasActiveBetaJob, recognitionMode != mode else {
+      return
+    }
+    recognitionMode = mode
+    defaults.set(mode.rawValue, forKey: recognitionModeKey)
+    if mode.requiresHyak, computeMode != .hyak {
+      computeMode = .hyak
+      defaults.set(ComputeMode.hyak.rawValue, forKey: computeModeKey)
+      localReadinessMessage = "GAME 已自动切换到 Hyak GPU"
+    }
   }
 
   public func setHyakTimeLimitHours(_ hours: Int) {
@@ -2037,6 +2129,12 @@ public final class AppModel: ObservableObject {
       pendingCompletedTrackID =
         response.sourceTrackID ?? pendingCompletedTrackID
     }
+    if betaTaskKind == "game_vocal_transcription",
+      let bundleID = response.bundleID
+    {
+      pendingCompletedBundleID = bundleID
+      pendingCompletedTrackID = "voice"
+    }
     switch response.status {
     case "succeeded":
       guard let betaProjectURL else { return }
@@ -2045,6 +2143,8 @@ public final class AppModel: ObservableObject {
       statusMessage =
         betaTaskKind == "targeted_gap_recovery"
         ? "所选空缺已重算；正在打开新识别版本"
+        : betaTaskKind == "game_vocal_transcription"
+          ? "GAME 主唱旋律单轨已取回；正在打开新版本"
         : activeComputeMode == .hyak
           ? "Hyak 识别流程完成，完整多轨与默认主旋律已取回"
           : "本机识别完成，完整多轨与默认主旋律已生成"
@@ -2065,6 +2165,10 @@ public final class AppModel: ObservableObject {
     case "running":
       rememberActiveBetaProject()
       switch betaPipelineStage {
+      case "source_separation":
+        statusMessage = "Hyak 正在用 BS-Roformer 分离主唱人声"
+      case "game_vocal_transcription":
+        statusMessage = "Hyak 正在用 GAME 识别主唱旋律"
       case "targeted_gap_recovery":
         statusMessage =
           "\(activeComputeMode?.label ?? "计算任务")正在重算所选空缺（\(betaJobID ?? "未知")）"
@@ -2084,6 +2188,8 @@ public final class AppModel: ObservableObject {
       statusMessage =
         betaTaskKind == "targeted_gap_recovery"
         ? "\(activeComputeMode?.label ?? "计算任务")空缺重算已提交（\(betaSlurmState ?? "PENDING")）"
+        : betaTaskKind == "game_vocal_transcription"
+          ? "GAME 主唱旋律任务已排队（\(betaSlurmState ?? "PENDING")）"
         : activeComputeMode == .hyak
           ? "Hyak 任务已排队（\(betaSlurmState ?? "PENDING")）"
           : "本机后台任务正在启动"
