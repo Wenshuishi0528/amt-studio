@@ -1,12 +1,24 @@
 # Project status
 
-Current product milestone: Task 009B3M adds a read-only Hyak resource-status
-panel to AMT Studio 0.2.0
+Current product milestone: Task 009B3N publishes AMT Studio 0.2.0 as a
+bilingual public Private Beta
 Research status: Gate 4 remains not passed for the rejected fusion routes; no
 new dataset, fusion, retuning, or training work is in the product critical path
-Current task: complete and package read-only scheduler visibility
-Next task: owner visual confirmation after an authenticated Hyak refresh
+Current task: release source, documentation, and the developer/tester Mac build
+Next task: owner feedback from the public v0.2.0 workflow
 Current branch: `main`
+
+Implemented for Task 009B3N:
+
+- the GitHub landing page now explains the actual product in Chinese and
+  English instead of presenting the obsolete pre-end-to-end research status;
+- the entire prior README is preserved byte-for-byte at
+  `docs/archive/README_PRE_V0.2.0.md`;
+- bilingual release notes describe v0.2.0 features, setup, model limitations,
+  privacy, Hyak ownership, and the unnotarized Private Beta distribution
+  boundary;
+- the publication scan excludes personal Hyak identifiers, credentials,
+  private paths, private audio/results, datasets, weights, and cluster logs.
 
 Implemented for Task 009B3M:
 

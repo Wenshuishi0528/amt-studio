@@ -4,6 +4,26 @@ This project records changes by numbered research task until formal semantic
 versions and releases begin. Dates and commit identifiers refer to the local
 Git history.
 
+## Task 009B3N — Public v0.2.0 introduction and release — 2026-07-28
+
+### Changed
+
+- Replaced the obsolete research-first landing page with a product-oriented,
+  bilingual Chinese/English introduction covering the real workflow,
+  capabilities, setup, compute boundary, limitations, privacy, and licensing.
+- Preserved the complete previous README at
+  `docs/archive/README_PRE_V0.2.0.md`.
+- Added bilingual v0.2.0 Private Beta release notes.
+
+### Release boundary
+
+- Public source and release artifacts exclude private songs, transcriptions,
+  datasets, weights, credentials, personal Hyak identifiers and paths, and
+  cluster logs.
+- The downloadable Apple Silicon build is an unnotarized developer/tester
+  Private Beta that still works with the repository and lightweight Python
+  backend.
+
 ## Task 009B3M — Read-only Hyak resource status — 2026-07-28
 
 ### Added

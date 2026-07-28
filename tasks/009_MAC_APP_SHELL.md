@@ -36,6 +36,27 @@ non-destructive cross-song track copying and removes the client's single-active
 Hyak submission gate while retaining serialized uploads and local compute.
 Task 009B3M adds an owner-triggered, read-only view of current Hyak scheduler
 capacity without creating or changing jobs.
+Task 009B3N publishes the first bilingual product introduction and v0.2.0
+developer/tester Private Beta while preserving the previous README.
+
+## Task 009B3N: public bilingual v0.2.0 release
+
+Goal:
+
+- present the real current product to Chinese- and English-speaking users;
+- preserve the previous project introduction as an exact historical document;
+- publish the verified source and an honestly labeled Mac Private Beta without
+  leaking private compute or music data.
+
+Frozen publication boundary:
+
+- include source, tests, schemas, public documentation, selected brand artwork,
+  and the packaged Apple Silicon app;
+- exclude private songs/results, datasets, model weights, credentials,
+  personal Hyak identity/storage/session data, and cluster logs;
+- label the app as unnotarized and dependent on the repository/lightweight
+  Python backend rather than claiming a standalone consumer installer;
+- preserve the old README byte-for-byte under `docs/archive/`.
 
 ## Task 009B3M: read-only Hyak resource status
 

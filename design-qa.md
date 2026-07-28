@@ -2,20 +2,11 @@
 
 ## Evidence
 
-- Source visual truth, precision:
-  `/Users/apple/.codex/generated_images/019f9103-ae3f-7c22-b0e2-4af71f31e6e1/call_tNn0AzLJnzePsR4jhnxrrn1A.png`
-- Source visual truth, spectrum:
-  `/Users/apple/.codex/generated_images/019f9103-ae3f-7c22-b0e2-4af71f31e6e1/call_LAP8d709XOKB7LKmHiUch8jK.png`
-- Rendered precision window:
-  `/tmp/amt-studio-precision-final-window.png`
-- Rendered spectrum window:
-  `/tmp/amt-studio-spectrum-final-window.png`
-- Appearance settings:
-  `/tmp/amt-studio-appearance-sheet-v1.png`
-- Side-by-side precision comparison:
-  `/tmp/amt-design-qa-precision-final.png`
-- Side-by-side spectrum comparison:
-  `/tmp/amt-design-qa-spectrum-final.png`
+- Source visual truth, precision: local design reference, not published.
+- Source visual truth, spectrum: local design reference, not published.
+- Rendered precision and spectrum windows: local QA captures, not published.
+- Appearance settings and side-by-side comparisons: local QA captures, not
+  published.
 
 The source visuals are 1586 x 992 pixels. The live macOS window was set to
 1400 x 900 points at Retina 2x density; the window-only capture includes the
