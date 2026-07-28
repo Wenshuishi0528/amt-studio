@@ -649,7 +649,10 @@ print("worker import ok")
                 "separator_run_id": "game-run-separator-vocal",
                 "bundle_id": "game-run-multitrack",
             }
-            self.assertEqual(_pipeline_stage(connection, game), "starting")
+            self.assertEqual(
+                _pipeline_stage(connection, game),
+                "source_separation",
+            )
             separator_manifest = (
                 game_project
                 / "runs/game-run-separator-vocal/run_manifest.json"
@@ -658,14 +661,24 @@ print("worker import ok")
             separator_manifest.write_text("{}", encoding="utf-8")
             self.assertEqual(
                 _pipeline_stage(connection, game),
-                "source_separation",
+                "game_vocal_transcription",
             )
             game_manifest = game_project / "runs/game-run/run_manifest.json"
             game_manifest.parent.mkdir(parents=True)
             game_manifest.write_text("{}", encoding="utf-8")
             self.assertEqual(
                 _pipeline_stage(connection, game),
-                "game_vocal_transcription",
+                "rhythm_analysis",
+            )
+            rhythm_manifest = (
+                game_project
+                / "runs/game-run-rhythm/run_manifest.json"
+            )
+            rhythm_manifest.parent.mkdir(parents=True)
+            rhythm_manifest.write_text("{}", encoding="utf-8")
+            self.assertEqual(
+                _pipeline_stage(connection, game),
+                "packaging",
             )
 
     def test_game_state_requires_private_assets_and_hyak_mode(self) -> None:

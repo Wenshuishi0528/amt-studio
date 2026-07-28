@@ -1,14 +1,31 @@
 # Project status
 
-Current product milestone: Task 009B3B upgrades the optional GAME route to the
-official large checkpoint and fixes live whole-track fragment repair
+Current product milestone: Task 009B3C makes an active GAME job's real pipeline
+progress visible even when the project already has earlier editable results
 Research status: Gate 4 remains not passed for the rejected fusion routes; no
 new dataset, fusion, retuning, or training work is in the product critical path
-Current task: verify the private large installation and expose a reliable
-per-track fragment repair action; source multitrack bundles remain unchanged
-Next task: owner-triggered real-song GAME large run and listening comparison;
-do not auto-promote it over MuScriptor voice without that evidence
+Current task: show submission, GPU wait, separation, GAME large, rhythm, and
+result retrieval as distinct phases with a reversible return to earlier results
+Next task: owner listening review of the completed GAME large result; do not
+auto-promote it over MuScriptor voice without that evidence
 Current branch: `main`
+
+Implemented for Task 009B3C:
+
+- submitting or restoring an unfinished task now opens the task-progress page
+  even when an older bundle already provides an editor. The task continues
+  while the user switches between `查看已有结果` and `任务进度`;
+- GAME large shows six explicit phases: submit, GPU wait, BS-Roformer vocal
+  separation, GAME transcription, rhythm analysis, and package/fetch;
+- remote artifact polling now reports the phase currently executing rather
+  than the preceding completed artifact. A focused backend regression and a
+  Swift restore/switch regression pass;
+- full `make check` passes. No model job was submitted, cancelled, or changed
+  by this UI/state repair.
+- the single focused review found one P1 polling regression and two directly
+  related P2 display errors. Polling now preserves the user's selected page,
+  targeted recovery has truthful phases, and the progress title stays bound
+  to the active job project.
 
 Implemented for Task 009B3B:
 

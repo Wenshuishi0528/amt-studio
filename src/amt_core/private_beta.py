@@ -2189,18 +2189,23 @@ def _pipeline_stage(
     run_id = state["run_id"]
     bundle_id = state["bundle_id"]
     if state.get("recognition_mode", "multitrack") == "game_vocal":
+        rhythm_run_id = f"{run_id}-rhythm"
         checks = (
             (
                 f"{remote_project}/exports/{bundle_id}/bundle_manifest.json",
                 "packaging",
             ),
             (
+                f"{remote_project}/runs/{rhythm_run_id}/run_manifest.json",
+                "packaging",
+            ),
+            (
                 f"{remote_project}/runs/{run_id}/run_manifest.json",
-                "game_vocal_transcription",
+                "rhythm_analysis",
             ),
             (
                 f"{remote_project}/runs/{state['separator_run_id']}/run_manifest.json",
-                "source_separation",
+                "game_vocal_transcription",
             ),
         )
         command = " ".join(
@@ -2208,9 +2213,9 @@ def _pipeline_stage(
             + f"test -f {shlex.quote(path)}; then printf {shlex.quote(stage)};"
             for index, (path, stage) in enumerate(checks)
         )
-        command += " else printf starting; fi"
+        command += " else printf source_separation; fi"
         stage = connection.remote(command, timeout=15)
-        return stage if stage else "starting"
+        return stage if stage else "source_separation"
     if state.get("task_kind", "full_transcription") == "targeted_gap_recovery":
         bundle_manifest = (
             f"{remote_project}/exports/{bundle_id}/bundle_manifest.json"

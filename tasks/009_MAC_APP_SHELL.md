@@ -26,6 +26,42 @@ voice growth, and restores the latest eligible source version by default.
 Task 009B3A adds an optional Hyak-only GAME singing-voice single-track route
 while retaining MuScriptor full multitrack as the persisted default.
 
+## Task 009B3C: visible GAME job progress
+
+Objective:
+
+- make an active GAME task visibly answer “currently running which step?”
+  without requiring the user to infer state from a Job ID;
+- keep an older editable result available while the new version runs.
+
+Implemented:
+
+- unfinished submissions and restored active projects automatically select a
+  dedicated progress page, even when the project already contains an editor;
+- the toolbar and progress page switch non-destructively between the running
+  task and the existing result. Periodic polling updates status without
+  overriding the user's selected page;
+- GAME exposes six truthful milestones: submit, GPU wait, BS-Roformer vocal
+  separation, GAME large transcription, Beat This rhythm analysis, and
+  package/fetch;
+- backend polling maps existing separator, GAME, rhythm, and bundle manifests
+  to the step currently executing. It does not invent a completion percentage.
+- targeted gap recovery retains a distinct compact phase sequence, and the
+  progress title remains bound to the active job if another project is open.
+
+Evidence:
+
+- the backend phase test advances through separation, GAME, rhythm, and
+  packaging artifacts;
+- the Swift regression restores an active GAME project that already has an
+  editor, verifies progress is initially visible, and verifies both directions
+  of the progress/result switch;
+- full `make check` passes. No inference job was submitted, cancelled, or
+  replaced for this task.
+- the single focused review found one P1 polling regression and two directly
+  related P2 display regressions; all three were fixed without a second or
+  expanded review.
+
 ## Task 009B3B: GAME large deployment and reliable whole-track repair
 
 Implemented:

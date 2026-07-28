@@ -4,6 +4,30 @@ This project records changes by numbered research task until formal semantic
 versions and releases begin. Dates and commit identifiers refer to the local
 Git history.
 
+## Task 009B3C — Visible GAME job progress — 2026-07-27
+
+### Changed
+
+- Active jobs now open a dedicated progress page even if the project already
+  contains an editable result.
+- Added non-destructive switching between the running-task page and the
+  existing result; periodic polling preserves the user's current page.
+- GAME large now reports submission, GPU wait, vocal separation, GAME
+  transcription, rhythm analysis, and package/fetch as distinct phases.
+- Remote artifact polling now names the step currently executing instead of
+  lagging behind by one completed artifact.
+- Targeted gap recovery retains its own compact phase labels, and progress
+  titles remain bound to the active job when another project is open.
+
+### Verified
+
+- Focused Python and Swift regressions cover stage advancement, active-project
+  restoration, and progress/result switching.
+- Full `make check` passes. This change did not submit, cancel, or replace a
+  Hyak or local inference job.
+- One focused review found one P1 and two directly related P2 regressions; all
+  were fixed without expanding the task.
+
 ## Task 009B3B — GAME large and live whole-track repair — 2026-07-27
 
 ### Changed

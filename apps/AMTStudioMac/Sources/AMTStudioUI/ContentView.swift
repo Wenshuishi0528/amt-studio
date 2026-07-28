@@ -97,6 +97,21 @@ public struct ContentView: View {
           ProgressView()
             .controlSize(.small)
         }
+        if model.hasActiveBetaJob {
+          if model.isShowingJobProgress, model.editor != nil {
+            Button("查看已有结果", systemImage: "music.note.list") {
+              model.showCurrentResult()
+            }
+            .help("任务继续在后台运行；返回当前已有的识别结果")
+            .accessibilityIdentifier("show-current-result")
+          } else {
+            Button("任务进度", systemImage: "chart.bar.xaxis") {
+              model.showJobProgress()
+            }
+            .help("查看当前识别任务运行到哪一步")
+            .accessibilityIdentifier("show-job-progress")
+          }
+        }
         Button("刷新任务", systemImage: "arrow.clockwise") {
           model.refreshBetaJob()
         }
@@ -921,6 +936,8 @@ public struct ContentView: View {
           .foregroundStyle(.secondary)
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
+    } else if model.shouldShowJobProgress {
+      JobProgressView(model: model, theme: theme)
     } else if let editor = model.editor {
       WorkspaceView(
         model: model,
@@ -928,8 +945,6 @@ public struct ContentView: View {
         editor: editor,
         theme: theme
       )
-    } else if model.hasActiveBetaJob {
-      JobProgressView(model: model, theme: theme)
     } else if let snapshot = model.snapshot {
       EmptyStateView(
         icon: "music.note.list",
@@ -1341,7 +1356,28 @@ private struct JobProgressView: View {
   @State private var isConfirmingLocalStop = false
 
   private var phases: [(String, String)] {
-    [
+    if isGameVocalJob {
+      return [
+        ("arrow.up.circle", "提交任务"),
+        ("clock.badge.checkmark", "等待 GPU"),
+        ("person.wave.2", "分离人声"),
+        ("music.mic", "GAME 识别"),
+        ("metronome", "节拍分析"),
+        ("shippingbox", "打包取回"),
+      ]
+    }
+    if isTargetedRecoveryJob {
+      return [
+        (
+          model.activeComputeMode == .hyak ? "arrow.up.circle" : "desktopcomputer",
+          model.activeComputeMode == .hyak ? "提交任务" : "创建本机任务"
+        ),
+        ("clock.badge.checkmark", "等待资源"),
+        ("waveform.badge.magnifyingglass", "重算所选片段"),
+        ("shippingbox", "打包取回"),
+      ]
+    }
+    return [
       (
         model.activeComputeMode == .hyak ? "arrow.up.circle" : "desktopcomputer",
         model.activeComputeMode == .hyak ? "上传并排队" : "创建本机任务"
@@ -1436,6 +1472,13 @@ private struct JobProgressView: View {
           }
           .buttonStyle(.borderedProminent)
           .disabled(model.isBetaBusy)
+          if model.editor != nil {
+            Button("查看已有结果", systemImage: "music.note.list") {
+              model.showCurrentResult()
+            }
+            .buttonStyle(.bordered)
+            .help("不会停止当前任务")
+          }
           if model.activeComputeMode == .hyak {
             Button("检查 Hyak", systemImage: "network") {
               model.checkHyakConnection()
@@ -1506,13 +1549,42 @@ private struct JobProgressView: View {
   }
 
   private var projectTitle: String {
-    model.catalog?.manifest.title
-      ?? model.betaProjectURL?.lastPathComponent
-      ?? "正在识别的新歌曲"
+    guard let jobURL = model.betaProjectURL else {
+      return "正在识别的新歌曲"
+    }
+    let jobPath = jobURL.standardizedFileURL.path
+    if model.catalog?.rootURL.standardizedFileURL.path == jobPath {
+      return model.catalog?.manifest.title ?? jobURL.lastPathComponent
+    }
+    return model.libraryProjects.first {
+      $0.url.standardizedFileURL.path == jobPath
+    }?.title ?? jobURL.lastPathComponent
   }
 
   private var currentPhase: Int {
-    switch model.betaPipelineStage {
+    if isGameVocalJob {
+      return switch model.betaPipelineStage {
+      case "queued": 1
+      case "source_separation", "starting": 2
+      case "game_vocal_transcription": 3
+      case "rhythm_analysis": 4
+      case "packaging", "complete": 5
+      default:
+        ["RUNNING", "COMPLETING"].contains(model.betaSlurmState ?? "")
+          ? 2 : 0
+      }
+    }
+    if isTargetedRecoveryJob {
+      return switch model.betaPipelineStage {
+      case "queued": 1
+      case "starting": 2
+      case "targeted_gap_recovery", "packaging", "complete": 3
+      default:
+        ["RUNNING", "COMPLETING"].contains(model.betaSlurmState ?? "")
+          ? 2 : 0
+      }
+    }
+    return switch model.betaPipelineStage {
     case "full_transcription": 1
     case "rhythm_analysis": 2
     case "gap_planning": 3
@@ -1524,7 +1596,41 @@ private struct JobProgressView: View {
   }
 
   private var stageDescription: String {
-    switch model.betaPipelineStage {
+    if isGameVocalJob {
+      return switch model.betaPipelineStage {
+      case "queued":
+        "GAME large 任务已提交，正在等待 GPU"
+      case "source_separation", "starting":
+        "正在用 BS-Roformer 从原曲分离主唱人声"
+      case "game_vocal_transcription":
+        "正在用 GAME large 识别主唱旋律"
+      case "rhythm_analysis":
+        "主唱旋律已生成，正在分析速度与拍号"
+      case "packaging":
+        "识别完成，正在生成单轨 MIDI 并取回 Mac"
+      case "complete":
+        "GAME 主唱旋律结果已经完成"
+      default:
+        model.betaSlurmState == "PENDING"
+          ? "GAME large 任务已提交，正在等待 GPU"
+          : "正在准备 GAME large 任务"
+      }
+    }
+    if isTargetedRecoveryJob {
+      return switch model.betaPipelineStage {
+      case "queued":
+        "所选片段已提交，正在等待计算资源"
+      case "starting":
+        "正在重新识别所选片段"
+      case "targeted_gap_recovery", "packaging":
+        "片段重算完成，正在生成新版本并取回"
+      case "complete":
+        "所选片段的新识别版本已经完成"
+      default:
+        "正在准备所选片段重算任务"
+      }
+    }
+    return switch model.betaPipelineStage {
     case "full_transcription": "正在识别完整多轨"
     case "rhythm_analysis": "正在估算 BPM、拍号与每拍位置"
     case "gap_planning": "正在检查主旋律覆盖"
@@ -1540,6 +1646,14 @@ private struct JobProgressView: View {
           ? "正在准备远端任务"
           : "正在准备本机任务")
     }
+  }
+
+  private var isGameVocalJob: Bool {
+    model.betaTaskKind == "game_vocal_transcription"
+  }
+
+  private var isTargetedRecoveryJob: Bool {
+    model.betaTaskKind == "targeted_gap_recovery"
   }
 
   private var connectionLabel: String {

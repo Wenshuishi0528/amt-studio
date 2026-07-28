@@ -1056,6 +1056,42 @@ final class AppModelTests: XCTestCase {
       defaults.string(forKey: "AMTStudio.activeBetaProjectPath")
     )
   }
+
+  func testActiveGameProjectOpensProgressAndCanReturnToExistingResult() async throws {
+    let fixture = try AppFixtureProject()
+    defer { fixture.remove() }
+    try fixture.writePrivateBetaState(
+      jobID: "game-job",
+      slurmState: "RUNNING",
+      pipelineStage: "game_vocal_transcription",
+      backend: "hyak",
+      taskKind: "game_vocal_transcription"
+    )
+    let defaults = try XCTUnwrap(
+      UserDefaults(suiteName: "AMTStudioUITests.\(UUID().uuidString)")
+    )
+    let model = AppModel(
+      defaults: defaults,
+      initialProjectURL: fixture.root,
+      restoreRecent: false,
+      persistRecentProject: false
+    )
+
+    model.openInitialProjectIfNeeded()
+    await model.waitForProjectLoadForTesting()
+
+    XCTAssertNotNil(model.editor)
+    XCTAssertTrue(model.hasActiveBetaJob)
+    XCTAssertTrue(model.isShowingJobProgress)
+    XCTAssertTrue(model.shouldShowJobProgress)
+
+    model.showCurrentResult()
+    XCTAssertFalse(model.isShowingJobProgress)
+    XCTAssertFalse(model.shouldShowJobProgress)
+
+    model.showJobProgress()
+    XCTAssertTrue(model.shouldShowJobProgress)
+  }
 }
 
 private final class AppFixtureProject {
@@ -1223,6 +1259,9 @@ private final class AppFixtureProject {
   func writePrivateBetaState(
     jobID: String,
     slurmState: String,
+    pipelineStage: String? = nil,
+    backend: String? = nil,
+    taskKind: String? = nil,
     gpuType: String? = nil,
     partition: String? = nil,
     preemptible: Bool? = nil,
@@ -1239,6 +1278,9 @@ private final class AppFixtureProject {
       "slurm_state": slurmState,
     ]
     state["slurm_gpu_type"] = gpuType
+    state["pipeline_stage"] = pipelineStage
+    state["backend"] = backend
+    state["task_kind"] = taskKind
     state["slurm_partition"] = partition
     state["gpu_preemptible"] = preemptible
     state["gpu_selection_reason"] = selectionReason

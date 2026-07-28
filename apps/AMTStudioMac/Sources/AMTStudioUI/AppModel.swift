@@ -304,6 +304,7 @@ public final class AppModel: ObservableObject {
   @Published public private(set) var betaGPUEstimatedWaitSeconds: Int?
   @Published public private(set) var betaProjectURL: URL?
   @Published public private(set) var isBetaBusy = false
+  @Published public private(set) var isShowingJobProgress = false
   @Published public private(set) var hyakConnectionState: HyakConnectionState = .unknown
   @Published public private(set) var midiPlaybackMode: MIDIPlaybackMode = .mix
   @Published public private(set) var mutedTrackIDs = Set<String>()
@@ -557,6 +558,7 @@ public final class AppModel: ObservableObject {
           )
         }.value
         try handleBetaResponse(response)
+        showJobProgress()
         if requestedMode == .hyak {
           hyakConnectionState = .connected
         }
@@ -591,6 +593,7 @@ public final class AppModel: ObservableObject {
           )
         }.value
         try handleBetaResponse(response)
+        showJobProgress()
         hyakConnectionState = .connected
         if let betaProjectURL {
           startMonitoring(projectURL: betaProjectURL)
@@ -644,6 +647,7 @@ public final class AppModel: ObservableObject {
           )
         }.value
         try handleBetaResponse(response)
+        showJobProgress()
         if requestedMode == .hyak {
           hyakConnectionState = .connected
         }
@@ -672,6 +676,20 @@ public final class AppModel: ObservableObject {
       && !["COMPLETED", "FAILED", "CANCELLED"].contains(
         betaSlurmState ?? ""
       )
+  }
+
+  public var shouldShowJobProgress: Bool {
+    hasActiveBetaJob && (isShowingJobProgress || editor == nil)
+  }
+
+  public func showJobProgress() {
+    guard hasActiveBetaJob else { return }
+    isShowingJobProgress = true
+  }
+
+  public func showCurrentResult() {
+    guard editor != nil else { return }
+    isShowingJobProgress = false
   }
 
   public var bundleChoices: [CanonicalBundleChoice] {
@@ -730,7 +748,7 @@ public final class AppModel: ObservableObject {
       ? "自定义版本 \(index + 1)"
       : isGameVocal
         ? "GAME 主唱旋律 \(index + 1)"
-      : "识别版本 \(index + 1)"
+        : "识别版本 \(index + 1)"
   }
 
   public func productTracks(in bundleID: String) -> [EditorTrack] {
@@ -1913,9 +1931,11 @@ public final class AppModel: ObservableObject {
           state.slurmState ?? ""
         )
       {
+        isShowingJobProgress = true
         rememberActiveBetaProject()
         startMonitoring(projectURL: prepared.catalog.rootURL)
       } else {
+        isShowingJobProgress = false
         clearActiveBetaProject()
       }
     }
@@ -2151,6 +2171,7 @@ public final class AppModel: ObservableObject {
     switch response.status {
     case "succeeded":
       guard let betaProjectURL else { return }
+      isShowingJobProgress = false
       clearActiveBetaProject()
       openProject(betaProjectURL)
       statusMessage =
@@ -2158,10 +2179,11 @@ public final class AppModel: ObservableObject {
         ? "所选空缺已重算；正在打开新识别版本"
         : betaTaskKind == "game_vocal_transcription"
           ? "GAME 主唱旋律单轨已取回；正在打开新版本"
-        : activeComputeMode == .hyak
-          ? "Hyak 识别流程完成，完整多轨与默认主旋律已取回"
-          : "本机识别完成，完整多轨与默认主旋律已生成"
+          : activeComputeMode == .hyak
+            ? "Hyak 识别流程完成，完整多轨与默认主旋律已取回"
+            : "本机识别完成，完整多轨与默认主旋律已生成"
     case "failed", "cancelled":
+      isShowingJobProgress = false
       clearActiveBetaProject()
       pendingCompletedBundleID = nil
       pendingCompletedTrackID = nil
@@ -2182,6 +2204,11 @@ public final class AppModel: ObservableObject {
         statusMessage = "Hyak 正在用 BS-Roformer 分离主唱人声"
       case "game_vocal_transcription":
         statusMessage = "Hyak 正在用 GAME 识别主唱旋律"
+      case "rhythm_analysis":
+        statusMessage =
+          betaTaskKind == "game_vocal_transcription"
+          ? "GAME 主唱旋律已生成，正在分析速度与拍号"
+          : "正在分析速度与拍号"
       case "targeted_gap_recovery":
         statusMessage =
           "\(activeComputeMode?.label ?? "计算任务")正在重算所选空缺（\(betaJobID ?? "未知")）"
@@ -2191,7 +2218,10 @@ public final class AppModel: ObservableObject {
       case "gap_planning":
         statusMessage = "整曲多轨已生成，正在检查主旋律长缺口"
       case "packaging":
-        statusMessage = "识别已完成，正在打包完整多轨"
+        statusMessage =
+          betaTaskKind == "game_vocal_transcription"
+          ? "GAME 识别已完成，正在生成单轨 MIDI 并取回 Mac"
+          : "识别已完成，正在打包完整多轨"
       default:
         statusMessage =
           "\(activeComputeMode?.label ?? "计算任务")正在识别整首歌（\(betaJobID ?? "未知")）"
@@ -2203,9 +2233,9 @@ public final class AppModel: ObservableObject {
         ? "\(activeComputeMode?.label ?? "计算任务")空缺重算已提交（\(betaSlurmState ?? "PENDING")）"
         : betaTaskKind == "game_vocal_transcription"
           ? "GAME 主唱旋律任务已排队（\(betaSlurmState ?? "PENDING")）"
-        : activeComputeMode == .hyak
-          ? "Hyak 任务已排队（\(betaSlurmState ?? "PENDING")）"
-          : "本机后台任务正在启动"
+          : activeComputeMode == .hyak
+            ? "Hyak 任务已排队（\(betaSlurmState ?? "PENDING")）"
+            : "本机后台任务正在启动"
     }
     refreshProjectLibrary()
   }
