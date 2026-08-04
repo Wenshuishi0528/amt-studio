@@ -40,6 +40,23 @@ Task 009B3N publishes the first bilingual product introduction and v0.2.0
 developer/tester Private Beta while preserving the previous README.
 Task 009B3O treats Slurm active-queue expiry as an accounting lookup rather
 than an SSH failure.
+Task 009B3P adds a persistent collapsible completed-song library group.
+
+## Task 009B3P: collapsible completed-song library
+
+Goal:
+
+- keep a growing local music library readable without removing completed
+  songs or changing project state.
+
+Frozen rule:
+
+- the “最近完成” heading toggles only the visibility of its rows;
+- the collapsed preference persists locally across app restarts;
+- active and failed groups remain visible and unchanged;
+- a non-empty search overrides the collapsed presentation so matching
+  completed songs remain discoverable;
+- no project, queue, inference, or Hyak state changes.
 
 ## Task 009B3O: completed-job accounting fallback
 

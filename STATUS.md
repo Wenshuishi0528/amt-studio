@@ -1,12 +1,22 @@
 # Project status
 
-Current product milestone: Task 009B3O makes completed Slurm-job refresh
-survive the normal active-queue retention boundary
+Current product milestone: Task 009B3P keeps a large completed-song library
+compact without hiding search results
 Research status: Gate 4 remains not passed for the rejected fusion routes; no
 new dataset, fusion, retuning, or training work is in the product critical path
-Current task: complete and verify the Slurm status fallback
+Current task: complete and package the collapsible library group
 Next task: owner feedback from continued multi-song use
 Current branch: `main`
+
+Implemented for Task 009B3P:
+
+- clicking the “最近完成” group heading now collapses or expands its song rows;
+- a chevron exposes the current state, and the choice persists in local app
+  preferences across restarts;
+- a non-empty library search temporarily shows matching completed songs so a
+  collapsed group cannot make search appear broken;
+- the change is presentation-only and does not alter projects, task queues, or
+  Hyak state.
 
 Implemented for Task 009B3O:
 

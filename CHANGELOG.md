@@ -4,6 +4,16 @@ This project records changes by numbered research task until formal semantic
 versions and releases begin. Dates and commit identifiers refer to the local
 Git history.
 
+## Task 009B3P — Collapsible completed-song library — 2026-07-28
+
+### Added
+
+- The “最近完成” library group can now be collapsed or expanded from its
+  heading, with an explicit chevron and accessible action label.
+- The preference persists across app restarts.
+- Searching temporarily reveals matching completed songs even when the normal
+  library group is collapsed, then restores the saved state after search.
+
 ## Task 009B3O — Slurm completed-job refresh fallback — 2026-07-28
 
 ### Fixed

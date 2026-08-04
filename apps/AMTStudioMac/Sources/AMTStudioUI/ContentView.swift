@@ -145,6 +145,8 @@ public struct ContentView: View {
   @State private var isConfirmingGapRecovery = false
   @State private var isShowingTrackManager = false
   @State private var librarySearchText = ""
+  @AppStorage("AMTStudio.recentCompletedCollapsed")
+  private var isRecentCompletedCollapsed = false
   @State private var projectPendingDeletion: LocalProjectItem?
   @State private var projectPendingResume: LocalProjectItem?
   @State private var trackPendingFragmentRepair: EditorTrack?
@@ -476,13 +478,28 @@ public struct ContentView: View {
             }
           }
           if !readyLibraryProjects.isEmpty {
-            LibraryGroupLabel(
-              title: "最近完成",
-              count: readyLibraryProjects.count,
-              color: .green
+            Button {
+              withAnimation(.easeInOut(duration: 0.16)) {
+                isRecentCompletedCollapsed.toggle()
+              }
+            } label: {
+              LibraryGroupLabel(
+                title: "最近完成",
+                count: readyLibraryProjects.count,
+                color: .green,
+                isCollapsed: completedProjectsAreHidden
+              )
+            }
+            .buttonStyle(.plain)
+            .contentShape(Rectangle())
+            .accessibilityIdentifier("recent-completed-toggle")
+            .accessibilityLabel(
+              completedProjectsAreHidden ? "展开最近完成" : "收起最近完成"
             )
-            ForEach(readyLibraryProjects) { project in
-              libraryRow(project)
+            if !completedProjectsAreHidden {
+              ForEach(readyLibraryProjects) { project in
+                libraryRow(project)
+              }
             }
           }
           if !unfinishedLibraryProjects.isEmpty {
@@ -1072,6 +1089,12 @@ public struct ContentView: View {
     }
   }
 
+  private var completedProjectsAreHidden: Bool {
+    isRecentCompletedCollapsed
+      && librarySearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        .isEmpty
+  }
+
   private var unfinishedLibraryProjects: [LocalProjectItem] {
     filteredLibraryProjects.filter {
       !$0.hasActiveJob && ($0.hasFailedJob || !$0.hasResults)
@@ -1258,6 +1281,7 @@ private struct LibraryGroupLabel: View {
   let title: String
   let count: Int
   let color: Color
+  var isCollapsed: Bool? = nil
 
   var body: some View {
     HStack(spacing: 6) {
@@ -1271,6 +1295,11 @@ private struct LibraryGroupLabel: View {
       Text("\(count)")
         .font(.caption2.monospacedDigit())
         .foregroundStyle(.tertiary)
+      if let isCollapsed {
+        Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+          .font(.caption2.weight(.semibold))
+          .foregroundStyle(.tertiary)
+      }
     }
     .padding(.top, 4)
   }
