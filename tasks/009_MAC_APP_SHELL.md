@@ -41,6 +41,33 @@ developer/tester Private Beta while preserving the previous README.
 Task 009B3O treats Slurm active-queue expiry as an accounting lookup rather
 than an SSH failure.
 Task 009B3P adds a persistent collapsible completed-song library group.
+Task 009B3Q publishes those two completed post-v0.2.0 changes as v0.2.1
+without including the separate in-progress Task 007D research work.
+
+## Task 009B3Q: public v0.2.1 maintenance release
+
+Goal:
+
+- publish the completed Slurm accounting recovery and collapsible-library work;
+- keep the in-progress Task 007D dataset-admission work outside the release;
+- provide reproducible source and an honestly labeled Apple Silicon Private
+  Beta artifact without private songs, results, weights, datasets, credentials,
+  Hyak identity, or cluster logs.
+
+Frozen release boundary:
+
+- advance the product and package metadata to `0.2.1 (3)`;
+- include only committed public source plus the ad-hoc-signed application;
+- retain the existing unnotarized, repository-backed developer/tester boundary;
+- publish checksums for every downloadable archive.
+
+Evidence:
+
+- `make check` passes 290 Python tests and 60 Swift tests with three expected
+  private-environment skips;
+- the clean Xcode Release build and standalone packaging path both succeed;
+- the packaged arm64 app reports `0.2.1 (3)`, is ad-hoc signed, passes strict
+  signature verification, and remains running during the launch smoke test.
 
 ## Task 009B3P: collapsible completed-song library
 

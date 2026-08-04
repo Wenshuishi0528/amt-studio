@@ -4,6 +4,28 @@ This project records changes by numbered research task until formal semantic
 versions and releases begin. Dates and commit identifiers refer to the local
 Git history.
 
+## v0.2.1 — Slurm recovery and compact completed library — 2026-08-04
+
+### Fixed
+
+- Completed Hyak jobs that have left Slurm's active `squeue` view now fall
+  through to `sacct` accounting only for the exact invalid-job response.
+- Authentication, network, and unrelated scheduler failures remain visible.
+
+### Added
+
+- The “最近完成” group can be collapsed persistently while search still reveals
+  matching completed songs.
+
+### Release boundary
+
+- The release contains the two completed post-v0.2.0 product changes and a
+  version-only packaging update. The separate in-progress Task 007D research
+  files are not included.
+- Public assets remain an unnotarized, repository-backed Private Beta and
+  exclude private audio, results, datasets, model weights, credentials, Hyak
+  identity, and cluster logs.
+
 ## Task 009B3P — Collapsible completed-song library — 2026-07-28
 
 ### Added

@@ -1,12 +1,26 @@
 # Project status
 
-Current product milestone: Task 009B3P keeps a large completed-song library
-compact without hiding search results
+Current product milestone: Task 009B3Q packages the completed Task 009B3O/P
+maintenance changes as AMT Studio 0.2.1 Private Beta
 Research status: Gate 4 remains not passed for the rejected fusion routes; no
 new dataset, fusion, retuning, or training work is in the product critical path
-Current task: complete and package the collapsible library group
+Current task: publish and verify v0.2.1 without including Task 007D work
 Next task: owner feedback from continued multi-song use
 Current branch: `main`
+
+Implemented for Task 009B3Q:
+
+- product, Python package, Xcode, and bundle metadata advance together to
+  `0.2.1 (3)`;
+- the release includes the completed Slurm-accounting recovery and compact
+  completed-library changes only;
+- the separate in-progress Task 007D dataset-admission work remains outside
+  the release and outside the public commit;
+- public archives exclude private songs/results, datasets, weights,
+  credentials, Hyak identity/storage details, and cluster logs.
+- `make check` passes 290 Python tests and 60 Swift tests with three expected
+  private integration skips; clean Xcode Release, standalone packaging,
+  version/architecture/signature checks, and a launch smoke test pass.
 
 Implemented for Task 009B3P:
 

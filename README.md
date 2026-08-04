@@ -14,8 +14,8 @@ model execution, job management, multitrack auditioning, piano-roll editing,
 and MIDI export into one interface while preserving both raw model output and
 subsequent user edits.
 
-> 当前版本：**AMT Studio 0.2.0 Private Beta**
-> Current release: **AMT Studio 0.2.0 Private Beta**
+> 当前版本：**AMT Studio 0.2.1 Private Beta**
+> Current release: **AMT Studio 0.2.1 Private Beta**
 
 ![AMT Studio cover](apps/AMTStudioMac/Support/AMTStudioCover.png)
 
@@ -217,4 +217,4 @@ weights, and datasets remain subject to their own terms. See
 
 ---
 
-AMT Studio 0.2.0 Private Beta · `wenshuishi26`
+AMT Studio 0.2.1 Private Beta · `wenshuishi26`

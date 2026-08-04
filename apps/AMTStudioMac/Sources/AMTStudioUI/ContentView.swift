@@ -75,8 +75,8 @@ private struct HyakTimeLimitSheet: View {
 
 enum AMTProductIdentity {
   static let author = "wenshuishi26"
-  static let fallbackVersion = "0.2.0"
-  static let fallbackBuild = "2"
+  static let fallbackVersion = "0.2.1"
+  static let fallbackBuild = "3"
 
   static var version: String {
     Bundle.main.object(
