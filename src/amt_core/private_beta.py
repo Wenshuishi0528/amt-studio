@@ -2624,10 +2624,15 @@ def refresh_job(project_dir: Path) -> dict[str, Any]:
         return state
     connection = HyakConnection.discover(state["host"])
     job_id = str(state["job_id"])
-    queue = connection.remote(
-        f"squeue -h -j {shlex.quote(job_id)} -o %T",
-        timeout=15,
-    )
+    try:
+        queue = connection.remote(
+            f"squeue -h -j {shlex.quote(job_id)} -o %T",
+            timeout=15,
+        )
+    except PrivateBetaError as exc:
+        if "Invalid job id specified" not in str(exc):
+            raise
+        queue = ""
     if queue:
         slurm_state = queue.splitlines()[0].strip().upper()
     else:

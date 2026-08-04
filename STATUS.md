@@ -1,12 +1,24 @@
 # Project status
 
-Current product milestone: Task 009B3N publishes AMT Studio 0.2.0 as a
-bilingual public Private Beta
+Current product milestone: Task 009B3O makes completed Slurm-job refresh
+survive the normal active-queue retention boundary
 Research status: Gate 4 remains not passed for the rejected fusion routes; no
 new dataset, fusion, retuning, or training work is in the product critical path
-Current task: release source, documentation, and the developer/tester Mac build
-Next task: owner feedback from the public v0.2.0 workflow
+Current task: complete and verify the Slurm status fallback
+Next task: owner feedback from continued multi-song use
 Current branch: `main`
+
+Implemented for Task 009B3O:
+
+- when `squeue -j` reports the exact Slurm `Invalid job id specified` response
+  for a job that has left the active queue, refresh now continues through
+  `sacct` instead of presenting it as an SSH failure;
+- other SSH and scheduler errors are still raised, so this does not hide a
+  real login, network, or cluster problem;
+- the affected real project was confirmed `COMPLETED` with exit code `0:0`
+  and retrieved successfully without submitting another task;
+- `make check` passes 297 Python and 60 Swift tests with three expected private
+  integration skips.
 
 Implemented for Task 009B3N:
 

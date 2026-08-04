@@ -4,6 +4,26 @@ This project records changes by numbered research task until formal semantic
 versions and releases begin. Dates and commit identifiers refer to the local
 Git history.
 
+## Task 009B3O — Slurm completed-job refresh fallback — 2026-07-28
+
+### Fixed
+
+- A completed Slurm job that had already left the active `squeue` window no
+  longer produces `slurm_load_jobs error: Invalid job id specified`.
+- Only that exact scheduler response falls back to `sacct`; authentication,
+  network, and unrelated Slurm failures remain visible rather than being
+  hidden.
+
+### Verified
+
+- A regression fixture reproduces the rejected `squeue` lookup and proves the
+  completed state, exit code, and result retrieval are recovered from
+  accounting.
+- A real affected project resolved to `COMPLETED` with exit code `0:0`, and its
+  result was retrieved without resubmitting a job.
+- `make check` passes 297 Python and 60 Swift tests with three expected private
+  integration skips.
+
 ## Task 009B3N — Public v0.2.0 introduction and release — 2026-07-28
 
 ### Changed

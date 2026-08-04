@@ -36,6 +36,7 @@ from amt_core.private_beta import (
     hyak_capacity_status,
     local_readiness,
     main,
+    refresh_job,
     resume_timeout_job,
     start_game_vocal_job,
 )
@@ -45,6 +46,76 @@ from workers.muscriptor import run_baseline
 
 
 class PrivateBetaTests(unittest.TestCase):
+    def test_refresh_falls_back_to_accounting_after_squeue_purges_job(
+        self,
+    ) -> None:
+        class FixtureConnection:
+            def __init__(self) -> None:
+                self.commands: list[str] = []
+
+            def remote(
+                self,
+                command: str,
+                *,
+                timeout: float | None = None,
+            ) -> str:
+                del timeout
+                self.commands.append(command)
+                if command.startswith("squeue "):
+                    raise PrivateBetaError(
+                        "ssh failed: slurm_load_jobs error: "
+                        "Invalid job id specified"
+                    )
+                if command.startswith("sacct "):
+                    return "12345|COMPLETED|0:0"
+                raise AssertionError(f"unexpected command: {command}")
+
+        state = {
+            "schema_version": 1,
+            "backend": "hyak",
+            "status": "submitted",
+            "project_id": "song",
+            "local_project_dir": "/tmp/song",
+            "remote_project_dir": "/remote/projects/private/song",
+            "host": "user@example.edu",
+            "remote_root": "/remote",
+            "job_id": "12345",
+            "run_id": "base",
+            "bundle_id": "base-multitrack",
+            "weight_provenance_path": "/remote/weights/model.json",
+            "recognition_mode": "multitrack",
+            "task_kind": "full_transcription",
+            "slurm_state": "COMPLETING",
+            "pipeline_stage": "packaging",
+        }
+        connection = FixtureConnection()
+        with tempfile.TemporaryDirectory() as temporary:
+            project = Path(temporary) / "song"
+            project.mkdir()
+            state["local_project_dir"] = str(project)
+            with (
+                mock.patch(
+                    "amt_core.private_beta._load_state",
+                    return_value=state,
+                ),
+                mock.patch(
+                    "amt_core.private_beta.HyakConnection.discover",
+                    return_value=connection,
+                ),
+                mock.patch("amt_core.private_beta._fetch_results") as fetch,
+                mock.patch("amt_core.private_beta._record_result_summary"),
+                mock.patch("amt_core.private_beta._write_state"),
+            ):
+                result = refresh_job(project)
+
+        self.assertEqual(result["status"], "succeeded")
+        self.assertEqual(result["slurm_state"], "COMPLETED")
+        self.assertEqual(result["slurm_exit_code"], "0:0")
+        fetch.assert_called_once()
+        self.assertTrue(
+            any(command.startswith("sacct ") for command in connection.commands)
+        )
+
     def test_timeout_resume_reuses_raw_bundle_and_preserves_old_attempts(
         self,
     ) -> None:

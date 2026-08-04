@@ -38,6 +38,34 @@ Task 009B3M adds an owner-triggered, read-only view of current Hyak scheduler
 capacity without creating or changing jobs.
 Task 009B3N publishes the first bilingual product introduction and v0.2.0
 developer/tester Private Beta while preserving the previous README.
+Task 009B3O treats Slurm active-queue expiry as an accounting lookup rather
+than an SSH failure.
+
+## Task 009B3O: completed-job accounting fallback
+
+Goal:
+
+- keep result retrieval working after Slurm removes a completed job from
+  `squeue`;
+- avoid hiding real SSH or scheduler failures.
+
+Frozen rule:
+
+- only the exact `Invalid job id specified` response from the active-job query
+  is converted into an empty queue result;
+- refresh then uses the existing `sacct` path and preserves the recorded state
+  and exit code;
+- every other `PrivateBetaError` remains visible;
+- the fallback never submits, retries, or modifies a Hyak job.
+
+Evidence:
+
+- the regression test reproduces the exact rejected active-queue lookup,
+  returns a completed accounting row, and verifies result retrieval;
+- the affected real project recovered as `COMPLETED / 0:0` and fetched its
+  result without resubmission;
+- final `make check` passes 297 Python and 60 Swift tests with three expected
+  private-environment skips.
 
 ## Task 009B3N: public bilingual v0.2.0 release
 
