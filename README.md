@@ -19,6 +19,10 @@ subsequent user edits.
 
 ![AMT Studio cover](apps/AMTStudioMac/Support/AMTStudioCover.png)
 
+### 软件界面 / App interface
+
+![AMT Studio multitrack workspace](docs/images/amt-studio-multitrack-workspace.jpg)
+
 ## 中文
 
 ### 它能做什么
